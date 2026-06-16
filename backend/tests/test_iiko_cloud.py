@@ -1,0 +1,59 @@
+import respx
+from httpx import Response
+from app import iiko_cloud as c
+from app.config import settings
+
+
+@respx.mock
+async def test_get_token_uses_access_token_endpoint():
+    settings.cloud_api_login = "key123"
+    route = respx.post("https://api-ru.iiko.services/api/1/access_token").mock(
+        return_value=Response(200, json={"token": "T"}))
+    token = await c.get_token()
+    assert token == "T"
+    assert route.called
+    assert b'"apiLogin"' in route.calls.last.request.read()
+
+
+@respx.mock
+async def test_fetch_delivery_by_id_returns_first_order():
+    respx.post("https://api-ru.iiko.services/api/1/access_token").mock(
+        return_value=Response(200, json={"token": "T"}))
+    respx.post("https://api-ru.iiko.services/api/1/deliveries/by_id").mock(
+        return_value=Response(200, json={"orders": [{"id": "o1", "order": {"number": "101"}}]}))
+    order = await c.fetch_delivery_by_id("org-1", "o1")
+    assert order["id"] == "o1"
+
+
+def test_normalize_full_order_extracts_items_and_combo():
+    wrapper = {
+        "id": "o1",
+        "order": {
+            "number": "101",
+            "customer": {"name": "Иван"},
+            "phone": "+7700",
+            "deliveryPoint": {
+                "address": {"street": {"name": "Абая"}, "house": "1"},
+                "coordinates": {"latitude": 51.1, "longitude": 71.4},
+            },
+            "sum": 5000,
+            "items": [
+                {"type": "Product", "amount": 2,
+                 "product": {"id": "p-roll", "name": "Филадельфия",
+                             "category": {"id": "cat-rolls"}}},
+                {"type": "Product", "amount": 1,
+                 "product": {"id": "p-pizza", "name": "Маргарита",
+                             "category": {"id": "cat-pizza"}},
+                 "comboInformation": {"comboId": "combo-7"}},
+            ],
+        },
+    }
+    n = c.normalize_full_order(wrapper, "org-1")
+    assert n.iiko_order_id == "o1"
+    assert n.org_id == "org-1"
+    assert n.address == "Абая"
+    assert n.lat == 51.1 and n.lon == 71.4
+    assert len(n.items) == 2
+    assert n.items[0].product_id == "p-roll" and n.items[0].amount == 2
+    assert n.items[0].category_id == "cat-rolls"
+    assert n.items[1].combo_id == "combo-7"
