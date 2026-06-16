@@ -157,3 +157,102 @@ async def item_check(item_id: int, body: ActionIn,
     item.checked_at = _dt.utcnow()
     item.checked_by = body.by or item.checked_by
     return await _item_and_broadcast(session, item_id)
+
+
+async def _order_action_and_broadcast(session: AsyncSession, order_id: int) -> dict:
+    await session.commit()
+    order = await _load_order(session, order_id)
+    await realtime.broadcast_order(order)
+    return realtime.order_payload(order)
+
+
+@app.post("/orders/{order_id}/assemble")
+async def order_assemble(order_id: int, body: ActionIn,
+                         session: AsyncSession = Depends(get_session)):
+    """Сборщик: «передать курьеру»."""
+    order = await _load_order(session, order_id)
+    order.assembled_at = _dt.utcnow()
+    return await _order_action_and_broadcast(session, order_id)
+
+
+@app.post("/orders/{order_id}/take")
+async def order_take(order_id: int, body: ActionIn,
+                     session: AsyncSession = Depends(get_session)):
+    """Курьер забрал заказ."""
+    order = await _load_order(session, order_id)
+    order.on_way_at = _dt.utcnow()
+    return await _order_action_and_broadcast(session, order_id)
+
+
+@app.post("/orders/{order_id}/delivered")
+async def order_delivered(order_id: int, body: ActionIn,
+                          session: AsyncSession = Depends(get_session)):
+    """Курьер доставил заказ."""
+    order = await _load_order(session, order_id)
+    order.delivered_at = _dt.utcnow()
+    return await _order_action_and_broadcast(session, order_id)
+
+
+from app.models import ProductStationMap as _PSM
+from app.schemas import NormalizedOrder as _NormalizedOrder, WebhookItem as _WebhookItem
+
+_SEED_CATEGORIES = {"cat-rolls": "rolls", "cat-pizza": "pizza", "cat-hot": "hot"}
+
+_SEED_ORDERS = [
+    _NormalizedOrder(
+        iiko_order_id="seed-1001", org_id="", number="1001", status="New",
+        customer="Иван", phone="+7 701 111 11 11",
+        address="Астана, пр. Кабанбай батыра 1",
+        lat=51.16, lon=71.47, total=8500,
+        items=[
+            _WebhookItem(product_id="seed-fila", category_id="cat-rolls",
+                         name="Филадельфия", amount=2),
+            _WebhookItem(product_id="seed-marg", category_id="cat-pizza",
+                         name="Пицца Маргарита", amount=1),
+        ],
+    ),
+    _NormalizedOrder(
+        iiko_order_id="seed-1002", org_id="", number="1002", status="New",
+        customer="Айгерим", phone="+7 701 222 22 22",
+        address="Астана, ул. Сыганак 18",
+        lat=51.165, lon=71.475, total=6200,
+        items=[
+            _WebhookItem(product_id="seed-cali", category_id="cat-rolls",
+                         name="Калифорния", amount=1),
+            _WebhookItem(product_id="seed-tomyam", category_id="cat-hot",
+                         name="Том Ям", amount=1),
+        ],
+    ),
+    _NormalizedOrder(
+        iiko_order_id="seed-1003", org_id="", number="1003", status="New",
+        customer="Данияр", phone="+7 701 333 33 33",
+        address="Астана, пр. Туран 37",
+        lat=51.155, lon=71.465, total=9100,
+        items=[
+            _WebhookItem(product_id="seed-pep", category_id="cat-pizza",
+                         name="Пепперони", amount=1),
+            _WebhookItem(product_id="seed-dragon", category_id="cat-rolls",
+                         name="Дракон ролл", amount=3),
+        ],
+    ),
+]
+
+
+@app.post("/debug/seed")
+async def debug_seed(org_id: str = "demo",
+                     session: AsyncSession = Depends(get_session)):
+    """Локальный просмотр: создаёт демо-маппинг категорий и 3 заказа для org_id."""
+    existing = (await session.execute(_select(_PSM))).scalars().all()
+    have = {(r.product_id, r.category_id) for r in existing}
+    for category_id, station in _SEED_CATEGORIES.items():
+        if (None, category_id) not in have:
+            session.add(_PSM(product_id=None, category_id=category_id, station=station))
+    await session.commit()
+
+    payloads = []
+    for tmpl in _SEED_ORDERS:
+        data = tmpl.model_copy(update={"org_id": org_id})
+        order = await ingest.ingest_order(session, data)
+        await realtime.broadcast_order(order)
+        payloads.append(realtime.order_payload(order))
+    return payloads

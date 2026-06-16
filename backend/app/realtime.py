@@ -21,6 +21,11 @@ def order_payload(order: Order) -> dict:
         "customer": order.customer_name,
         "phone": order.phone,
         "address": order.address,
+        "lat": order.address_lat,
+        "lon": order.address_lon,
+        "assembled": order.assembled_at is not None,
+        "on_way": order.on_way_at is not None,
+        "delivered": order.delivered_at is not None,
         "items": [
             {
                 "id": i.id, "product_id": i.product_id, "name": i.name,
@@ -42,13 +47,15 @@ async def broadcast_order(order: Order) -> None:
         await sio.emit("order:update", payload, room=room(order.org_id, zone))
     # сборщик видит весь заказ
     await sio.emit("order:update", payload, room=room(order.org_id, "assembler"))
+    # курьер видит весь заказ
+    await sio.emit("order:update", payload, room=room(order.org_id, "courier"))
 
 
 @sio.event
 async def join(sid, data):
     """Клиент просит вступить в комнату своего филиала+зоны. data={org_id, zone}."""
     org_id, zone = data.get("org_id"), data.get("zone")
-    if not org_id or zone not in (*ZONES, "assembler"):
+    if not org_id or zone not in (*ZONES, "assembler", "courier"):
         return {"ok": False, "error": "bad room"}
     await sio.enter_room(sid, room(org_id, zone))
     return {"ok": True}
