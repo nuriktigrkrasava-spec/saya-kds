@@ -77,3 +77,66 @@ async def login(body: LoginIn):
          "exp": datetime.utcnow() + timedelta(hours=12)},
         settings.jwt_secret, algorithm="HS256")
     return {"token": token, "name": match["name"], "role": body.role, "org_id": body.org_id}
+
+
+from datetime import datetime as _dt
+from sqlalchemy import select as _select
+from app.models import Order as _Order, OrderItem as _OrderItem
+
+
+class ActionIn(BaseModel):
+    by: str = ""
+
+
+async def _load_order(session: AsyncSession, order_id: int) -> _Order:
+    order = (await session.execute(_select(_Order).where(_Order.id == order_id))).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="order not found")
+    return order
+
+
+async def _item_and_broadcast(session: AsyncSession, item_id: int) -> dict:
+    item = (await session.execute(
+        _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="item not found")
+    await session.commit()
+    order = await _load_order(session, item.order_id)
+    await realtime.broadcast_order(order)
+    return realtime.order_payload(order)
+
+
+@app.post("/items/{item_id}/accept")
+async def item_accept(item_id: int, body: ActionIn,
+                      session: AsyncSession = Depends(get_session)):
+    item = (await session.execute(
+        _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="item not found")
+    item.station_accepted_at = _dt.utcnow()
+    item.checked_by = body.by or item.checked_by
+    return await _item_and_broadcast(session, item_id)
+
+
+@app.post("/items/{item_id}/ready")
+async def item_ready(item_id: int, body: ActionIn,
+                     session: AsyncSession = Depends(get_session)):
+    item = (await session.execute(
+        _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="item not found")
+    item.station_ready_at = _dt.utcnow()
+    return await _item_and_broadcast(session, item_id)
+
+
+@app.post("/items/{item_id}/check")
+async def item_check(item_id: int, body: ActionIn,
+                     session: AsyncSession = Depends(get_session)):
+    item = (await session.execute(
+        _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="item not found")
+    item.is_checked = True
+    item.checked_at = _dt.utcnow()
+    item.checked_by = body.by or item.checked_by
+    return await _item_and_broadcast(session, item_id)
