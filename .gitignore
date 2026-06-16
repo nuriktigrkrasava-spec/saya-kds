@@ -23,3 +23,5 @@ dist/
 # os / ide
 .DS_Store
 .idea/
+.claude/
+.playwright-mcp/
