@@ -11,6 +11,11 @@ def room(org_id: str, zone: str) -> str:
     return f"org:{org_id}:{zone}"
 
 
+def _iso(dt) -> str | None:
+    """Наивный UTC -> ISO с суффиксом Z, чтобы фронт считал время одинаково на всех планшетах."""
+    return dt.isoformat() + "Z" if dt is not None else None
+
+
 def order_payload(order: Order) -> dict:
     return {
         "id": order.id,
@@ -23,6 +28,7 @@ def order_payload(order: Order) -> dict:
         "address": order.address,
         "lat": order.address_lat,
         "lon": order.address_lon,
+        "created_at": _iso(order.created_at),
         "assembled": order.assembled_at is not None,
         "on_way": order.on_way_at is not None,
         "delivered": order.delivered_at is not None,
@@ -33,6 +39,8 @@ def order_payload(order: Order) -> dict:
                 "is_checked": i.is_checked,
                 "accepted": i.station_accepted_at is not None,
                 "ready": i.station_ready_at is not None,
+                "accepted_at": _iso(i.station_accepted_at),
+                "ready_at": _iso(i.station_ready_at),
             }
             for i in order.items
         ],

@@ -256,3 +256,93 @@ async def debug_seed(org_id: str = "demo",
         await realtime.broadcast_order(order)
         payloads.append(realtime.order_payload(order))
     return payloads
+
+
+def _prep_seconds(item) -> float | None:
+    """Время готовки позиции в секундах, если оба тайм-штампа проставлены."""
+    if item.station_accepted_at and item.station_ready_at:
+        return (item.station_ready_at - item.station_accepted_at).total_seconds()
+    return None
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+@app.get("/admin/analytics")
+async def admin_analytics(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Сводная аналитика по филиалу: заказы, сотрудники, зоны, доставка."""
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    total_orders = len(orders)
+    delivered_orders = sum(1 for o in orders if o.delivered_at is not None)
+    in_progress = total_orders - delivered_orders
+
+    # Сотрудники: группируем позиции по checked_by.
+    emp_done: dict[str, int] = {}
+    emp_preps: dict[str, list[float]] = {}
+    # Зоны: группируем позиции по station.
+    st_total: dict[str, int] = {}
+    st_ready: dict[str, int] = {}
+    st_preps: dict[str, list[float]] = {}
+
+    for o in orders:
+        for it in o.items:
+            station = it.station or "other"
+            st_total[station] = st_total.get(station, 0) + 1
+            if it.station_ready_at is not None:
+                st_ready[station] = st_ready.get(station, 0) + 1
+            prep = _prep_seconds(it)
+            if prep is not None:
+                st_preps.setdefault(station, []).append(prep)
+
+            name = (it.checked_by or "").strip()
+            if name:
+                if it.station_ready_at is not None:
+                    emp_done[name] = emp_done.get(name, 0) + 1
+                else:
+                    emp_done.setdefault(name, 0)
+                if prep is not None:
+                    emp_preps.setdefault(name, []).append(prep)
+
+    employees = [
+        {
+            "name": name,
+            "items_done": emp_done.get(name, 0),
+            "avg_prep_seconds": _mean(emp_preps.get(name, [])),
+        }
+        for name in sorted(emp_done.keys())
+    ]
+
+    stations = [
+        {
+            "station": station,
+            "items_total": st_total.get(station, 0),
+            "items_ready": st_ready.get(station, 0),
+            "avg_prep_seconds": _mean(st_preps.get(station, [])),
+        }
+        for station in sorted(st_total.keys())
+    ]
+
+    # Доставка: по заказам, где есть и on_way_at, и delivered_at.
+    delivery_secs = [
+        (o.delivered_at - o.on_way_at).total_seconds()
+        for o in orders
+        if o.on_way_at is not None and o.delivered_at is not None
+    ]
+
+    return {
+        "org_id": org_id,
+        "totals": {
+            "orders": total_orders,
+            "delivered": delivered_orders,
+            "in_progress": in_progress,
+        },
+        "employees": employees,
+        "stations": stations,
+        "delivery": {
+            "delivered_count": len(delivery_secs),
+            "avg_delivery_seconds": _mean(delivery_secs),
+        },
+    }

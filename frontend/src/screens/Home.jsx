@@ -80,6 +80,9 @@ export default function Home() {
           {status && (
             <p className={`seed-status ${status.ok ? "ok" : "err"}`}>{status.msg}</p>
           )}
+          <p className="home__admin-link">
+            <Link to="/admin">Аналитика (админ)</Link>
+          </p>
         </div>
       </div>
     </div>
