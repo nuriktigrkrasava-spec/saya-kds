@@ -48,3 +48,32 @@ async def debug_pull(org_id: str, order_id: str,
     order = await ingest.ingest_order(session, normalized)
     await realtime.broadcast_order(order)
     return realtime.order_payload(order)
+
+
+from datetime import datetime, timedelta
+import jwt  # PyJWT
+from pydantic import BaseModel
+
+
+class LoginIn(BaseModel):
+    org_id: str
+    role: str
+    pin: str
+
+
+@app.post("/auth/login")
+async def login(body: LoginIn):
+    # MVP: PIN сверяем со списком сотрудников RMS по полю code.
+    from app import rms
+    employees = await rms.fetch_employees()
+    match = next((e for e in employees if e["code"] and e["code"] == body.pin), None)
+    if not match:
+        raise HTTPException(status_code=401, detail="bad pin")
+    if body.role not in ("rolls", "pizza", "hot", "assembler", "courier"):
+        raise HTTPException(status_code=400, detail="bad role")
+    token = jwt.encode(
+        {"org_id": body.org_id, "role": body.role,
+         "emp_id": match["id"], "name": match["name"],
+         "exp": datetime.utcnow() + timedelta(hours=12)},
+        settings.jwt_secret, algorithm="HS256")
+    return {"token": token, "name": match["name"], "role": body.role, "org_id": body.org_id}
