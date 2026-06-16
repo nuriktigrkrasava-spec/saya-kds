@@ -1,16 +1,33 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_session
 from app import iiko_cloud, ingest, realtime
+from app.models import Order
 
 app = FastAPI(title="Saya KDS backend")
+
+# Локальная разработка: фронт на Vite (5173) ходит на бэк (8000).
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+)
 
 
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+@app.get("/orders")
+async def list_orders(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Активные заказы филиала для начальной загрузки экрана (live-обновления идут по Socket.IO)."""
+    rows = (await session.execute(
+        select(Order).where(Order.org_id == org_id, Order.status != "Closed")
+        .order_by(Order.created_at))).scalars().all()
+    return [realtime.order_payload(o) for o in rows]
 
 
 @app.post("/webhooks/iiko/cloud")
