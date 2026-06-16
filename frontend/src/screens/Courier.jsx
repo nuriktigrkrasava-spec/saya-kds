@@ -6,7 +6,12 @@ import { api } from "../lib/api.js";
 
 const ACCENT = "#7c3aed";
 
-function route2gis(order) {
+function route2gisWeb(order) {
+  if (order.lon == null || order.lat == null) return null;
+  return `https://2gis.ru/routeSearch/rsType/car/to/${order.lon},${order.lat}`;
+}
+
+function route2gisApp(order) {
   if (order.lon == null || order.lat == null) return null;
   return `dgis://2gis.ru/routeSearch/rsType/car/to/${order.lon},${order.lat}`;
 }
@@ -27,7 +32,8 @@ function OrderRow({ order, name, taken }) {
     }
   }
 
-  const link = route2gis(order);
+  const webLink = route2gisWeb(order);
+  const appLink = route2gisApp(order);
 
   return (
     <section className="courier-card">
@@ -56,12 +62,20 @@ function OrderRow({ order, name, taken }) {
         </button>
       ) : (
         <div className="courier-card__actions">
-          {link && (
+          {webLink && (
             <button
               className="btn btn--big btn--route"
-              onClick={() => window.open(link, "_self")}
+              onClick={() => window.open(webLink, "_blank")}
             >
               Построить маршрут
+            </button>
+          )}
+          {appLink && (
+            <button
+              className="btn btn--ghost btn--route-app"
+              onClick={() => window.open(appLink, "_self")}
+            >
+              Открыть в приложении
             </button>
           )}
           <button

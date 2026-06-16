@@ -5,22 +5,25 @@ import { api } from "../lib/api.js";
 const DEVICES = [
   {
     to: "/rolls",
-    title: "Кухня «Роллы / Горячее»",
+    title: "Роллы / Горячее",
     desc: "Приём и готовность позиций",
+    tag: "Станция кухни",
     color: "#16a34a",
     emoji: "🍣",
   },
   {
     to: "/pizza",
-    title: "Кухня «Пицца»",
+    title: "Пицца",
     desc: "Приём и готовность пиццы",
-    color: "#ea580c",
+    tag: "Станция кухни",
+    color: "#e8552d",
     emoji: "🍕",
   },
   {
     to: "/assembler",
     title: "Сборщик",
     desc: "Проверка и передача курьеру",
+    tag: "Сборка",
     color: "#0ea5e9",
     emoji: "📦",
   },
@@ -28,6 +31,7 @@ const DEVICES = [
     to: "/courier",
     title: "Курьер",
     desc: "Доставка заказов",
+    tag: "Доставка",
     color: "#7c3aed",
     emoji: "🛵",
   },
@@ -53,8 +57,11 @@ export default function Home() {
   return (
     <div className="home">
       <div className="home__inner">
-        <h1 className="home__title">Saya KDS</h1>
-        <p className="home__subtitle">Выберите устройство</p>
+        <header className="home__head">
+          <span className="home__brand">Saya</span>
+          <h1 className="home__title">Кухонный дисплей</h1>
+          <p className="home__subtitle">Выберите станцию на этом устройстве</p>
+        </header>
 
         <div className="home__grid">
           {DEVICES.map((d) => (
@@ -64,11 +71,17 @@ export default function Home() {
               className="device-card"
               style={{ "--accent": d.color }}
             >
-              <span className="device-card__emoji" aria-hidden>
+              <span className="device-card__icon" aria-hidden>
                 {d.emoji}
               </span>
-              <span className="device-card__title">{d.title}</span>
-              <span className="device-card__desc">{d.desc}</span>
+              <span className="device-card__body">
+                <span className="device-card__tag">{d.tag}</span>
+                <span className="device-card__title">{d.title}</span>
+                <span className="device-card__desc">{d.desc}</span>
+              </span>
+              <span className="device-card__go" aria-hidden>
+                →
+              </span>
             </Link>
           ))}
         </div>
@@ -80,11 +93,14 @@ export default function Home() {
           {status && (
             <p className={`seed-status ${status.ok ? "ok" : "err"}`}>{status.msg}</p>
           )}
-          <p className="home__admin-link">
-            <Link to="/admin">Аналитика (админ)</Link>
-            {" · "}
-            <Link to="/branches">Филиалы и сотрудники</Link>
-          </p>
+          <nav className="home__links">
+            <Link to="/admin" className="home-link">
+              Аналитика
+            </Link>
+            <Link to="/branches" className="home-link">
+              Филиалы и сотрудники
+            </Link>
+          </nav>
         </div>
       </div>
     </div>

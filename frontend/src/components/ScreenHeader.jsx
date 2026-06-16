@@ -16,9 +16,14 @@ export default function ScreenHeader({
         </Link>
         <h1 className="screen-title">{title}</h1>
         <span
-          className={`conn-dot ${connected ? "conn-dot--on" : "conn-dot--off"}`}
-          title={connected ? "Подключено" : "Нет связи"}
-        />
+          className={`conn ${connected ? "conn--on" : "conn--off"}`}
+          title={connected ? "Связь есть" : "Нет связи"}
+        >
+          <span className="conn__dot" />
+          <span className="conn__label">
+            {connected ? "Онлайн" : "Нет связи"}
+          </span>
+        </span>
       </div>
       <div className="screen-header__right">
         {onNameChange && (

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 
+// Target cook time: the progress bar fills 0 -> 100% over this window.
+export const TARGET_MS = 10 * 60 * 1000;
+
 // Re-render every second so running stopwatches update.
 export function useTick(intervalMs = 1000) {
   const [, setNow] = useState(Date.now());
@@ -23,4 +26,18 @@ export function overdueLevel(ms) {
   if (min >= 10) return "overdue";
   if (min >= 5) return "warn";
   return "ok";
+}
+
+// Progress through the target cook time, capped 0..1 for the visual fill.
+// (The timer text itself keeps counting past 100%.)
+export function cookProgress(ms, target = TARGET_MS) {
+  if (ms == null || ms < 0) ms = 0;
+  return Math.min(1, ms / target);
+}
+
+// Parse a server ISO timestamp ("...Z") to epoch ms, or null.
+export function parseServerTime(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : null;
 }

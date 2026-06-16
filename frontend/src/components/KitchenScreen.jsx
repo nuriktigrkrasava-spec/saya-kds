@@ -2,7 +2,7 @@ import ScreenHeader from "./ScreenHeader.jsx";
 import KitchenItemRow from "./KitchenItemRow.jsx";
 import { useOrders } from "../lib/orders.js";
 import { useName } from "../lib/useName.js";
-import { useTick } from "../lib/time.js";
+import { useTick, formatElapsed, parseServerTime } from "../lib/time.js";
 
 /**
  * Shared kitchen station screen.
@@ -47,11 +47,22 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
         )}
 
         <div className="cards-grid">
-          {visibleOrders.map((o) => (
+          {visibleOrders.map((o) => {
+            const createdAt = parseServerTime(o.created_at);
+            const sinceOrder =
+              createdAt != null ? formatElapsed(Date.now() - createdAt) : null;
+            return (
             <section key={o.id} className="order-card">
               <div className="order-card__head">
                 <span className="order-num">№ {o.number}</span>
-                {o.customer && <span className="order-cust">{o.customer}</span>}
+                <div className="order-card__meta-head">
+                  {sinceOrder && (
+                    <span className="order-since" title="Время с момента заказа">
+                      ⏱ {sinceOrder}
+                    </span>
+                  )}
+                  {o.customer && <span className="order-cust">{o.customer}</span>}
+                </div>
               </div>
               <div className="order-card__items">
                 {o._items.map((it) => (
@@ -59,7 +70,8 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
                 ))}
               </div>
             </section>
-          ))}
+            );
+          })}
         </div>
       </main>
     </div>
