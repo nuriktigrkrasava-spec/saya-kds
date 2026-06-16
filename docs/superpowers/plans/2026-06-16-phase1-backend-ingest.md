@@ -72,7 +72,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
     "pydantic-settings>=2.4",
-    "python-jose[cryptography]>=3.3",
+    "pyjwt>=2.9",
 ]
 
 [project.optional-dependencies]
@@ -1157,7 +1157,7 @@ Expected: PASS (2 passed).
 
 ```python
 from datetime import datetime, timedelta
-from jose import jwt
+import jwt  # PyJWT
 from pydantic import BaseModel
 
 
