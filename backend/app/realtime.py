@@ -1,0 +1,54 @@
+from __future__ import annotations
+import socketio
+from app.models import Order
+
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+
+ZONES = ("rolls", "pizza", "hot", "other")
+
+
+def room(org_id: str, zone: str) -> str:
+    return f"org:{org_id}:{zone}"
+
+
+def order_payload(order: Order) -> dict:
+    return {
+        "id": order.id,
+        "iiko_order_id": order.iiko_order_id,
+        "org_id": order.org_id,
+        "number": order.number,
+        "status": order.status,
+        "customer": order.customer_name,
+        "phone": order.phone,
+        "address": order.address,
+        "items": [
+            {
+                "id": i.id, "product_id": i.product_id, "name": i.name,
+                "amount": i.amount, "station": i.station,
+                "is_checked": i.is_checked,
+                "accepted": i.station_accepted_at is not None,
+                "ready": i.station_ready_at is not None,
+            }
+            for i in order.items
+        ],
+    }
+
+
+async def broadcast_order(order: Order) -> None:
+    """Рассылает заказ в комнаты всех зон его филиала, в которых есть позиции."""
+    payload = order_payload(order)
+    zones_present = {i.station for i in order.items} or {"other"}
+    for zone in zones_present:
+        await sio.emit("order:update", payload, room=room(order.org_id, zone))
+    # сборщик видит весь заказ
+    await sio.emit("order:update", payload, room=room(order.org_id, "assembler"))
+
+
+@sio.event
+async def join(sid, data):
+    """Клиент просит вступить в комнату своего филиала+зоны. data={org_id, zone}."""
+    org_id, zone = data.get("org_id"), data.get("zone")
+    if not org_id or zone not in (*ZONES, "assembler"):
+        return {"ok": False, "error": "bad room"}
+    await sio.enter_room(sid, room(org_id, zone))
+    return {"ok": True}
