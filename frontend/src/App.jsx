@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Home from "./screens/Home.jsx";
 import KitchenRolls from "./screens/KitchenRolls.jsx";
 import KitchenPizza from "./screens/KitchenPizza.jsx";
@@ -6,18 +6,26 @@ import Assembler from "./screens/Assembler.jsx";
 import Courier from "./screens/Courier.jsx";
 import Admin from "./screens/Admin.jsx";
 import Branches from "./screens/Branches.jsx";
+import Login from "./screens/Login.jsx";
+import { isAuthed } from "./lib/auth.js";
+
+function RequireAuth({ children }) {
+  if (!isAuthed()) return <Navigate to="/login" replace />;
+  return children;
+}
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/rolls" element={<KitchenRolls />} />
-      <Route path="/pizza" element={<KitchenPizza />} />
-      <Route path="/assembler" element={<Assembler />} />
-      <Route path="/courier" element={<Courier />} />
-      <Route path="/admin" element={<Admin />} />
-      <Route path="/branches" element={<Branches />} />
-      <Route path="*" element={<Home />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
+      <Route path="/rolls" element={<RequireAuth><KitchenRolls /></RequireAuth>} />
+      <Route path="/pizza" element={<RequireAuth><KitchenPizza /></RequireAuth>} />
+      <Route path="/assembler" element={<RequireAuth><Assembler /></RequireAuth>} />
+      <Route path="/courier" element={<RequireAuth><Courier /></RequireAuth>} />
+      <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
+      <Route path="/branches" element={<RequireAuth><Branches /></RequireAuth>} />
+      <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
   );
 }

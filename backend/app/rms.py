@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+import time
 from contextlib import asynccontextmanager
 import xml.etree.ElementTree as ET
 import httpx
@@ -98,6 +99,58 @@ async def fetch_employees_full() -> list[dict]:
             r.raise_for_status()
             xml = r.text
     return _parse_employees_full(xml)
+
+
+# Лёгкий кэш сотрудников+филиалов, чтобы не жечь слот лицензии RMS на каждый вход.
+_EMP_CACHE: dict | None = None
+_EMP_CACHE_TS: float = 0.0
+_EMP_CACHE_TTL: float = 60.0
+
+
+async def _employees_and_departments_cached() -> tuple[list[dict], list[dict]]:
+    """Возвращает (employees_full, departments) с кэшем ~60с (один логин/логаут на оба запроса)."""
+    global _EMP_CACHE, _EMP_CACHE_TS
+    now = time.monotonic()
+    if _EMP_CACHE is not None and (now - _EMP_CACHE_TS) < _EMP_CACHE_TTL:
+        return _EMP_CACHE["employees"], _EMP_CACHE["departments"]
+
+    base = settings.rms_base.rstrip("/")
+    async with session() as token:
+        async with httpx.AsyncClient(timeout=60) as client:
+            rd = await client.get(f"{base}/api/corporation/departments",
+                                  params={"key": token})
+            rd.raise_for_status()
+            departments = _parse_departments(rd.text)
+            re_ = await client.get(f"{base}/api/employees", params={"key": token})
+            re_.raise_for_status()
+            employees = _parse_employees_full(re_.text)
+
+    _EMP_CACHE = {"employees": employees, "departments": departments}
+    _EMP_CACHE_TS = now
+    return employees, departments
+
+
+async def find_employee_by_pin(pin: str) -> dict | None:
+    """Найти активного сотрудника по PIN (code) и определить его филиал. Кэш ~60с, чтобы не жечь лицензию RMS."""
+    if not pin:
+        return None
+    employees, departments = await _employees_and_departments_cached()
+    code_to_name = {d["code"]: d["name"] for d in departments if d["code"]}
+
+    for emp in employees:
+        if not emp["is_employee"] or emp["deleted"]:
+            continue
+        if emp["code"] and emp["code"] == pin:
+            branch_code = emp["department_codes"][0] if emp["department_codes"] else ""
+            branch_name = code_to_name.get(branch_code, "Без филиала")
+            return {
+                "name": emp["name"],
+                "role": emp["role"],
+                "branch_code": branch_code,
+                "branch_name": branch_name,
+                "org_id": branch_code,
+            }
+    return None
 
 
 async def branches_with_employees() -> list[dict]:

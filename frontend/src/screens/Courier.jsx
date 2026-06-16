@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
 import { useOrders } from "../lib/orders.js";
-import { useName } from "../lib/useName.js";
+import { getOperatorName } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 
 const ACCENT = "#7c3aed";
@@ -92,7 +92,7 @@ function OrderRow({ order, name, taken }) {
 }
 
 export default function Courier() {
-  const [name, setName] = useName();
+  const name = getOperatorName();
   const { orders, loading, error, connected } = useOrders(["courier"]);
 
   const available = orders
@@ -105,13 +105,7 @@ export default function Courier() {
 
   return (
     <div className="screen screen--phone" style={{ "--accent": ACCENT }}>
-      <ScreenHeader
-        title="Курьер"
-        accent={ACCENT}
-        name={name}
-        onNameChange={setName}
-        connected={connected}
-      />
+      <ScreenHeader title="Курьер" accent={ACCENT} connected={connected} />
       <main className="screen-body courier-body">
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { BASE, ORG_ID } from "../lib/api.js";
+import { BASE } from "../lib/api.js";
+import { getOrgId } from "../lib/auth.js";
 import "../admin.css";
 
 const STATION_LABELS = {
@@ -33,7 +34,7 @@ export default function Admin() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${BASE}/admin/analytics?org_id=${ORG_ID}`, {
+        const res = await fetch(`${BASE}/admin/analytics?org_id=${getOrgId()}`, {
           headers: { Accept: "application/json" },
         });
         if (!res.ok) {

@@ -1,5 +1,6 @@
 import { io } from "socket.io-client";
-import { BASE, ORG_ID } from "./api.js";
+import { BASE } from "./api.js";
+import { getOrgId } from "./auth.js";
 
 // Singleton socket connected to the backend (default Socket.IO path).
 export const socket = io(BASE, {
@@ -16,8 +17,9 @@ export function joinZones(zones) {
   const list = Array.isArray(zones) ? zones : [zones];
 
   const doJoin = () => {
+    const org_id = getOrgId();
     for (const zone of list) {
-      socket.emit("join", { org_id: ORG_ID, zone });
+      socket.emit("join", { org_id, zone });
     }
   };
 

@@ -1,7 +1,7 @@
 import ScreenHeader from "./ScreenHeader.jsx";
 import KitchenItemRow from "./KitchenItemRow.jsx";
 import { useOrders } from "../lib/orders.js";
-import { useName } from "../lib/useName.js";
+import { getOperatorName } from "../lib/auth.js";
 import { useTick, formatElapsed, parseServerTime } from "../lib/time.js";
 
 /**
@@ -12,7 +12,7 @@ import { useTick, formatElapsed, parseServerTime } from "../lib/time.js";
  * @param {string[]} stations  item stations to show
  */
 export default function KitchenScreen({ title, accent, zones, stations }) {
-  const [name, setName] = useName();
+  const name = getOperatorName();
   useTick(1000); // keep running stopwatches fresh
 
   const { orders, loading, error, connected } = useOrders(zones);
@@ -31,13 +31,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
 
   return (
     <div className="screen" style={{ "--accent": accent }}>
-      <ScreenHeader
-        title={title}
-        accent={accent}
-        name={name}
-        onNameChange={setName}
-        connected={connected}
-      />
+      <ScreenHeader title={title} accent={accent} connected={connected} />
 
       <main className="screen-body">
         {loading && <p className="muted">Загрузка заказов…</p>}

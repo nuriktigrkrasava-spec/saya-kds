@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
+import { getSession, clearSession } from "../lib/auth.js";
 
 const DEVICES = [
   {
@@ -40,6 +41,16 @@ const DEVICES = [
 export default function Home() {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  const session = getSession();
+  const identity = session
+    ? [session.name, session.branch_name].filter(Boolean).join(" · ")
+    : "";
+
+  function logout() {
+    clearSession();
+    navigate("/login", { replace: true });
+  }
 
   async function seed() {
     setBusy(true);
@@ -61,6 +72,14 @@ export default function Home() {
           <span className="home__brand">Saya</span>
           <h1 className="home__title">Кухонный дисплей</h1>
           <p className="home__subtitle">Выберите станцию на этом устройстве</p>
+          {identity && (
+            <p className="home__identity">
+              Вы вошли: {identity}
+              <button type="button" className="home-link home__logout" onClick={logout}>
+                Выйти
+              </button>
+            </p>
+          )}
         </header>
 
         <div className="home__grid">

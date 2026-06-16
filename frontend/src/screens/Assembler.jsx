@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
 import { useOrders } from "../lib/orders.js";
-import { useName } from "../lib/useName.js";
+import { getOperatorName } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
 
@@ -103,7 +103,7 @@ function AssemblerCard({ order, name }) {
 }
 
 export default function Assembler() {
-  const [name, setName] = useName();
+  const name = getOperatorName();
   const { orders, loading, error, connected } = useOrders(["assembler"]);
 
   const visible = orders
@@ -112,13 +112,7 @@ export default function Assembler() {
 
   return (
     <div className="screen" style={{ "--accent": ACCENT }}>
-      <ScreenHeader
-        title="Сборщик"
-        accent={ACCENT}
-        name={name}
-        onNameChange={setName}
-        connected={connected}
-      />
+      <ScreenHeader title="Сборщик" accent={ACCENT} connected={connected} />
       <main className="screen-body">
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}

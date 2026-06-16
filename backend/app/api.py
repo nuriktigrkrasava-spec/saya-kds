@@ -73,27 +73,21 @@ from pydantic import BaseModel
 
 
 class LoginIn(BaseModel):
-    org_id: str
-    role: str
     pin: str
 
 
 @app.post("/auth/login")
 async def login(body: LoginIn):
-    # MVP: PIN сверяем со списком сотрудников RMS по полю code.
     from app import rms
-    employees = await rms.fetch_employees()
-    match = next((e for e in employees if e["code"] and e["code"] == body.pin), None)
-    if not match:
-        raise HTTPException(status_code=401, detail="bad pin")
-    if body.role not in ("rolls", "pizza", "hot", "assembler", "courier"):
-        raise HTTPException(status_code=400, detail="bad role")
-    token = jwt.encode(
-        {"org_id": body.org_id, "role": body.role,
-         "emp_id": match["id"], "name": match["name"],
-         "exp": datetime.utcnow() + timedelta(hours=12)},
-        settings.jwt_secret, algorithm="HS256")
-    return {"token": token, "name": match["name"], "role": body.role, "org_id": body.org_id}
+    emp = await rms.find_employee_by_pin(body.pin.strip())
+    if not emp:
+        raise HTTPException(status_code=401, detail="Неверный PIN")
+    token = jwt.encode({"name": emp["name"], "role": emp["role"],
+                        "branch_code": emp["branch_code"], "branch_name": emp["branch_name"],
+                        "org_id": emp["org_id"],
+                        "exp": datetime.utcnow() + timedelta(hours=16)},
+                       settings.jwt_secret, algorithm="HS256")
+    return {"token": token, **emp}
 
 
 from datetime import datetime as _dt

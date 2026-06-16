@@ -1,3 +1,5 @@
+import { getOrgId } from "./auth.js";
+
 export const BASE = "http://localhost:8000";
 export const ORG_ID = "demo";
 
@@ -30,8 +32,9 @@ export async function post(path, body) {
 
 // Convenience API calls matching the backend contract.
 export const api = {
-  getOrders: () => get(`/orders?org_id=${ORG_ID}`),
-  seed: () => post(`/debug/seed?org_id=${ORG_ID}`),
+  getOrders: () => get(`/orders?org_id=${getOrgId()}`),
+  seed: () => post(`/debug/seed?org_id=${getOrgId()}`),
+  login: (pin) => post("/auth/login", { pin }),
   acceptItem: (itemId, by) => post(`/items/${itemId}/accept`, { by }),
   readyItem: (itemId, by) => post(`/items/${itemId}/ready`, { by }),
   checkItem: (itemId, by) => post(`/items/${itemId}/check`, { by }),

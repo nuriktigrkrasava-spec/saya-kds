@@ -1,13 +1,18 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { getSession, clearSession } from "../lib/auth.js";
 
-export default function ScreenHeader({
-  title,
-  accent,
-  name,
-  onNameChange,
-  connected,
-  children,
-}) {
+export default function ScreenHeader({ title, accent, connected, children }) {
+  const navigate = useNavigate();
+  const session = getSession();
+  const identity = session
+    ? [session.name, session.branch_name].filter(Boolean).join(" · ")
+    : "";
+
+  function logout() {
+    clearSession();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <header className="screen-header" style={accent ? { borderColor: accent } : undefined}>
       <div className="screen-header__left">
@@ -26,16 +31,10 @@ export default function ScreenHeader({
         </span>
       </div>
       <div className="screen-header__right">
-        {onNameChange && (
-          <label className="name-field">
-            <span>Я:</span>
-            <input
-              value={name}
-              onChange={(e) => onNameChange(e.target.value)}
-              placeholder="Имя"
-            />
-          </label>
-        )}
+        {identity && <span className="identity">{identity}</span>}
+        <button type="button" className="btn btn--ghost logout-btn" onClick={logout}>
+          Выйти
+        </button>
         {children}
       </div>
     </header>

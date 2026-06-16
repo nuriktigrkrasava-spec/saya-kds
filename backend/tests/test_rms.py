@@ -40,24 +40,3 @@ async def test_fetch_employees_parses_xml():
 
     emps = await rms.fetch_employees()
     assert emps == [{"id": "e1", "name": "Повар Алия", "code": "1234"}]
-
-
-@respx.mock
-async def test_login_issues_jwt_for_valid_pin():
-    settings.rms_base = "https://rms.test/resto"
-    settings.rms_login = "nignarok"
-    settings.rms_password = "pw"
-    settings.jwt_secret = "secret"
-    sha1 = hashlib.sha1(b"pw").hexdigest()
-    respx.get(f"https://rms.test/resto/api/auth?login=nignarok&pass={sha1}").mock(
-        return_value=Response(200, text="TOKEN-1"))
-    respx.get("https://rms.test/resto/api/logout?key=TOKEN-1").mock(
-        return_value=Response(200, text="ok"))
-    respx.get("https://rms.test/resto/api/employees?key=TOKEN-1").mock(
-        return_value=Response(200, text=EMPLOYEES_XML))
-
-    from app.api import app
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.post("/auth/login", json={"org_id": "org-1", "role": "rolls", "pin": "1234"})
-    assert r.status_code == 200
-    assert r.json()["name"] == "Повар Алия"
