@@ -1,0 +1,248 @@
+.branches {
+  min-height: 100vh;
+  background: #f4f5f7;
+  color: #111827;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: 24px 16px 64px;
+  box-sizing: border-box;
+}
+
+.branches__inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.branches__top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.branches__back {
+  flex: none;
+  text-decoration: none;
+  color: #2563eb;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.branches__back:hover {
+  background: #e8edff;
+}
+
+.branches__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.branches__summary {
+  margin: 4px 0 20px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+/* Поиск */
+.branches__search {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.branches__search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 40px 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 15px;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.branches__search-input::placeholder {
+  color: #9ca3af;
+}
+
+.branches__search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.branches__search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #eef0f3;
+  color: #6b7280;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.branches__search-clear:hover {
+  background: #e2e5ea;
+  color: #374151;
+}
+
+/* Список филиалов */
+.branches__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.branch-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  overflow: hidden;
+}
+
+.branch-card__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.branch-card__header:hover {
+  background: #fafbfc;
+}
+
+.branch-card__chevron {
+  flex: none;
+  color: #9ca3af;
+  font-size: 13px;
+  transition: transform 0.18s ease;
+}
+
+.branch-card__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.branch-card__name {
+  flex: 1 1 auto;
+  font-size: 16px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.branch-card__count {
+  flex: none;
+  min-width: 26px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.branch-card__body {
+  border-top: 1px solid #f0f1f3;
+  padding: 6px 0;
+}
+
+.branch-card__empty {
+  padding: 14px 18px;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+/* Сотрудник */
+.emp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+}
+
+.emp-row + .emp-row {
+  border-top: 1px solid #f5f6f8;
+}
+
+.emp-row__name {
+  flex: 1 1 auto;
+  font-size: 15px;
+  color: #1f2937;
+  min-width: 0;
+}
+
+.emp-row__role {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Состояния */
+.branches__state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px 20px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.branches__state--err {
+  color: #b91c1c;
+}
+
+.branches__err-detail {
+  font-size: 13px;
+  color: #9ca3af;
+  word-break: break-word;
+}
+
+.branches__spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: branches-spin 0.8s linear infinite;
+}
+
+@keyframes branches-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.branches__empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 15px;
+}

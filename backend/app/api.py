@@ -346,3 +346,10 @@ async def admin_analytics(org_id: str, session: AsyncSession = Depends(get_sessi
             "avg_delivery_seconds": _mean(delivery_secs),
         },
     }
+
+
+@app.get("/rms/branches")
+async def rms_branches():
+    """Филиалы и сотрудники из RMS (живой вызов: логин/логаут на стороне rms)."""
+    from app import rms
+    return await rms.branches_with_employees()

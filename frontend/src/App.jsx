@@ -5,6 +5,7 @@ import KitchenPizza from "./screens/KitchenPizza.jsx";
 import Assembler from "./screens/Assembler.jsx";
 import Courier from "./screens/Courier.jsx";
 import Admin from "./screens/Admin.jsx";
+import Branches from "./screens/Branches.jsx";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Route path="/assembler" element={<Assembler />} />
       <Route path="/courier" element={<Courier />} />
       <Route path="/admin" element={<Admin />} />
+      <Route path="/branches" element={<Branches />} />
       <Route path="*" element={<Home />} />
     </Routes>
   );

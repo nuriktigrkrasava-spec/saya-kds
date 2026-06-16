@@ -82,6 +82,8 @@ export default function Home() {
           )}
           <p className="home__admin-link">
             <Link to="/admin">Аналитика (админ)</Link>
+            {" · "}
+            <Link to="/branches">Филиалы и сотрудники</Link>
           </p>
         </div>
       </div>
