@@ -20,6 +20,17 @@ async def get_token() -> str:
         return r.json()["token"]
 
 
+async def fetch_organizations() -> list[dict]:
+    """Список организаций Cloud (для связки филиал RMS ↔ Cloud-ID). [{id, name}]"""
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(f"{BASE}/api/1/organizations",
+                              headers={"Authorization": f"Bearer {token}"},
+                              json={"returnAdditionalInfo": False})
+        r.raise_for_status()
+        return r.json().get("organizations", [])
+
+
 async def fetch_delivery_by_id(organization_id: str, order_id: str) -> dict | None:
     token = await get_token()
     async with httpx.AsyncClient(timeout=30) as client:

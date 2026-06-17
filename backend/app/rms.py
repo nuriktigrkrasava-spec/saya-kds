@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+import re
 import time
 from contextlib import asynccontextmanager
 import xml.etree.ElementTree as ET
@@ -9,6 +10,11 @@ from app.config import settings
 
 def _sha1(text: str) -> str:
     return hashlib.sha1(text.encode()).hexdigest()
+
+
+def _norm_name(s: str) -> str:
+    """Нормализация имени филиала для сопоставления RMS↔Cloud (убрать пунктуацию/регистр)."""
+    return re.sub(r"[^\w]+", " ", (s or "").lower()).strip()
 
 
 @asynccontextmanager
@@ -130,12 +136,42 @@ async def _employees_and_departments_cached() -> tuple[list[dict], list[dict]]:
     return employees, departments
 
 
+_ORG_MAP: dict | None = None
+_ORG_MAP_TS: float = 0.0
+_ORG_MAP_TTL: float = 3600.0
+
+
+async def branch_to_org_id() -> dict:
+    """Карта «код филиала RMS → Cloud organizationId» по совпадению имён. Кэш 1ч.
+
+    Нужна, чтобы заказы из вебхука (приходят с Cloud-ID) попадали на доску того же
+    филиала, под которым вошёл сотрудник.
+    """
+    global _ORG_MAP, _ORG_MAP_TS
+    now = time.monotonic()
+    if _ORG_MAP is not None and (now - _ORG_MAP_TS) < _ORG_MAP_TTL:
+        return _ORG_MAP
+    from app import iiko_cloud
+    try:
+        _, departments = await _employees_and_departments_cached()
+        orgs = await iiko_cloud.fetch_organizations()
+    except Exception:
+        return _ORG_MAP or {}
+    by_name = {_norm_name(o.get("name")): o.get("id") for o in orgs}
+    mapping = {d["code"]: by_name[_norm_name(d.get("name"))]
+               for d in departments
+               if d.get("code") and _norm_name(d.get("name")) in by_name}
+    _ORG_MAP, _ORG_MAP_TS = mapping, now
+    return mapping
+
+
 async def find_employee_by_pin(pin: str) -> dict | None:
     """Найти активного сотрудника по PIN (code) и определить его филиал. Кэш ~60с, чтобы не жечь лицензию RMS."""
     if not pin:
         return None
     employees, departments = await _employees_and_departments_cached()
     code_to_name = {d["code"]: d["name"] for d in departments if d["code"]}
+    org_map = await branch_to_org_id()
 
     for emp in employees:
         if not emp["is_employee"] or emp["deleted"]:
@@ -143,12 +179,15 @@ async def find_employee_by_pin(pin: str) -> dict | None:
         if emp["code"] and emp["code"] == pin:
             branch_code = emp["department_codes"][0] if emp["department_codes"] else ""
             branch_name = code_to_name.get(branch_code, "Без филиала")
+            # org_id = Cloud-ID филиала (чтобы видеть реальные заказы из вебхука);
+            # если нет совпадения — откатываемся на код филиала.
+            org_id = org_map.get(branch_code, branch_code)
             return {
                 "name": emp["name"],
                 "role": emp["role"],
                 "branch_code": branch_code,
                 "branch_name": branch_name,
-                "org_id": branch_code,
+                "org_id": org_id,
             }
     return None
 
