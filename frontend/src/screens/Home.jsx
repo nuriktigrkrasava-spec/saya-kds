@@ -28,14 +28,6 @@ const DEVICES = [
     color: "#0ea5e9",
     emoji: "📦",
   },
-  {
-    to: "/courier",
-    title: "Курьер",
-    desc: "Доставка заказов",
-    tag: "Доставка",
-    color: "#7c3aed",
-    emoji: "🛵",
-  },
 ];
 
 export default function Home() {

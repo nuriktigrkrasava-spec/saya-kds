@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     rms_password: str = ""
     jwt_secret: str = "dev-only-change-me"
     database_url: str = "sqlite+aiosqlite:///./kitchen.db"
+    telegram_bot_token: str = ""
 
 
 settings = Settings()

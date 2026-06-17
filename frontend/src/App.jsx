@@ -3,7 +3,7 @@ import Home from "./screens/Home.jsx";
 import KitchenRolls from "./screens/KitchenRolls.jsx";
 import KitchenPizza from "./screens/KitchenPizza.jsx";
 import Assembler from "./screens/Assembler.jsx";
-import Courier from "./screens/Courier.jsx";
+import TgCourier from "./screens/TgCourier.jsx";
 import Admin from "./screens/Admin.jsx";
 import Branches from "./screens/Branches.jsx";
 import StationMap from "./screens/StationMap.jsx";
@@ -19,11 +19,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/tg" element={<TgCourier />} />
       <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
       <Route path="/rolls" element={<RequireAuth><KitchenRolls /></RequireAuth>} />
       <Route path="/pizza" element={<RequireAuth><KitchenPizza /></RequireAuth>} />
       <Route path="/assembler" element={<RequireAuth><Assembler /></RequireAuth>} />
-      <Route path="/courier" element={<RequireAuth><Courier /></RequireAuth>} />
       <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
       <Route path="/branches" element={<RequireAuth><Branches /></RequireAuth>} />
       <Route path="/stations" element={<RequireAuth><StationMap /></RequireAuth>} />

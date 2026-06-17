@@ -504,3 +504,134 @@ async def admin_stations_post(org_id: str, body: _StationsIn,
 
     await _reresolve_active_orders(session, org_id)
     return {"updated": updated}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Курьеры: назначение заказа сборщиком и Telegram Mini App.
+# ──────────────────────────────────────────────────────────────────────────
+from app import rms as _rms, telegram as _telegram
+from app.models import TelegramLink as _TelegramLink
+
+_COURIER_ROLES = {"КР", "КЭКСПО20"}
+
+
+@app.get("/branches/couriers")
+async def branches_couriers(branch_code: str = ""):
+    """Курьеры конкретного филиала RMS (роли КР/КЭКСПО20)."""
+    if not branch_code:
+        return []
+    branches = await _rms.branches_with_employees()
+    branch = next((b for b in branches if b["code"] == branch_code), None)
+    if not branch:
+        return []
+    return [
+        {"code": e["code"], "name": e["name"]}
+        for e in branch["employees"]
+        if e.get("role") in _COURIER_ROLES
+    ]
+
+
+class AssignCourierIn(BaseModel):
+    courier_code: str
+    courier_name: str
+    by: str = ""
+
+
+@app.post("/orders/{order_id}/assign-courier")
+async def order_assign_courier(order_id: int, body: AssignCourierIn,
+                               session: AsyncSession = Depends(get_session)):
+    """Сборщик «Передать курьеру» с выбором конкретного курьера."""
+    order = await _load_order(session, order_id)
+    if order.assembled_at is None:
+        order.assembled_at = _dt.utcnow()
+    order.assigned_courier_code = body.courier_code
+    order.assigned_courier_name = body.courier_name
+    await session.commit()
+    order = await _load_order(session, order_id)
+    await realtime.broadcast_order(order)
+    return realtime.order_payload(order)
+
+
+class TgAuthIn(BaseModel):
+    initData: str
+
+
+@app.post("/tg/auth")
+async def tg_auth(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
+    """Проверка initData и поиск привязки Telegram-аккаунта к сотруднику."""
+    pairs = _telegram.parse_and_validate(body.initData)
+    if pairs is None:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+    user = _telegram.extract_user(pairs)
+    telegram_id = str(user.get("id") or "")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+    link = (await session.execute(
+        _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    if not link:
+        return {"linked": False}
+    return {
+        "linked": True,
+        "name": link.name,
+        "branch_code": link.branch_code,
+        "org_id": link.org_id,
+        "role": link.role,
+        "courier_code": link.employee_code,
+    }
+
+
+class TgLinkIn(BaseModel):
+    initData: str
+    pin: str
+
+
+@app.post("/tg/link")
+async def tg_link(body: TgLinkIn, session: AsyncSession = Depends(get_session)):
+    """Привязка Telegram-аккаунта к сотруднику по PIN (code)."""
+    pairs = _telegram.parse_and_validate(body.initData)
+    if pairs is None:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+    user = _telegram.extract_user(pairs)
+    telegram_id = str(user.get("id") or "")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+
+    pin = body.pin.strip()
+    emp = await _rms.find_employee_by_pin(pin)
+    if not emp:
+        raise HTTPException(status_code=401, detail="Неверный PIN")
+
+    link = (await session.execute(
+        _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    if link is None:
+        link = _TelegramLink(telegram_id=telegram_id)
+        session.add(link)
+    link.employee_code = pin
+    link.name = emp["name"]
+    link.branch_code = emp["branch_code"]
+    link.org_id = emp["org_id"]
+    link.role = emp["role"]
+    await session.commit()
+
+    return {
+        "linked": True,
+        "name": emp["name"],
+        "branch_code": emp["branch_code"],
+        "org_id": emp["org_id"],
+        "role": emp["role"],
+        "courier_code": pin,
+    }
+
+
+@app.get("/tg/my-orders")
+async def tg_my_orders(courier_code: str,
+                       session: AsyncSession = Depends(get_session)):
+    """Заказы, назначенные курьеру и ещё не доставленные."""
+    rows = (await session.execute(
+        _select(_Order)
+        .where(_Order.assigned_courier_code == courier_code,
+               _Order.delivered_at.is_(None))
+        .order_by(_Order.created_at))).scalars().all()
+    return [realtime.order_payload(o) for o in rows]

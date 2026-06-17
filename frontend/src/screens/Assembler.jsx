@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
 import { useOrders } from "../lib/orders.js";
-import { getOperatorName } from "../lib/auth.js";
+import { getOperatorName, getSession } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
 import {
@@ -29,14 +29,26 @@ function groupByZone(items) {
   return ZONE_ORDER.filter((z) => groups[z]).map((z) => ({ zone: z, items: groups[z] }));
 }
 
-function AssemblerCard({ order, name, isNew }) {
+function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [courierCode, setCourierCode] = useState("");
 
   const items = order.items || [];
   const allReady = items.length > 0 && items.every((it) => it.ready);
   const allChecked = items.length > 0 && items.every((it) => it.is_checked);
   const canAssemble = allReady && allChecked && !order.assembled;
+
+  const hasCouriers = (couriers || []).length > 0;
+  // Name of the assigned courier, if any (from server payload).
+  const assignedName =
+    order.courier_name ||
+    order.assigned_courier_name ||
+    order.assigned?.courier_name ||
+    (order.assigned?.name && order.assigned?.role === "courier"
+      ? order.assigned.name
+      : "") ||
+    "";
 
   // Overall order timer from created_at -> progress toward the target window.
   const createdAt = parseServerTime(order.created_at);
@@ -61,6 +73,23 @@ function AssemblerCard({ order, name, isNew }) {
     setErr(null);
     try {
       await api.assembleOrder(order.id, name || "—");
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function assign() {
+    const courier = (couriers || []).find((c) => c.code === courierCode);
+    if (!courier) {
+      setErr("Выберите курьера");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.assignCourier(order.id, courier.code, courier.name, name || "—");
     } catch (e) {
       setErr(e.message || String(e));
     } finally {
@@ -147,15 +176,47 @@ function AssemblerCard({ order, name, isNew }) {
       {err && <div className="kitem__err">{err}</div>}
 
       {order.assembled ? (
-        <div className="badge badge--ready asm-handed">Передан курьеру</div>
-      ) : (
-        <button
-          className="btn btn--big btn--assemble"
-          onClick={assemble}
-          disabled={!canAssemble || busy}
-        >
-          {busy ? "…" : "Передать курьеру"}
+        <div className="badge badge--ready asm-handed">
+          {assignedName ? `Назначен: ${assignedName}` : "Передан курьеру"}
+        </div>
+      ) : !couriersReady ? (
+        <button className="btn btn--big btn--assemble" disabled>
+          Загрузка курьеров…
         </button>
+      ) : hasCouriers ? (
+        <div className="asm-courier">
+          <select
+            className="asm-courier__select"
+            value={courierCode}
+            onChange={(e) => setCourierCode(e.target.value)}
+            disabled={!canAssemble || busy}
+          >
+            <option value="">Выберите курьера…</option>
+            {couriers.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn btn--big btn--assemble"
+            onClick={assign}
+            disabled={!canAssemble || busy || !courierCode}
+          >
+            {busy ? "…" : "Назначить курьера"}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="asm-courier__hint">Нет курьеров в филиале</div>
+          <button
+            className="btn btn--big btn--assemble"
+            onClick={assemble}
+            disabled={!canAssemble || busy}
+          >
+            {busy ? "…" : "Передать курьеру"}
+          </button>
+        </>
       )}
     </section>
   );
@@ -166,6 +227,33 @@ export default function Assembler() {
   useTick(1000); // keep overall order timers / progress bars fresh
 
   const { orders, loading, error, connected } = useOrders(["assembler"]);
+
+  // Load the branch couriers once per screen.
+  const [couriers, setCouriers] = useState([]);
+  const [couriersReady, setCouriersReady] = useState(false);
+
+  useEffect(() => {
+    const branchCode = getSession()?.branch_code;
+    if (!branchCode) {
+      setCouriersReady(true);
+      return;
+    }
+    let cancelled = false;
+    api
+      .branchCouriers(branchCode)
+      .then((list) => {
+        if (!cancelled) setCouriers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCouriers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCouriersReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const visible = orders
     .filter((o) => !o.delivered && (o.items || []).length > 0)
@@ -254,6 +342,8 @@ export default function Assembler() {
               order={o}
               name={name}
               isNew={newIds.current.has(o.id)}
+              couriers={couriers}
+              couriersReady={couriersReady}
             />
           ))}
         </div>

@@ -41,6 +41,8 @@ class Order(Base):
     assembled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     on_way_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    assigned_courier_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    assigned_courier_name: Mapped[str | None] = mapped_column(String, nullable=True)
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin")
 
@@ -79,3 +81,14 @@ class OrderEvent(Base):
     type: Mapped[str] = mapped_column(String)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TelegramLink(Base):
+    __tablename__ = "telegram_links"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    telegram_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    employee_code: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String, default="")
+    branch_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    org_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    role: Mapped[str | None] = mapped_column(String, nullable=True)
