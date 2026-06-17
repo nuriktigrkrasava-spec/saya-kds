@@ -45,12 +45,11 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const [courierCode, setCourierCode] = useState("");
 
   const items = order.items || [];
-  // Блюда зоны «прочее» (напитки/подарки/соусы) не готовятся на кухне —
-  // их не нужно ждать «готово», сборщик отмечает их сразу.
+  // Блюда зоны «прочее» (напитки/подарки/соусы) не готовятся на кухне.
   const needsReady = (it) => it.station !== "other";
+  // Галочек больше нет: заказ можно отдать курьеру, когда все позиции готовы.
   const allReady = items.length > 0 && items.every((it) => it.ready || !needsReady(it));
-  const allChecked = items.length > 0 && items.every((it) => it.is_checked);
-  const canAssemble = allReady && allChecked && !order.assembled;
+  const canAssemble = allReady && !order.assembled;
 
   const courierList = couriers || [];
   const hasCouriers = courierList.length > 0;
@@ -76,15 +75,6 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const timerText = createdAt != null ? formatElapsed(elapsed) : null;
 
   const cardOverdue = !order.assembled && level === "overdue";
-
-  async function check(item) {
-    setErr(null);
-    try {
-      await api.checkItem(item.id, name || "—");
-    } catch (e) {
-      setErr(e.message || String(e));
-    }
-  }
 
   async function revert(item, e) {
     if (e) {
@@ -201,16 +191,7 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
               </span>
             </div>
             {g.items.map((it) => (
-              <label
-                key={it.id}
-                className={`asm-item ${it.is_checked ? "asm-item--checked" : ""}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!it.is_checked}
-                  disabled={order.assembled || (!it.ready && needsReady(it))}
-                  onChange={() => check(it)}
-                />
+              <div key={it.id} className="asm-item">
                 <span className="asm-item__name">
                   {it.name}
                   <span className="kitem__amount"> ×{it.amount}</span>
@@ -228,7 +209,7 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                     ↩ Вернуть
                   </button>
                 )}
-              </label>
+              </div>
             ))}
           </div>
         );

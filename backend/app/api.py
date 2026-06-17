@@ -240,6 +240,12 @@ async def item_ready(item_id: int, body: ActionIn,
     if not item:
         raise HTTPException(status_code=404, detail="item not found")
     item.station_ready_at = _dt.utcnow()
+    item.checked_by = body.by or item.checked_by
+    # Шага «Принял» больше нет — за «время приготовления» берём от появления заказа,
+    # чтобы аналитика/анти-обман работали (иначе accepted_at пустой).
+    if item.station_accepted_at is None:
+        order = await _load_order(session, item.order_id)
+        item.station_accepted_at = order.created_at
     return await _item_and_broadcast(session, item_id)
 
 

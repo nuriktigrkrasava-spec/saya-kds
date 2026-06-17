@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 // Target cook time: the progress bar fills 0 -> 100% over this window.
-export const TARGET_MS = 10 * 60 * 1000;
+export const TARGET_MS = 20 * 60 * 1000;
 
 // Re-render every second so running stopwatches update.
 export function useTick(intervalMs = 1000) {
@@ -20,11 +20,11 @@ export function formatElapsed(ms) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-// Returns "ok" | "warn" | "overdue" based on minutes since accepted.
+// Returns "ok" | "warn" | "overdue" based on minutes since the order appeared.
 export function overdueLevel(ms) {
   const min = ms / 60000;
-  if (min >= 10) return "overdue";
-  if (min >= 5) return "warn";
+  if (min >= 20) return "overdue";
+  if (min >= 15) return "warn";
   return "ok";
 }
 
@@ -50,35 +50,26 @@ const WARN_BOOST = 1e6;
 // "now" via Date.now(). Considers only items whose station is in `stations`.
 //
 // Score = ageInSeconds (since created_at)
-//       + OVERDUE_BOOST if any relevant accepted-not-ready item is overdue
-//       + WARN_BOOST    if any relevant accepted-not-ready item is "warn"
-//
-// Missing timestamps contribute 0 boost; missing created_at => 0 age.
+//       + OVERDUE_BOOST if the order has an unready relevant item and is overdue
+//       + WARN_BOOST    if it is in the "warn" band
+// Срочность считается от момента появления заказа (created_at), т.к. шага «Принял» нет.
 export function orderUrgency(order, stations) {
   if (!order) return 0;
   const now = Date.now();
 
   const createdAt = parseServerTime(order.created_at);
-  const ageSeconds = createdAt != null ? Math.max(0, (now - createdAt) / 1000) : 0;
+  const ageMs = createdAt != null ? Math.max(0, now - createdAt) : 0;
+  const ageSeconds = ageMs / 1000;
 
   const stationSet = Array.isArray(stations) ? stations : [];
   const items = Array.isArray(order.items) ? order.items : [];
-
-  let hasOverdue = false;
-  let hasWarn = false;
-
-  for (const it of items) {
-    if (!it || !stationSet.includes(it.station)) continue;
-    if (!it.accepted || it.ready) continue;
-    const acceptedAt = parseServerTime(it.accepted_at);
-    if (acceptedAt == null) continue; // missing timestamp => no boost
-    const level = overdueLevel(now - acceptedAt);
-    if (level === "overdue") hasOverdue = true;
-    else if (level === "warn") hasWarn = true;
-  }
+  const hasUnready = items.some((it) => it && stationSet.includes(it.station) && !it.ready);
 
   let score = ageSeconds;
-  if (hasOverdue) score += OVERDUE_BOOST;
-  if (hasWarn) score += WARN_BOOST;
+  if (hasUnready) {
+    const level = overdueLevel(ageMs);
+    if (level === "overdue") score += OVERDUE_BOOST;
+    else if (level === "warn") score += WARN_BOOST;
+  }
   return score;
 }

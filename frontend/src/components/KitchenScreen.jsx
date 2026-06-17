@@ -118,14 +118,13 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
   useEffect(() => {
     const now = Date.now();
 
-    // Is any cook sitting on an accepted, not-ready, overdue item?
-    const stuck = visibleOrders.some((o) =>
-      o._items.some((it) => {
-        if (!it.accepted || it.ready) return false;
-        const acceptedAt = parseServerTime(it.accepted_at) ?? now;
-        return overdueLevel(now - acceptedAt) === "overdue";
-      })
-    );
+    // Заказ «застрял», если есть неготовая позиция и он просрочен по времени появления.
+    const stuck = visibleOrders.some((o) => {
+      const c = parseServerTime(o.created_at);
+      if (c == null) return false;
+      const hasUnready = o._items.some((it) => !it.ready);
+      return hasUnready && overdueLevel(now - c) === "overdue";
+    });
 
     if (!stuck) {
       // Nothing stuck: stop nagging and reset so the next stuck order beeps
@@ -161,21 +160,13 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
               createdAt != null ? formatElapsed(Date.now() - createdAt) : null;
 
             const isNew = newIds.current.has(o.id);
-            // card-level overdue: any accepted, not-ready item past 10 min
-            const cardOverdue = o._items.some((it) => {
-              if (!it.accepted || it.ready) return false;
-              const a = parseServerTime(it.accepted_at) ?? Date.now();
-              return overdueLevel(Date.now() - a) === "overdue";
-            });
-            // card-level warn: any accepted, not-ready item in the 5–10 min band
-            const cardWarn =
-              !cardOverdue &&
-              o._items.some((it) => {
-                if (!it.accepted || it.ready) return false;
-                const a = parseServerTime(it.accepted_at);
-                if (a == null) return false;
-                return overdueLevel(Date.now() - a) === "warn";
-              });
+            const hasUnready = o._items.some((it) => !it.ready);
+            const orderLevel =
+              createdAt != null && hasUnready
+                ? overdueLevel(Date.now() - createdAt)
+                : "ok";
+            const cardOverdue = orderLevel === "overdue";
+            const cardWarn = orderLevel === "warn";
 
             const urgencyBadge = cardOverdue
               ? { text: "🔴 просрочка", bg: "#c0392b" }
@@ -238,7 +229,12 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
                 </div>
                 <div className="order-card__items">
                   {o._items.map((it) => (
-                    <KitchenItemRow key={it.id} item={it} name={name} />
+                    <KitchenItemRow
+                      key={it.id}
+                      item={it}
+                      name={name}
+                      orderCreatedAt={o.created_at}
+                    />
                   ))}
                 </div>
               </section>
