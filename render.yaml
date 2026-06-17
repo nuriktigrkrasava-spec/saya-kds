@@ -1,0 +1,53 @@
+# Render Blueprint for "Saya KDS"
+# Один web-сервис отдаёт FastAPI API + собранный React SPA (frontend/dist),
+# плюс управляемая база данных PostgreSQL.
+#
+# Документация по применению (по-русски, для не-программиста): см. DEPLOY.md
+#
+# ВАЖНО про DATABASE_URL:
+#   Render для своей базы выдаёт строку вида postgres://...
+#   Этому приложению (async SQLAlchemy) нужна форма postgresql+asyncpg://...
+#   Поэтому DATABASE_URL здесь помечен sync: false — его нужно вставить вручную
+#   в дашборде Render, заменив схему postgres:// на postgresql+asyncpg://
+#   (строку берём из вкладки базы saya-kds-db -> Internal Database URL).
+#   Подробности — в DEPLOY.md, раздел про базу данных.
+
+services:
+  - type: web
+    name: saya-kds
+    runtime: python
+    plan: starter            # платный план: free-инстанс засыпает и теряет соединения
+    branch: phase1-backend-ingest
+    healthCheckPath: /health
+    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && pip install -e .
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      # --- Секреты: заполняются вручную в дашборде Render (sync: false) ---
+      - key: CLOUD_API_LOGIN
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: RMS_BASE
+        sync: false
+      - key: RMS_LOGIN
+        sync: false
+      - key: RMS_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # --- База данных ---
+      # Вставляется вручную в форме postgresql+asyncpg://... (см. DEPLOY.md).
+      # Render-овская fromDatabase даёт схему postgres://, которая НЕ подходит
+      # для async SQLAlchemy, поэтому используем sync: false.
+      - key: DATABASE_URL
+        sync: false
+
+databases:
+  - name: saya-kds-db
+    plan: basic-256mb        # минимальный платный план; free-база живёт ограниченно
+    databaseName: saya_kds
+    user: saya_kds
