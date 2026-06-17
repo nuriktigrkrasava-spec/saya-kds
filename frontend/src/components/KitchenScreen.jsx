@@ -23,9 +23,10 @@ function serviceTypeBadge(serviceType) {
   if (
     serviceType === "ToGo" ||
     serviceType === "PickUp" ||
-    serviceType === "DeliveryByPickUp"
+    serviceType === "DeliveryByPickUp" ||
+    serviceType === "DeliveryByClient"
   )
-    return "🏃 Вынос/Самовывоз";
+    return "🏃 Самовывоз";
   return serviceType;
 }
 

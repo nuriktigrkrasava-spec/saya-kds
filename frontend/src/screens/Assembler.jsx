@@ -26,7 +26,14 @@ const OVERDUE_REALARM_MS = 60000;
 function serviceTypeBadge(serviceType) {
   if (!serviceType) return null;
   if (serviceType === "DeliveryByCourier") return "🛵 Доставка";
-  if (serviceType === "DeliveryByPickUp") return "🏃 Самовывоз";
+  if (serviceType === "DineIn" || serviceType === "Common") return "🍽 Зал";
+  if (
+    serviceType === "DeliveryByPickUp" ||
+    serviceType === "DeliveryByClient" ||
+    serviceType === "PickUp" ||
+    serviceType === "ToGo"
+  )
+    return "🏃 Самовывоз";
   return serviceType;
 }
 
