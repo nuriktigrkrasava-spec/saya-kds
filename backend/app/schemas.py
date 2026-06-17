@@ -21,4 +21,5 @@ class NormalizedOrder(BaseModel):
     lat: float | None = None
     lon: float | None = None
     total: float | None = None
+    service_type: str | None = None
     items: list[WebhookItem] = Field(default_factory=list)

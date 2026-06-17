@@ -8,6 +8,7 @@ import Admin from "./screens/Admin.jsx";
 import Branches from "./screens/Branches.jsx";
 import StationMap from "./screens/StationMap.jsx";
 import CourierMap from "./screens/CourierMap.jsx";
+import DemandMap from "./screens/DemandMap.jsx";
 import Login from "./screens/Login.jsx";
 import Track from "./screens/Track.jsx";
 import EmployeeHistory from "./screens/EmployeeHistory.jsx";
@@ -40,6 +41,7 @@ export default function App() {
       <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
       <Route path="/history" element={<RequireManager><EmployeeHistory /></RequireManager>} />
       <Route path="/map" element={<RequireAuth><CourierMap /></RequireAuth>} />
+      <Route path="/demand" element={<RequireManager><DemandMap /></RequireManager>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
   );

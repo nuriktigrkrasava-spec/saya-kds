@@ -74,6 +74,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         lat=coords.get("latitude"),
         lon=coords.get("longitude"),
         total=o.get("sum"),
+        service_type=(o.get("orderType") or {}).get("orderServiceType"),
         items=items,
     )
 

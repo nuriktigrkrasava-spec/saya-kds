@@ -37,6 +37,7 @@ class Order(Base):
     address_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     address_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
     total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    service_type: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     assembled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     on_way_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

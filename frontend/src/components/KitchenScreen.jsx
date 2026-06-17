@@ -12,6 +12,14 @@ import {
 } from "../lib/time.js";
 import { playNewOrder, playOverdue } from "../lib/sound.js";
 
+// Map an iiko orderServiceType to a short Russian badge label.
+function serviceTypeBadge(serviceType) {
+  if (!serviceType) return null;
+  if (serviceType === "DeliveryByCourier") return "🛵 Доставка";
+  if (serviceType === "DeliveryByPickUp") return "🏃 Самовывоз";
+  return serviceType;
+}
+
 // How long a freshly arrived card keeps its attention flash (ms).
 const NEW_FLASH_MS = 6000;
 // Re-sound the overdue alarm at most this often per item while still overdue.
@@ -172,6 +180,22 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
                 <div className="order-card__head">
                   <span className="order-num">№ {o.number}</span>
                   <div className="order-card__meta-head">
+                    {serviceTypeBadge(o.service_type) && (
+                      <span
+                        title="Тип заказа"
+                        style={{
+                          fontSize: "0.8em",
+                          fontWeight: 700,
+                          color: "#fff",
+                          background: "#2c3e50",
+                          borderRadius: "6px",
+                          padding: "2px 8px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {serviceTypeBadge(o.service_type)}
+                      </span>
+                    )}
                     {urgencyBadge && (
                       <span
                         title="Срочность заказа"

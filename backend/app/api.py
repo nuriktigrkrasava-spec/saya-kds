@@ -865,3 +865,38 @@ async def track_order(iiko_order_id: str,
         "stages": stages,
         "courier": courier,
     }
+
+
+# ── Карта спроса: тепловая карта заказов по адресам (для управляющего) ───────
+@app.get("/admin/demand")
+async def admin_demand(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Агрегирует заказы филиала с координатами в кластеры (~100 м).
+
+    Группируем по округлённым до 3 знаков (lat, lon). Заказы без координат
+    пропускаем. Возвращаем точки [{lat, lon, count, sample_address}],
+    отсортированные по убыванию count — управляющий видит, где заказывают чаще
+    всего (куда открыть филиал №14 / куда дать промо).
+    """
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    clusters: dict[tuple[float, float], dict] = {}
+    for o in orders:
+        if o.address_lat is None or o.address_lon is None:
+            continue
+        key = (round(o.address_lat, 3), round(o.address_lon, 3))
+        c = clusters.get(key)
+        if c is None:
+            clusters[key] = {
+                "lat": key[0],
+                "lon": key[1],
+                "count": 1,
+                "sample_address": o.address or "",
+            }
+        else:
+            c["count"] += 1
+            if not c["sample_address"] and o.address:
+                c["sample_address"] = o.address
+
+    points = sorted(clusters.values(), key=lambda p: p["count"], reverse=True)
+    return points

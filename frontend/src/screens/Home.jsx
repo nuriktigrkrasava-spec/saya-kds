@@ -121,6 +121,9 @@ export default function Home() {
               <Link to="/map" className="home-link">
                 Карта курьеров
               </Link>
+              <Link to="/demand" className="home-link">
+                Карта спроса
+              </Link>
             </nav>
           )}
         </div>

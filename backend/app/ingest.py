@@ -29,6 +29,7 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     order.address_lat = data.lat
     order.address_lon = data.lon
     order.total = data.total
+    order.service_type = data.service_type
 
     await session.flush()  # гарантирует order.id
 

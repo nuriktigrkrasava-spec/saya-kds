@@ -28,6 +28,7 @@ def order_payload(order: Order) -> dict:
         "address": order.address,
         "lat": order.address_lat,
         "lon": order.address_lon,
+        "service_type": order.service_type,
         "created_at": _iso(order.created_at),
         "assembled": order.assembled_at is not None,
         "on_way": order.on_way_at is not None,

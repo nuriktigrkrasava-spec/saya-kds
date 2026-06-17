@@ -21,6 +21,14 @@ const ZONE_ORDER = ["rolls", "pizza", "hot", "other"];
 const NEW_FLASH_MS = 6000;
 const OVERDUE_REALARM_MS = 60000;
 
+// Map an iiko orderServiceType to a short Russian badge label.
+function serviceTypeBadge(serviceType) {
+  if (!serviceType) return null;
+  if (serviceType === "DeliveryByCourier") return "🛵 Доставка";
+  if (serviceType === "DeliveryByPickUp") return "🏃 Самовывоз";
+  return serviceType;
+}
+
 function groupByZone(items) {
   const groups = {};
   for (const it of items || []) {
@@ -114,6 +122,22 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
       <div className="order-card__head">
         <span className="order-num">№ {order.number}</span>
         <div className="order-card__meta-head">
+          {serviceTypeBadge(order.service_type) && (
+            <span
+              title="Тип заказа"
+              style={{
+                fontSize: "0.8em",
+                fontWeight: 700,
+                color: "#fff",
+                background: "#2c3e50",
+                borderRadius: "6px",
+                padding: "2px 8px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {serviceTypeBadge(order.service_type)}
+            </span>
+          )}
           {timerText && (
             <span
               className={`order-since order-since--${level}`}
