@@ -35,7 +35,7 @@ export default function App() {
       <Route path="/admin" element={<RequireManager><Admin /></RequireManager>} />
       <Route path="/branches" element={<RequireManager><Branches /></RequireManager>} />
       <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
-      <Route path="/map" element={<RequireManager><CourierMap /></RequireManager>} />
+      <Route path="/map" element={<RequireAuth><CourierMap /></RequireAuth>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
   );

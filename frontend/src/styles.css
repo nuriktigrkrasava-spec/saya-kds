@@ -965,3 +965,37 @@ button {
     display: none;
   }
 }
+
+/* ── Мини-карта курьеров на экране сборщика ─────────────────────────────── */
+.minimap {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.minimap__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 15px;
+}
+.minimap__count {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 13px;
+}
+.minimap__chev { margin-left: auto; color: #64748b; }
+.minimap__canvas { height: 280px; width: 100%; }
+.minimap__fallback { padding: 12px 16px; }
+.minimap__row { padding: 4px 0; }
