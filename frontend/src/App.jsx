@@ -7,6 +7,7 @@ import TgCourier from "./screens/TgCourier.jsx";
 import Admin from "./screens/Admin.jsx";
 import Branches from "./screens/Branches.jsx";
 import StationMap from "./screens/StationMap.jsx";
+import CourierMap from "./screens/CourierMap.jsx";
 import Login from "./screens/Login.jsx";
 import { isAuthed } from "./lib/auth.js";
 
@@ -27,6 +28,7 @@ export default function App() {
       <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
       <Route path="/branches" element={<RequireAuth><Branches /></RequireAuth>} />
       <Route path="/stations" element={<RequireAuth><StationMap /></RequireAuth>} />
+      <Route path="/map" element={<RequireAuth><CourierMap /></RequireAuth>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
   );

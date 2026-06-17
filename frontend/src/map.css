@@ -1,0 +1,73 @@
+.cmap {
+  min-height: 100vh;
+  background: #eef1f6;
+  display: flex;
+  flex-direction: column;
+}
+.cmap__top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+}
+.cmap__back {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+.cmap__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.cmap__count {
+  margin-left: auto;
+  background: #eef2ff;
+  color: #3730a3;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 12px;
+}
+.cmap__err {
+  color: #dc2626;
+  padding: 8px 20px;
+  margin: 0;
+}
+.cmap__canvas {
+  flex: 1;
+  min-height: 70vh;
+  width: 100%;
+}
+.cmap__fallback {
+  padding: 16px 20px;
+}
+.cmap__muted {
+  color: #64748b;
+}
+.cmap__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+}
+.cmap__name {
+  font-weight: 700;
+  color: #0f172a;
+}
+.cmap__ago {
+  color: #64748b;
+  font-size: 14px;
+}
+.cmap__link {
+  margin-left: auto;
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}

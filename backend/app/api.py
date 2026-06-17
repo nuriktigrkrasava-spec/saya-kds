@@ -635,3 +635,65 @@ async def tg_my_orders(courier_code: str,
                _Order.delivered_at.is_(None))
         .order_by(_Order.created_at))).scalars().all()
     return [realtime.order_payload(o) for o in rows]
+
+
+# ── GPS-трекинг курьеров ────────────────────────────────────────────────────
+from app.models import CourierLocation as _CourierLocation
+
+
+class TgLocationIn(BaseModel):
+    initData: str
+    lat: float
+    lon: float
+
+
+@app.post("/tg/location")
+async def tg_location(body: TgLocationIn,
+                      session: AsyncSession = Depends(get_session)):
+    """Курьер из Telegram-аппа шлёт свою геопозицию (раз в ~20с)."""
+    pairs = _telegram.parse_and_validate(body.initData)
+    if pairs is None:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+    user = _telegram.extract_user(pairs)
+    telegram_id = str(user.get("id") or "")
+    link = (await session.execute(
+        _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=401, detail="not linked")
+
+    loc = (await session.execute(
+        _select(_CourierLocation).where(
+            _CourierLocation.courier_code == link.employee_code))
+    ).scalar_one_or_none()
+    if loc is None:
+        loc = _CourierLocation(courier_code=link.employee_code)
+        session.add(loc)
+    loc.name = link.name
+    loc.branch_code = link.branch_code
+    loc.lat = body.lat
+    loc.lon = body.lon
+    loc.updated_at = _dt.utcnow()
+    await session.commit()
+    return {"ok": True}
+
+
+@app.get("/admin/couriers-locations")
+async def couriers_locations(branch_code: str | None = None,
+                             session: AsyncSession = Depends(get_session)):
+    """Последние позиции курьеров (для карты управляющего)."""
+    q = _select(_CourierLocation)
+    if branch_code:
+        q = q.where(_CourierLocation.branch_code == branch_code)
+    rows = (await session.execute(q)).scalars().all()
+    now = _dt.utcnow()
+    out = []
+    for r in rows:
+        mins = int((now - r.updated_at).total_seconds() // 60) if r.updated_at else None
+        out.append({
+            "courier_code": r.courier_code, "name": r.name,
+            "lat": r.lat, "lon": r.lon,
+            "updated_at": r.updated_at.isoformat() + "Z" if r.updated_at else None,
+            "minutes_ago": mins,
+        })
+    return out

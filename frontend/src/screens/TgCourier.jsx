@@ -106,6 +106,37 @@ export default function TgCourier() {
     return () => clearInterval(t);
   }, [phase, identity, loadOrders]);
 
+  // --- send GPS location every 20s while on shift -----------------------------
+  const [geo, setGeo] = useState("выкл");
+  useEffect(() => {
+    if (phase !== "orders" || !initData || !navigator.geolocation) {
+      setGeo("нет доступа");
+      return;
+    }
+    let alive = true;
+    const send = () => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          if (!alive) return;
+          try {
+            await api.tgLocation(initData, pos.coords.latitude, pos.coords.longitude);
+            setGeo("вкл");
+          } catch {
+            /* молча: не ломаем UI заказов */
+          }
+        },
+        () => alive && setGeo("нет доступа"),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      );
+    };
+    send();
+    const t = setInterval(send, 20000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [phase, initData]);
+
   // --- PIN pad ----------------------------------------------------------------
   function press(key) {
     setPinErr("");
@@ -254,7 +285,10 @@ export default function TgCourier() {
   return (
     <div className="tg">
       <header className="tg__header">
-        <span className="tg__header-title">Курьер · {identity?.name || ""}</span>
+        <span className="tg__header-title">
+          Курьер · {identity?.name || ""}
+          <span className="tg__geo"> · 📍 {geo}</span>
+        </span>
         <button
           type="button"
           className="tg__refresh"

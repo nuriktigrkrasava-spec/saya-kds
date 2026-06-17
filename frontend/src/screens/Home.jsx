@@ -114,6 +114,9 @@ export default function Home() {
             <Link to="/branches" className="home-link">
               Филиалы и сотрудники
             </Link>
+            <Link to="/map" className="home-link">
+              Карта курьеров
+            </Link>
           </nav>
         </div>
       </div>

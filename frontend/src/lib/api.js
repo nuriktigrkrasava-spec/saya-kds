@@ -86,4 +86,5 @@ export const api = {
   tgLink: (initData, pin) => tgPost("/tg/link", { initData, pin }),
   tgMyOrders: (courier_code) =>
     tgGet(`/tg/my-orders?courier_code=${encodeURIComponent(courier_code)}`),
+  tgLocation: (initData, lat, lon) => tgPost("/tg/location", { initData, lat, lon }),
 };

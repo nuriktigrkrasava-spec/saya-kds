@@ -92,3 +92,14 @@ class TelegramLink(Base):
     branch_code: Mapped[str | None] = mapped_column(String, nullable=True)
     org_id: Mapped[str | None] = mapped_column(String, nullable=True)
     role: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class CourierLocation(Base):
+    __tablename__ = "courier_locations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    courier_code: Mapped[str] = mapped_column(String, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    branch_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
