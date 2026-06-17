@@ -6,7 +6,8 @@ from sqlalchemy import select
 from app.db import Base
 import app.models  # noqa: F401
 from app.models import ProductStationMap, Order, OrderItem
-from app.stations import classify_group
+from app.stations import classify_group, classify_name, build_resolver
+from app.schemas import WebhookItem
 
 
 # ── Юнит-тесты классификатора групп меню ──────────────────────────────────
@@ -44,6 +45,64 @@ def test_classify_empty_is_other():
 def test_classify_sets_and_sushi_are_rolls():
     assert classify_group("Сеты") == "rolls"
     assert classify_group("Суши") == "rolls"
+
+
+# ── Юнит-тесты классификатора по НАЗВАНИЮ блюда ───────────────────────────
+
+def test_classify_name_tempura_roll():
+    assert classify_name("Сяке темпура ролл") == "rolls"
+
+
+def test_classify_name_set():
+    assert classify_name("*Нами сет") == "rolls"
+
+
+def test_classify_name_philadelphia():
+    assert classify_name("Филадельфия") == "rolls"
+
+
+def test_classify_name_pizza():
+    assert classify_name("Пицца С колбасками") == "pizza"
+
+
+def test_classify_name_tom_yam():
+    assert classify_name("Том Ям") == "hot"
+
+
+def test_classify_name_wok():
+    assert classify_name("Вок с курицей") == "hot"
+
+
+def test_classify_name_other():
+    assert classify_name("Кока-кола") == "other"
+
+
+def test_classify_name_pizza_before_rolls():
+    # «пицц» проверяется раньше ролл-ключей: пицца не должна попасть в rolls.
+    assert classify_name("Пицца") == "pizza"
+
+
+def test_classify_name_empty_is_other():
+    assert classify_name("") == "other"
+    assert classify_name(None) == "other"
+
+
+# ── Юнит-тест: resolver откатывается на классификацию по имени ─────────────
+
+async def test_resolver_falls_back_to_name():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        # Пустой маппинг: нет ни by_product, ни by_category.
+        async with maker() as s:
+            resolve = await build_resolver(s)
+            item = WebhookItem(product_id="x", category_id=None,
+                               name="Дракон ролл", amount=1)
+            assert resolve(item) == "rolls"
+    finally:
+        await engine.dispose()
 
 
 # ── Интеграционный тест эндпоинта авторазметки ────────────────────────────

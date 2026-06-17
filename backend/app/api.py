@@ -352,7 +352,7 @@ async def rms_branches():
 # ──────────────────────────────────────────────────────────────────────────
 # Разметка зон (станций) для блюд по группам меню iiko.
 # ──────────────────────────────────────────────────────────────────────────
-from app.stations import build_resolver as _build_resolver, classify_group as _classify_group, VALID_STATIONS as _VALID_STATIONS
+from app.stations import build_resolver as _build_resolver, classify_group as _classify_group, classify_name as _classify_name, VALID_STATIONS as _VALID_STATIONS
 
 
 def _group_id_to_name(nomenclature: dict) -> dict[str, str]:
@@ -441,7 +441,10 @@ async def admin_stations_auto(org_id: str,
     products = _products_with_group(nomenclature)
 
     for p in products:
-        zone = _classify_group(p["group_name"])
+        # Классифицируем по НАЗВАНИЮ блюда (надёжнее), с откатом на группу меню.
+        zone = _classify_name(p["name"])
+        if zone == "other":
+            zone = _classify_group(p["group_name"])
         await _upsert_station(session, p["product_id"], zone)
     await session.commit()
 
