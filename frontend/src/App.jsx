@@ -9,6 +9,7 @@ import Branches from "./screens/Branches.jsx";
 import StationMap from "./screens/StationMap.jsx";
 import CourierMap from "./screens/CourierMap.jsx";
 import Login from "./screens/Login.jsx";
+import Track from "./screens/Track.jsx";
 import { isAuthed, isManager } from "./lib/auth.js";
 
 function RequireAuth({ children }) {
@@ -28,6 +29,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/tg" element={<TgCourier />} />
+      <Route path="/track/:id" element={<Track />} />
       <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
       <Route path="/rolls" element={<RequireAuth><KitchenRolls /></RequireAuth>} />
       <Route path="/pizza" element={<RequireAuth><KitchenPizza /></RequireAuth>} />

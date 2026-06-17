@@ -697,3 +697,72 @@ async def couriers_locations(branch_code: str | None = None,
             "minutes_ago": mins,
         })
     return out
+
+
+# ── Публичное отслеживание заказа (для клиента, без авторизации) ─────────────
+def _iso(value) -> str | None:
+    """datetime -> ISO-строка с суффиксом Z, либо None."""
+    return value.isoformat() + "Z" if value is not None else None
+
+
+@app.get("/track/{iiko_order_id}")
+async def track_order(iiko_order_id: str,
+                      session: AsyncSession = Depends(get_session)):
+    """ПУБЛИЧНО: статус заказа для клиента по ссылке (как у Domino's).
+
+    Не требует авторизации и НЕ отдаёт телефон/имя клиента — только номер,
+    адрес, таймлайн стадий и (пока курьер в пути) живую точку курьера.
+    """
+    order = (await session.execute(
+        _select(_Order).where(_Order.iiko_order_id == iiko_order_id))
+    ).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="order not found")
+
+    accepted_times = [it.station_accepted_at for it in order.items
+                      if it.station_accepted_at is not None]
+    ready_times = [it.station_ready_at for it in order.items
+                   if it.station_ready_at is not None]
+
+    cooking_at = min(accepted_times) if accepted_times else None
+    if ready_times:
+        assembling_at = min(ready_times)
+    else:
+        assembling_at = order.assembled_at
+    assembling_done = bool(ready_times) or order.assembled_at is not None
+
+    stages = [
+        {"key": "accepted", "label": "Принят",
+         "done": order.created_at is not None, "at": _iso(order.created_at)},
+        {"key": "cooking", "label": "Готовится",
+         "done": bool(accepted_times), "at": _iso(cooking_at)},
+        {"key": "assembling", "label": "Собирается",
+         "done": assembling_done, "at": _iso(assembling_at)},
+        {"key": "on_way", "label": "В пути",
+         "done": order.on_way_at is not None, "at": _iso(order.on_way_at)},
+        {"key": "delivered", "label": "Доставлен",
+         "done": order.delivered_at is not None, "at": _iso(order.delivered_at)},
+    ]
+
+    # Живая точка курьера видна ТОЛЬКО пока заказ в пути (взят, но не доставлен)
+    # и для назначенного курьера есть свежая геопозиция.
+    courier = None
+    if (order.on_way_at is not None and order.delivered_at is None
+            and order.assigned_courier_code):
+        loc = (await session.execute(
+            _select(_CourierLocation).where(
+                _CourierLocation.courier_code == order.assigned_courier_code))
+        ).scalar_one_or_none()
+        if loc is not None:
+            minutes_ago = (int((_dt.utcnow() - loc.updated_at).total_seconds() // 60)
+                           if loc.updated_at else None)
+            courier = {"lat": loc.lat, "lon": loc.lon, "minutes_ago": minutes_ago}
+
+    return {
+        "number": order.number,
+        "status": order.status,
+        "address": order.address,
+        "eta": None,
+        "stages": stages,
+        "courier": courier,
+    }

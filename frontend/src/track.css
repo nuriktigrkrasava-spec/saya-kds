@@ -1,0 +1,182 @@
+/* Публичная страница отслеживания заказа (клиентская, мобайл-first). */
+
+.trk {
+  --bg: #0f1115;
+  --card: #171a21;
+  --line: #2a2f3a;
+  --txt: #f3f5f8;
+  --muted: #9aa3b2;
+  --accent: #ff5a36;
+  --done: #2ec27e;
+
+  min-height: 100vh;
+  margin: 0 auto;
+  max-width: 520px;
+  padding: 24px 18px 48px;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--txt);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.trk--center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+}
+
+.trk__head {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.trk__brand {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.trk__order {
+  font-size: 30px;
+  font-weight: 800;
+  margin: 8px 0 4px;
+}
+
+.trk__addr {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 0;
+}
+
+/* Вертикальный таймлайн стадий. */
+.trk__timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.trk__stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 16px;
+  margin-bottom: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  transition: all 0.25s ease;
+}
+
+.trk__dot {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--muted);
+  background: #20242e;
+  border: 2px solid var(--line);
+}
+
+.trk__stage.is-done .trk__dot {
+  background: var(--done);
+  border-color: var(--done);
+  color: #06120c;
+}
+
+.trk__stage.is-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(255, 90, 54, 0.18);
+}
+
+.trk__stage.is-current .trk__dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  animation: trkpulse 1.6s ease-in-out infinite;
+}
+
+@keyframes trkpulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 54, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 90, 54, 0); }
+}
+
+.trk__stagebody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.trk__label {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.trk__stage:not(.is-done):not(.is-current) .trk__label {
+  color: var(--muted);
+}
+
+.trk__at {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Блок курьера + карта. */
+.trk__courier {
+  margin-top: 26px;
+}
+
+.trk__chead {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+.trk__map {
+  width: 100%;
+  height: 280px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.trk__title {
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.trk__big {
+  font-size: 56px;
+}
+
+.trk__muted {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Спиннер загрузки. */
+.trk__spinner {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  animation: trkspin 0.9s linear infinite;
+}
+
+@keyframes trkspin {
+  to { transform: rotate(360deg); }
+}
