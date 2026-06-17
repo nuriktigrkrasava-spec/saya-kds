@@ -302,47 +302,41 @@ export default function TgCourier() {
   }
 
   // phase === "orders"
+  const geoOn = geo.startsWith("вкл");
   return (
     <div className="tg">
       <header className="tg__header">
-        <span className="tg__header-title">
-          Курьер · {identity?.name || ""}
-          <span className="tg__geo"> · 📍 {geo}</span>
-        </span>
-        <button
-          type="button"
-          className="tg__refresh"
-          onClick={() => loadOrders(identity?.courier_code)}
-          disabled={refreshing}
-          aria-label="Обновить"
-        >
-          {refreshing ? "…" : "↻"}
-        </button>
-        <button
-          type="button"
-          className="tg__refresh"
-          onClick={logout}
-          aria-label="Выйти"
-          title="Выйти / сменить курьера"
-          style={{ marginLeft: 8 }}
-        >
-          Выйти
-        </button>
+        <span className="tg__header-title">Курьер · {identity?.name || ""}</span>
+        <div className="tg__header-actions">
+          <button
+            type="button"
+            className="tg__icon-btn"
+            onClick={() => loadOrders(identity?.courier_code)}
+            disabled={refreshing}
+            aria-label="Обновить"
+          >
+            {refreshing ? "…" : "↻"}
+          </button>
+          <button
+            type="button"
+            className="tg__icon-btn tg__logout"
+            onClick={logout}
+            aria-label="Выйти"
+            title="Выйти / сменить курьера"
+          >
+            Выйти
+          </button>
+        </div>
       </header>
 
       <main className="tg__body">
-        <div
-          style={{
-            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-            padding: "10px 12px", marginBottom: 10, borderRadius: 12,
-            background: geo.startsWith("вкл") ? "#e8f7ee" : "#fff4e5",
-          }}
-        >
-          <span style={{ fontSize: 14 }}>📍 Геолокация: <b>{geo}</b></span>
+        <div className={`tg__geo ${geoOn ? "tg__geo--on" : "tg__geo--off"}`}>
+          <span className="tg__geo-text">
+            📍 Геолокация: <b>{geo}</b>
+          </span>
           <button
             type="button"
-            className="tg-btn tg-btn--route"
-            style={{ marginLeft: "auto", padding: "8px 14px" }}
+            className="tg__geo-btn"
             onClick={() => sendLocation(true)}
           >
             Включить геолокацию
@@ -389,15 +383,15 @@ export default function TgCourier() {
                 <div className="tg-card__actions">
                   <button
                     type="button"
-                    className="tg-btn tg-btn--route"
+                    className="tg-btn tg-btn--primary"
                     onClick={() => buildRoute(o)}
                     disabled={o.lat == null || o.lon == null}
                   >
-                    🗺 Построить маршрут
+                    🗺 Маршрут
                   </button>
                   <button
                     type="button"
-                    className="tg-btn tg-btn--done"
+                    className="tg-btn tg-btn--success"
                     onClick={() => markDelivered(o)}
                     disabled={actingId === o.id}
                   >

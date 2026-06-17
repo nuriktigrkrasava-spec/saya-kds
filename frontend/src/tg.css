@@ -1,13 +1,25 @@
 /* Saya — Telegram mini-app courier screen.
-   Phone-width layout. Uses Telegram theme params when available with fallbacks. */
-:root {
-  --tg-bg: #0f172a;
-  --tg-card: #1e293b;
-  --tg-text: #f8fafc;
-  --tg-hint: #94a3b8;
-  --tg-accent: #7c3aed;
+   Phone-width, mobile-first. Theme-aware via Telegram theme params,
+   with solid LIGHT fallbacks so it looks good with or without theming. */
+:root,
+.tg {
+  --tg-bg: #f4f4f7;
+  --tg-text: #0f172a;
+  --tg-hint: #8a8a8e;
+  --tg-accent: #2ea6ff;
   --tg-accent-text: #ffffff;
-  --tg-done: #16a34a;
+  --tg-card: #ffffff;
+
+  /* derived tokens */
+  --tg-success: #34c759;
+  --tg-success-text: #ffffff;
+  --tg-danger: #f04438;
+  --tg-border: rgba(0, 0, 0, 0.07);
+  --tg-ghost: rgba(0, 0, 0, 0.05);
+  --tg-ghost-hover: rgba(0, 0, 0, 0.09);
+  --tg-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.05);
+  --tg-radius: 16px;
+  --tg-radius-sm: 12px;
 }
 
 .tg {
@@ -16,11 +28,16 @@
   background: var(--tg-bg);
   color: var(--tg-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 }
 
-.tg * {
+.tg *,
+.tg *::before,
+.tg *::after {
   box-sizing: border-box;
 }
 
@@ -31,9 +48,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px 20px;
+  padding: 32px 24px;
   text-align: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .tg__logo {
@@ -43,23 +60,24 @@
 
 .tg__title {
   margin: 4px 0 0;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .tg__muted {
   margin: 0;
   color: var(--tg-hint);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .tg__err {
   margin: 4px 0 0;
-  color: #f87171;
+  color: var(--tg-danger);
   font-size: 14px;
   min-height: 18px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s ease;
 }
 
 .tg__err--show {
@@ -71,15 +89,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  height: 36px;
+  gap: 12px;
+  height: 40px;
   margin-top: 8px;
 }
 
 .tg__pin-placeholder {
   color: var(--tg-hint);
-  font-size: 28px;
-  letter-spacing: 6px;
+  font-size: 30px;
+  letter-spacing: 8px;
 }
 
 .tg__pin-dot {
@@ -105,15 +123,17 @@
   color: var(--tg-text);
   font-size: 24px;
   font-weight: 600;
-  border-radius: 16px;
-  padding: 18px 0;
+  border-radius: var(--tg-radius);
+  min-height: 60px;
+  padding: 16px 0;
   cursor: pointer;
-  transition: filter 0.1s, transform 0.05s;
+  box-shadow: var(--tg-shadow);
+  transition: filter 0.1s ease, transform 0.05s ease;
 }
 
 .tg__key:active {
   transform: scale(0.96);
-  filter: brightness(1.2);
+  filter: brightness(0.95);
 }
 
 .tg__key--ok {
@@ -123,78 +143,168 @@
 }
 
 .tg__key--del {
+  background: var(--tg-ghost);
+  box-shadow: none;
   font-size: 22px;
 }
 
 .tg__key:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
-/* ---- orders view -------------------------------------------------------- */
+/* ---- orders view : header ----------------------------------------------- */
 .tg__header {
   position: sticky;
   top: 0;
   z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 8px;
+  padding: 12px 16px;
   background: var(--tg-card);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--tg-border);
 }
 
 .tg__header-title {
-  font-size: 16px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 17px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tg__refresh {
+.tg__header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tg__icon-btn {
   flex: 0 0 auto;
   appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tg-ghost);
   color: var(--tg-text);
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--tg-radius-sm);
   font-size: 20px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.05s ease;
 }
 
-.tg__refresh:disabled {
+.tg__icon-btn:active {
+  transform: scale(0.94);
+}
+
+.tg__icon-btn:hover {
+  background: var(--tg-ghost-hover);
+}
+
+.tg__icon-btn:disabled {
   opacity: 0.5;
+  cursor: default;
 }
 
+.tg__logout {
+  width: auto;
+  padding: 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tg-hint);
+}
+
+/* ---- orders view : body ------------------------------------------------- */
 .tg__body {
   flex: 1;
-  padding: 14px 14px 28px;
+  padding: 12px 14px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
+/* ---- geolocation pill --------------------------------------------------- */
+.tg__geo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--tg-radius-sm);
+  background: var(--tg-ghost);
+  border: 1px solid var(--tg-border);
+}
+
+.tg__geo--on {
+  background: rgba(52, 199, 89, 0.12);
+  border-color: rgba(52, 199, 89, 0.28);
+}
+
+.tg__geo--off {
+  background: rgba(255, 159, 10, 0.12);
+  border-color: rgba(255, 159, 10, 0.30);
+}
+
+.tg__geo-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.tg__geo-text b {
+  font-weight: 700;
+}
+
+.tg__geo-btn {
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  background: var(--tg-accent);
+  color: var(--tg-accent-text);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.1s ease, transform 0.05s ease;
+}
+
+.tg__geo-btn:active {
+  transform: scale(0.97);
+  filter: brightness(0.95);
+}
+
+/* ---- empty state -------------------------------------------------------- */
 .tg__empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 60px 20px;
+  padding: 56px 20px;
   text-align: center;
 }
 
+/* ---- order cards -------------------------------------------------------- */
 .tg__list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .tg-card {
   background: var(--tg-card);
-  border-radius: 18px;
+  border-radius: var(--tg-radius);
   padding: 16px;
+  box-shadow: var(--tg-shadow);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -208,24 +318,28 @@
 }
 
 .tg-card__num {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .tg-card__cust {
   font-size: 15px;
-  color: var(--tg-hint);
+  font-weight: 600;
+  color: var(--tg-text);
   text-align: right;
 }
 
 .tg-card__addr {
   font-size: 15px;
-  line-height: 1.35;
+  line-height: 1.4;
+  color: var(--tg-text);
 }
 
 .tg-card__phone {
   font-size: 15px;
-  color: var(--tg-text);
+  font-weight: 600;
+  color: var(--tg-accent);
   text-decoration: none;
   width: fit-content;
 }
@@ -234,35 +348,41 @@
   list-style: none;
   margin: 4px 0 0;
   padding: 10px 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--tg-border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   font-size: 14px;
   color: var(--tg-hint);
 }
 
 .tg-card__amount {
   color: var(--tg-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .tg-card__actions {
   display: flex;
-  flex-direction: column;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
+/* ---- button system : primary / success / ghost ------------------------- */
 .tg-btn {
+  flex: 1 1 0;
   appearance: none;
   border: none;
-  border-radius: 14px;
-  padding: 14px;
-  font-size: 16px;
+  border-radius: var(--tg-radius-sm);
+  min-height: 48px;
+  padding: 12px 14px;
+  font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  transition: filter 0.1s, transform 0.05s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: filter 0.1s ease, transform 0.05s ease;
 }
 
 .tg-btn:active {
@@ -270,16 +390,35 @@
 }
 
 .tg-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
-.tg-btn--route {
-  background: rgba(255, 255, 255, 0.1);
+.tg-btn--primary {
+  background: var(--tg-accent);
+  color: var(--tg-accent-text);
+}
+
+.tg-btn--success {
+  background: var(--tg-success);
+  color: var(--tg-success-text);
+}
+
+.tg-btn--ghost {
+  background: var(--tg-ghost);
   color: var(--tg-text);
 }
 
-.tg-btn--done {
-  background: var(--tg-done);
-  color: #fff;
+.tg-btn--primary:active,
+.tg-btn--success:active {
+  filter: brightness(0.95);
+}
+
+/* ---- reduced motion ----------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .tg *,
+  .tg *::before,
+  .tg *::after {
+    transition: none !important;
+  }
 }
