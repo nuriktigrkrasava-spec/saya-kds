@@ -69,7 +69,7 @@ async def test_poll_once_ingests_and_advances_revision(memory_maker):
     # Курсор ревизии продвинулся до maxRevision.
     assert poller._revisions[org] == 7
     # Запрос ушёл со стартовой ревизией 0.
-    assert b'"startRevision": 0' in route.calls.last.request.read()
+    assert b'"startRevision":0' in route.calls.last.request.read().replace(b" ", b"")
 
 
 @respx.mock
