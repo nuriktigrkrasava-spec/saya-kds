@@ -9,10 +9,17 @@ import Branches from "./screens/Branches.jsx";
 import StationMap from "./screens/StationMap.jsx";
 import CourierMap from "./screens/CourierMap.jsx";
 import Login from "./screens/Login.jsx";
-import { isAuthed } from "./lib/auth.js";
+import { isAuthed, isManager } from "./lib/auth.js";
 
 function RequireAuth({ children }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
+  return children;
+}
+
+// Доступ только управляющим (аналитика, сотрудники, разметка, карта).
+function RequireManager({ children }) {
+  if (!isAuthed()) return <Navigate to="/login" replace />;
+  if (!isManager()) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -25,10 +32,10 @@ export default function App() {
       <Route path="/rolls" element={<RequireAuth><KitchenRolls /></RequireAuth>} />
       <Route path="/pizza" element={<RequireAuth><KitchenPizza /></RequireAuth>} />
       <Route path="/assembler" element={<RequireAuth><Assembler /></RequireAuth>} />
-      <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
-      <Route path="/branches" element={<RequireAuth><Branches /></RequireAuth>} />
-      <Route path="/stations" element={<RequireAuth><StationMap /></RequireAuth>} />
-      <Route path="/map" element={<RequireAuth><CourierMap /></RequireAuth>} />
+      <Route path="/admin" element={<RequireManager><Admin /></RequireManager>} />
+      <Route path="/branches" element={<RequireManager><Branches /></RequireManager>} />
+      <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
+      <Route path="/map" element={<RequireManager><CourierMap /></RequireManager>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
   );

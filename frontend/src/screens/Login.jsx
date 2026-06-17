@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
-import { saveSession } from "../lib/auth.js";
+import { saveSession, routeForRole } from "../lib/auth.js";
 import "../login.css";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "del", "0", "ok"];
@@ -33,7 +33,7 @@ export default function Login() {
     try {
       const resp = await api.login(pin);
       saveSession(resp);
-      navigate("/", { replace: true });
+      navigate(routeForRole(resp.role), { replace: true });
     } catch {
       setError("Неверный PIN");
       setPin("");

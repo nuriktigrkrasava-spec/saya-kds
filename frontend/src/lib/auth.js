@@ -47,3 +47,29 @@ export function getOperatorName() {
 export function isAuthed() {
   return !!getSession();
 }
+
+// ── Роли ────────────────────────────────────────────────────────────────────
+export const MANAGER_ROLES = ["MN0", "Администратор", "УПРЭКСПО", "ADM", "ADM2"];
+
+// Код роли -> экран, куда направить при входе.
+const ROLE_ROUTE = {
+  // роллы (экран «Роллы/Горячее» показывает и горячее)
+  "СУШ": "/rolls", "СЭКСПО12": "/rolls", "СЭКСПО13": "/rolls", "СуШеф": "/rolls",
+  "CO1": "/rolls", // повар (горячее) — тот же объединённый экран
+  // пицца
+  "ПИЦЦ": "/pizza", "ПЭКСПО13": "/pizza",
+};
+
+export function getRole() {
+  const s = getSession();
+  return (s && s.role) || "";
+}
+
+export function isManager() {
+  return MANAGER_ROLES.includes(getRole());
+}
+
+export function routeForRole(role) {
+  if (MANAGER_ROLES.includes(role)) return "/";
+  return ROLE_ROUTE[role] || "/";
+}

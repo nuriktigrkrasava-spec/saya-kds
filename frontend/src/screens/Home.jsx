@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
-import { getSession, clearSession } from "../lib/auth.js";
+import { getSession, clearSession, isManager } from "../lib/auth.js";
 
 const DEVICES = [
   {
@@ -104,20 +104,22 @@ export default function Home() {
           {status && (
             <p className={`seed-status ${status.ok ? "ok" : "err"}`}>{status.msg}</p>
           )}
-          <nav className="home__links">
-            <Link to="/admin" className="home-link">
-              Аналитика
-            </Link>
-            <Link to="/stations" className="home-link">
-              Разметка зон
-            </Link>
-            <Link to="/branches" className="home-link">
-              Филиалы и сотрудники
-            </Link>
-            <Link to="/map" className="home-link">
-              Карта курьеров
-            </Link>
-          </nav>
+          {isManager() && (
+            <nav className="home__links">
+              <Link to="/admin" className="home-link">
+                Аналитика
+              </Link>
+              <Link to="/stations" className="home-link">
+                Разметка зон
+              </Link>
+              <Link to="/branches" className="home-link">
+                Филиалы и сотрудники
+              </Link>
+              <Link to="/map" className="home-link">
+                Карта курьеров
+              </Link>
+            </nav>
+          )}
         </div>
       </div>
     </div>

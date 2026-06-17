@@ -168,6 +168,9 @@ export default function Branches() {
                         b._shown.map((e, i) => (
                           <div className="emp-row" key={e.code || e.name || i}>
                             <span className="emp-row__name">{e.name}</span>
+                            {e.code && (
+                              <span className="emp-row__pin">PIN {e.code}</span>
+                            )}
                             {e.role && (
                               <span className="emp-row__role">{e.role}</span>
                             )}

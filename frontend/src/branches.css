@@ -246,3 +246,15 @@
   color: #9ca3af;
   font-size: 15px;
 }
+
+.emp-row__pin {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 13px;
+}
+.emp-row__pin + .emp-row__role { margin-left: 8px; }
