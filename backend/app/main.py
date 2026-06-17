@@ -24,9 +24,13 @@ async def _create_tables():
 DIST = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
 
 # Префиксы, которые обслуживает API и которые SPA-роут НЕ должен перехватывать.
+# Только чисто-API namespace'ы. Имена, которые ОДНОВРЕМЕННО являются маршрутами
+# фронта (/admin, /branches, /tg, /stations), сюда НЕ входят: их под-роуты
+# (/admin/analytics, /tg/auth, ...) уже зарегистрированы и матчатся раньше catch-all,
+# а сама страница (/admin, /tg) должна отдавать index.html для SPA.
 _API_PREFIXES = (
     "health", "orders", "items", "webhooks", "debug", "auth",
-    "admin", "rms", "branches", "tg", "assets", "docs", "openapi.json", "redoc",
+    "rms", "assets", "docs", "openapi.json", "redoc",
 )
 
 if os.path.isdir(DIST):
