@@ -153,13 +153,18 @@ async def client():
     await engine.dispose()
 
 
-@respx.mock
-async def test_auto_endpoint_maps_products_and_reclassifies(client):
+async def test_auto_endpoint_maps_products_and_reclassifies(client, monkeypatch):
     c, maker = client
-    respx.post("https://api-ru.iiko.services/api/1/access_token").mock(
-        return_value=Response(200, json={"token": "T"}))
-    respx.post("https://api-ru.iiko.services/api/1/nomenclature").mock(
-        return_value=Response(200, json=NOMENCLATURE))
+    # Авторазметка теперь берёт меню из RMS — мокаем rms.fetch_products.
+    import app.rms
+
+    async def fake_products():
+        return [
+            {"id": "p-fila", "name": "Филадельфия ролл", "group_id": None},
+            {"id": "p-marg", "name": "Пицца Маргарита", "group_id": None},
+        ]
+
+    monkeypatch.setattr(app.rms, "fetch_products", fake_products)
 
     r = await c.post("/admin/stations/auto?org_id=org-1")
     assert r.status_code == 200
