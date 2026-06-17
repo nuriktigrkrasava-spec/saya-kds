@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from app.api import app as fastapi_app
 from app.realtime import sio
 from app.db import engine, Base
+from app.poller import start_poller, stop_poller
 import app.models  # noqa: F401
 
 
@@ -14,6 +15,14 @@ import app.models  # noqa: F401
 async def _create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Фоллбэк-поллер: периодически опрашивает iiko by_revision, чтобы добрать
+    # заказы, пропущенные вебхуками. Отключён по умолчанию (POLL_INTERVAL_SECONDS<=0).
+    fastapi_app.state.poller_task = start_poller()
+
+
+@fastapi_app.on_event("shutdown")
+async def _stop_poller():
+    await stop_poller(getattr(fastapi_app.state, "poller_task", None))
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -60,6 +60,13 @@ async def broadcast_order(order: Order) -> None:
     await sio.emit("order:update", payload, room=room(order.org_id, "courier"))
 
 
+async def broadcast_stoplist(org_id: str, items: list[dict]) -> None:
+    """Рассылает текущий стоп-лист филиала во все рабочие комнаты (зоны + сборщик)."""
+    payload = {"org_id": org_id, "items": items}
+    for zone in (*ZONES, "assembler"):
+        await sio.emit("stoplist:update", payload, room=room(org_id, zone))
+
+
 @sio.event
 async def join(sid, data):
     """Клиент просит вступить в комнату своего филиала+зоны. data={org_id, zone}."""

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import ScreenHeader from "./ScreenHeader.jsx";
 import KitchenItemRow from "./KitchenItemRow.jsx";
+import StopListBanner from "./StopListBanner.jsx";
 import { useOrders } from "../lib/orders.js";
 import { getOperatorName } from "../lib/auth.js";
 import {
@@ -138,6 +139,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
       <ScreenHeader title={title} accent={accent} connected={connected} />
 
       <main className="screen-body">
+        <StopListBanner />
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}
         {!loading && !error && visibleOrders.length === 0 && (

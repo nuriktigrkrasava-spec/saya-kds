@@ -5,8 +5,55 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_session
+from datetime import datetime as _dt
+from sqlalchemy import delete as _sl_delete
 from app import iiko_cloud, ingest, realtime
 from app.models import Order
+from app.models import StopListItem as _StopList
+
+
+def _parse_stoplist_entries(event: dict) -> list[dict]:
+    """Достаёт записи стоп-листа из StopListUpdate-события максимально защитно.
+
+    Точная форма payload не задокументирована, поэтому ищем список под
+    распространёнными ключами в eventInfo, а из каждой записи аккуратно
+    вытаскиваем product_id / name / balance, не падая на отсутствующих ключах.
+    Возвращает список dict {product_id, name, balance}.
+    """
+    info = event.get("eventInfo")
+    raw = None
+    if isinstance(info, list):
+        raw = info
+    elif isinstance(info, dict):
+        for key in ("items", "stopList", "products"):
+            val = info.get(key)
+            if isinstance(val, list):
+                raw = val
+                break
+    if not isinstance(raw, list):
+        return []
+
+    out: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        product = entry.get("product") if isinstance(entry.get("product"), dict) else {}
+        product_id = entry.get("productId") or product.get("id") or entry.get("id")
+        name = entry.get("name") or product.get("name")
+        balance = entry.get("balance")
+        # Если имени нет — храним id как имя, чтобы экран кухни что-то показал.
+        if name is None and product_id is not None:
+            name = str(product_id)
+        try:
+            balance = float(balance) if balance is not None else None
+        except (TypeError, ValueError):
+            balance = None
+        out.append({
+            "product_id": str(product_id) if product_id is not None else None,
+            "name": name,
+            "balance": balance,
+        })
+    return out
 
 app = FastAPI(title="Saya KDS backend")
 
@@ -38,6 +85,29 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
 
     handled = 0
     for event in events or []:
+        if event.get("eventType") == "StopListUpdate":
+            org_id = event.get("organizationId")
+            if not org_id:
+                continue
+            entries = _parse_stoplist_entries(event)
+            # Стратегия replace-on-update: полностью заменяем строки филиала.
+            # Пустой список = в стоп-листе ничего нет -> очищаем филиал.
+            await session.execute(
+                _sl_delete(_StopList).where(_StopList.org_id == org_id))
+            now = _dt.utcnow()
+            for e in entries:
+                session.add(_StopList(
+                    org_id=org_id, product_id=e["product_id"],
+                    name=e["name"], balance=e["balance"], updated_at=now))
+            await session.commit()
+            items = [
+                {"product_id": e["product_id"], "name": e["name"],
+                 "balance": e["balance"], "updated_at": now.isoformat() + "Z"}
+                for e in entries
+            ]
+            await realtime.broadcast_stoplist(org_id, items)
+            handled += 1
+            continue
         if event.get("eventType") != "DeliveryOrderUpdate":
             continue
         org_id = event.get("organizationId")
@@ -52,6 +122,23 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
         await realtime.broadcast_order(order)
         handled += 1
     return {"ok": True, "handled": handled}
+
+
+@app.get("/stoplist")
+async def get_stoplist(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Текущий стоп-лист филиала (что нет в наличии)."""
+    rows = (await session.execute(
+        select(_StopList).where(_StopList.org_id == org_id)
+        .order_by(_StopList.id))).scalars().all()
+    return [
+        {
+            "product_id": r.product_id,
+            "name": r.name,
+            "balance": r.balance,
+            "updated_at": r.updated_at.isoformat() + "Z" if r.updated_at else None,
+        }
+        for r in rows
+    ]
 
 
 @app.post("/debug/pull")

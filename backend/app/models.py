@@ -104,3 +104,15 @@ class CourierLocation(Base):
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StopListItem(Base):
+    """Позиция стоп-листа (нет в наличии) для филиала. На каждый StopListUpdate
+    строки филиала полностью заменяются (см. webhook-обработчик)."""
+    __tablename__ = "stop_list"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[str] = mapped_column(String, index=True)
+    product_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    balance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

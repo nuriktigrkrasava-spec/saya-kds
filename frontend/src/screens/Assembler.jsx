@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
 import CourierMiniMap from "../components/CourierMiniMap.jsx";
+import StopListBanner from "../components/StopListBanner.jsx";
 import { useOrders } from "../lib/orders.js";
 import { getOperatorName, getSession } from "../lib/auth.js";
 import { api } from "../lib/api.js";
@@ -376,6 +377,7 @@ export default function Assembler() {
     <div className="screen" style={{ "--accent": ACCENT }}>
       <ScreenHeader title="Сборщик" accent={ACCENT} connected={connected} />
       <main className="screen-body">
+        <StopListBanner />
         <CourierMiniMap />
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}
