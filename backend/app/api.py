@@ -935,3 +935,165 @@ async def admin_demand(org_id: str, session: AsyncSession = Depends(get_session)
 
     points = sorted(clusters.values(), key=lambda p: p["count"], reverse=True)
     return points
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Аналитика для управляющего: live-сводка, рейтинг поваров, спрос по часам,
+# выгрузка CSV. «Сегодня» = серверная UTC-дата.
+# ──────────────────────────────────────────────────────────────────────────
+import csv as _csv
+import io as _io
+from fastapi.responses import Response as _Response
+
+
+@app.get("/admin/dashboard")
+async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Live-снимок «что сейчас»: активные заказы, готовка/доставка, зоны, курьеры."""
+    today = _dt.utcnow().date()
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    active = [o for o in orders if o.status != "Closed" and o.delivered_at is None]
+    active_orders = len(active)
+
+    # Доставлено сегодня.
+    delivered_today = sum(
+        1 for o in orders
+        if o.delivered_at is not None and o.delivered_at.date() == today)
+
+    # Среднее время готовки сегодня (по принятым сегодня позициям).
+    prep_secs: list[float] = []
+    for o in orders:
+        for it in o.items:
+            if it.station_accepted_at is None:
+                continue
+            if it.station_accepted_at.date() != today:
+                continue
+            prep = _prep_seconds(it)
+            if prep is not None:
+                prep_secs.append(prep)
+    avg_prep = _mean(prep_secs)
+
+    # Среднее время доставки сегодня (по доставленным сегодня заказам).
+    delivery_secs = [
+        (o.delivered_at - o.on_way_at).total_seconds()
+        for o in orders
+        if o.on_way_at is not None and o.delivered_at is not None
+        and o.delivered_at.date() == today
+    ]
+    avg_delivery = _mean(delivery_secs)
+
+    # По зонам: не готовые позиции сегодняшних активных заказов.
+    by_zone = {"rolls": 0, "pizza": 0, "hot": 0, "other": 0}
+    for o in active:
+        for it in o.items:
+            if it.station_ready_at is not None:
+                continue
+            zone = it.station if it.station in by_zone else "other"
+            by_zone[zone] += 1
+
+    # Курьеры на смене: уникальные courier_code со свежей геопозицией (<30 мин).
+    now = _dt.utcnow()
+    locs = (await session.execute(_select(_CourierLocation))).scalars().all()
+    on_shift = {
+        loc.courier_code for loc in locs
+        if loc.updated_at is not None
+        and (now - loc.updated_at).total_seconds() < _ACTIVE_WINDOW_MIN * 60
+    }
+
+    return {
+        "active_orders": active_orders,
+        "delivered_today": delivered_today,
+        "avg_prep_today_seconds": avg_prep,
+        "avg_delivery_today_seconds": avg_delivery,
+        "by_zone": by_zone,
+        "on_shift_couriers": len(on_shift),
+    }
+
+
+@app.get("/admin/leaderboard")
+async def admin_leaderboard(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Рейтинг поваров за сегодня: группируем готовые сегодня позиции по checked_by."""
+    today = _dt.utcnow().date()
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    done: dict[str, int] = {}
+    preps: dict[str, list[float]] = {}
+    for o in orders:
+        for it in o.items:
+            if it.station_ready_at is None:
+                continue
+            if it.station_ready_at.date() != today:
+                continue
+            name = (it.checked_by or "").strip()
+            if not name:
+                continue
+            done[name] = done.get(name, 0) + 1
+            prep = _prep_seconds(it)
+            if prep is not None:
+                preps.setdefault(name, []).append(prep)
+
+    rows = [
+        {
+            "name": name,
+            "items_done": done[name],
+            "avg_prep_seconds": _mean(preps.get(name, [])),
+        }
+        for name in done
+    ]
+    rows.sort(key=lambda r: r["items_done"], reverse=True)
+    return rows
+
+
+@app.get("/admin/forecast")
+async def admin_forecast(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Спрос по часам суток: число заказов филиала по created_at.hour (24 ячейки)."""
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+    counts = [0] * 24
+    for o in orders:
+        if o.created_at is not None:
+            counts[o.created_at.hour] += 1
+    return [{"hour": h, "count": counts[h]} for h in range(24)]
+
+
+@app.get("/admin/report.csv")
+async def admin_report_csv(org_id: str, session: AsyncSession = Depends(get_session)):
+    """CSV-выгрузка: по строке на каждую сегодняшнюю позицию заказа.
+
+    UTF-8 BOM в начале, чтобы Excel корректно открывал кириллицу.
+    """
+    today = _dt.utcnow().date()
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow([
+        "order_number", "created_at", "status", "zone", "item_name",
+        "accepted_at", "ready_at", "prep_seconds", "checked_by",
+    ])
+    for o in orders:
+        for it in o.items:
+            if it.station_accepted_at is None or it.station_accepted_at.date() != today:
+                continue
+            prep = _prep_seconds(it)
+            writer.writerow([
+                o.number or "",
+                _iso(o.created_at) or "",
+                o.status or "",
+                it.station or "other",
+                it.name or "",
+                _iso(it.station_accepted_at) or "",
+                _iso(it.station_ready_at) or "",
+                int(prep) if prep is not None else "",
+                (it.checked_by or "").strip(),
+            ])
+
+    body = "﻿" + buf.getvalue()
+    return _Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="report.csv"'},
+    )

@@ -106,6 +106,9 @@ export default function Home() {
           )}
           {isManager() && (
             <nav className="home__links">
+              <Link to="/dashboard" className="home-link">
+                Сводка (сейчас)
+              </Link>
               <Link to="/admin" className="home-link">
                 Аналитика
               </Link>

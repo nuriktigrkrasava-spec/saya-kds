@@ -10,7 +10,7 @@ import {
   overdueLevel,
   orderUrgency,
 } from "../lib/time.js";
-import { playNewOrder, playOverdue } from "../lib/sound.js";
+import { playNewOrder, playHandoff } from "../lib/sound.js";
 
 // Map an iiko orderServiceType to a short Russian badge label.
 function serviceTypeBadge(serviceType) {
@@ -22,8 +22,10 @@ function serviceTypeBadge(serviceType) {
 
 // How long a freshly arrived card keeps its attention flash (ms).
 const NEW_FLASH_MS = 6000;
-// Re-sound the overdue alarm at most this often per item while still overdue.
-const OVERDUE_REALARM_MS = 60000;
+// How often to repeat the "передавай заказ" reminder while any order is stuck.
+// Plays, then stays quiet for this interval, then plays again — an insistent
+// nag, not a continuous blare.
+const HANDOFF_REMIND_MS = 10000;
 
 /**
  * Shared kitchen station screen.
@@ -95,36 +97,40 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
     };
   }, []);
 
-  // --- overdue alarm -------------------------------------------------------
-  // Remember the last time we sounded the alarm for each item id so we don't
-  // beep on every 1s tick, but re-alarm roughly once a minute while overdue.
-  const overdueAlarmed = useRef(new Map()); // itemId -> last alarm ms
+  // --- handoff reminder ("передавай заказ") --------------------------------
+  // While ANY visible order has an item that is accepted-but-not-ready AND
+  // overdue (the cook is sitting on it instead of passing it to assembly),
+  // nag with playHandoff() every ~10s: play, ~10s pause, play again, until the
+  // order is made ready. This folds in (replaces) the old 60s overdue re-alarm
+  // so there's a single coherent reminder rather than two competing sounds.
+  // Driven by useTick(1000), which re-renders this component every second.
+  const lastHandoffMs = useRef(0); // last time we played; 0 === not nagging
 
   useEffect(() => {
     const now = Date.now();
-    let shouldAlarm = false;
-    const liveOverdue = new Set();
 
-    for (const o of visibleOrders) {
-      for (const it of o._items) {
-        if (!it.accepted || it.ready) continue;
+    // Is any cook sitting on an accepted, not-ready, overdue item?
+    const stuck = visibleOrders.some((o) =>
+      o._items.some((it) => {
+        if (!it.accepted || it.ready) return false;
         const acceptedAt = parseServerTime(it.accepted_at) ?? now;
-        if (overdueLevel(now - acceptedAt) !== "overdue") continue;
-        liveOverdue.add(it.id);
-        const last = overdueAlarmed.current.get(it.id);
-        if (last == null || now - last >= OVERDUE_REALARM_MS) {
-          shouldAlarm = true;
-          overdueAlarmed.current.set(it.id, now);
-        }
-      }
+        return overdueLevel(now - acceptedAt) === "overdue";
+      })
+    );
+
+    if (!stuck) {
+      // Nothing stuck: stop nagging and reset so the next stuck order beeps
+      // immediately rather than waiting out a stale interval.
+      lastHandoffMs.current = 0;
+      return;
     }
 
-    // Drop items that are no longer overdue so they re-alarm if it recurs.
-    for (const id of overdueAlarmed.current.keys()) {
-      if (!liveOverdue.has(id)) overdueAlarmed.current.delete(id);
+    // Stuck. Play on first crossing (lastHandoffMs === 0) and then at most
+    // once per HANDOFF_REMIND_MS — never more often than every ~10s.
+    if (now - lastHandoffMs.current >= HANDOFF_REMIND_MS) {
+      lastHandoffMs.current = now;
+      playHandoff();
     }
-
-    if (shouldAlarm) playOverdue();
   });
 
   return (

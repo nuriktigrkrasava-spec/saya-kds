@@ -108,3 +108,20 @@ export function playOverdue() {
   tone(988, 0.18, 0.12, 0.24, "square");
   tone(988, 0.36, 0.14, 0.24, "square");
 }
+
+/**
+ * Insistent "передавай заказ" reminder — a rising square-wave run of beeps
+ * ("ди-ди-ди-дидь") meant to nag the cook into handing the order to assembly.
+ * Distinct from playNewOrder (pleasant sine ding-dong) and a notch more
+ * annoying/insistent than the single overdue alarm: more beeps, rising pitch,
+ * harder timbre and a punchy final accent. Repeated by the caller every ~10s.
+ */
+export function playHandoff() {
+  if (!isSoundOn() || !ready()) return;
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  // 3 quick rising beeps, then a louder, higher accent: "ди-ди-ди-ДИДЬ".
+  tone(784, 0.0, 0.1, 0.26, "square"); // ди  (G5)
+  tone(988, 0.14, 0.1, 0.26, "square"); // ди  (B5)
+  tone(1175, 0.28, 0.1, 0.26, "square"); // ди  (D6)
+  tone(1568, 0.44, 0.22, 0.3, "square"); // ДИДЬ (G6, longer + louder accent)
+}

@@ -1,0 +1,195 @@
+.dash {
+  min-height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 24px 16px 48px;
+  box-sizing: border-box;
+}
+
+.dash__inner {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.dash__back {
+  display: inline-block;
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 15px;
+  margin-bottom: 16px;
+}
+.dash__back:hover {
+  color: #e2e8f0;
+}
+
+.dash__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.dash__title {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.dash__csv {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dash__csv:hover {
+  background: #15803d;
+}
+
+.dash__state {
+  color: #94a3b8;
+  font-size: 15px;
+  margin: 8px 0;
+}
+.dash__state--err {
+  color: #f87171;
+}
+
+/* Плитки сверху */
+.dash__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.dash-tile {
+  background: #1e293b;
+  border-radius: 14px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dash-tile__value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+.dash-tile__label {
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* Карточки секций */
+.dash-card {
+  background: #1e293b;
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+.dash-card__title {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+/* Зоны */
+.dash-zones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+.dash-zone {
+  background: #0f172a;
+  border-left: 5px solid var(--zone, #64748b);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dash-zone__icon {
+  font-size: 20px;
+}
+.dash-zone__count {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--zone, #fff);
+}
+.dash-zone__label {
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* Таблица рейтинга */
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.dash-table th,
+.dash-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #334155;
+}
+.dash-table th {
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 13px;
+}
+.dash-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dash-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Спрос по часам — горизонтальные полосы */
+.dash-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dash-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dash-bar__hour {
+  width: 56px;
+  flex: none;
+  font-size: 13px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+.dash-bar__track {
+  flex: 1;
+  height: 18px;
+  background: #0f172a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.dash-bar__fill {
+  display: block;
+  height: 100%;
+  background: #38bdf8;
+  border-radius: 6px;
+  min-width: 2px;
+}
+.dash-bar__count {
+  width: 36px;
+  flex: none;
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #e2e8f0;
+}
