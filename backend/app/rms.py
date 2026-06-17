@@ -197,8 +197,31 @@ _PROD_CACHE_TS: float = 0.0
 _PROD_CACHE_TTL: float = 600.0  # 10 мин — список большой, не дёргаем часто
 
 
+def _build_group_index(groups: list[dict]) -> tuple[dict, dict]:
+    """name-by-id и parent-by-id для групп меню."""
+    gname = {g.get("id"): (g.get("name") or "").strip() for g in groups}
+    gparent = {g.get("id"): g.get("parent") for g in groups}
+    return gname, gparent
+
+
+def _group_path_root(gid, gname: dict, gparent: dict) -> tuple[str, str]:
+    """Полный путь группы «A / B / C» и имя корневой группы."""
+    seen: set = set()
+    parts: list[str] = []
+    cur = gid
+    while cur and cur not in seen:
+        seen.add(cur)
+        nm = gname.get(cur)
+        if nm:
+            parts.append(nm)
+        cur = gparent.get(cur)
+    parts.reverse()
+    return " / ".join(parts), (parts[0] if parts else "")
+
+
 async def fetch_products() -> list[dict]:
-    """Полное меню из RMS: [{id, name, group_id}]. Только DISH/GOODS, не удалённые. Кэш 10 мин."""
+    """Полное меню из RMS: [{id, name, group_id, group_path, group_root}].
+    Только DISH/GOODS, не удалённые. Кэш 10 мин."""
     global _PROD_CACHE, _PROD_CACHE_TS
     now = time.monotonic()
     if _PROD_CACHE is not None and (now - _PROD_CACHE_TS) < _PROD_CACHE_TTL:
@@ -210,6 +233,11 @@ async def fetch_products() -> list[dict]:
                                   params={"key": token, "includeDeleted": "false"})
             r.raise_for_status()
             data = r.json()
+            rg = await client.get(f"{base}/api/v2/entities/products/group/list",
+                                  params={"key": token, "includeDeleted": "false"})
+            rg.raise_for_status()
+            groups = rg.json()
+    gname, gparent = _build_group_index(groups)
     out: list[dict] = []
     for p in data:
         if p.get("deleted"):
@@ -220,7 +248,10 @@ async def fetch_products() -> list[dict]:
         name = (p.get("name") or "").strip()
         if not pid or not name:
             continue
-        out.append({"id": pid, "name": name, "group_id": p.get("parent") or p.get("parentGroup")})
+        gid = p.get("parent") or p.get("parentGroup")
+        gpath, groot = _group_path_root(gid, gname, gparent)
+        out.append({"id": pid, "name": name, "group_id": gid,
+                    "group_path": gpath, "group_root": groot})
     _PROD_CACHE, _PROD_CACHE_TS = out, now
     return out
 

@@ -15,6 +15,13 @@ PRODUCTS_JSON = [
      "deleted": True, "parent": "g-rolls"},
 ]
 
+GROUPS_JSON = [
+    {"id": "g-rolls", "name": "Роллы", "parent": "g-kitchen"},
+    {"id": "g-kitchen", "name": "Кухня", "parent": None},
+    {"id": "g-drinks", "name": "Напитки", "parent": "g-bar"},
+    {"id": "g-bar", "name": "БАР", "parent": None},
+]
+
 
 @respx.mock
 async def test_fetch_products_keeps_only_dish_goods_not_deleted():
@@ -36,8 +43,13 @@ async def test_fetch_products_keeps_only_dish_goods_not_deleted():
         "https://rms.test/resto/api/v2/entities/products/list",
         params={"key": "TOKEN-1", "includeDeleted": "false"},
     ).mock(return_value=Response(200, json=PRODUCTS_JSON))
+    groups = respx.get(
+        "https://rms.test/resto/api/v2/entities/products/group/list",
+        params={"key": "TOKEN-1", "includeDeleted": "false"},
+    ).mock(return_value=Response(200, json=GROUPS_JSON))
 
     result = await rms.fetch_products()
+    assert groups.called
 
     # Один логин/логаут на запрос.
     assert auth.call_count == 1
@@ -52,8 +64,10 @@ async def test_fetch_products_keeps_only_dish_goods_not_deleted():
     assert "p-mod" not in by_id
     assert "p-deleted" not in by_id
 
-    # Поля id/name/group_id (parent или parentGroup).
+    # Поля id/name/group_id + путь и корень группы.
     assert by_id["p-dish"] == {
-        "id": "p-dish", "name": "Филадельфия", "group_id": "g-rolls"}
+        "id": "p-dish", "name": "Филадельфия", "group_id": "g-rolls",
+        "group_path": "Кухня / Роллы", "group_root": "Кухня"}
     assert by_id["p-goods"] == {
-        "id": "p-goods", "name": "Кола 0.5", "group_id": "g-drinks"}
+        "id": "p-goods", "name": "Кола 0.5", "group_id": "g-drinks",
+        "group_path": "БАР / Напитки", "group_root": "БАР"}

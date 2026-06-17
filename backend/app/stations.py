@@ -43,6 +43,43 @@ def classify_name(name: str) -> str:
     return "other"
 
 
+# Корни меню iiko, которые НЕ относятся к кухонным зонам (товары, хозтовары,
+# бар/напитки, архив, полуфабрикаты, инвентарь, канцелярия) — всё это «прочее».
+_NONFOOD_ROOT_KEYS = ["товар", "хоз", "инвентар", "канцел", "архив",
+                      "п/ф", "доп услуг", "цех", "бар"]
+_GROUP_HOT_KEYS = ["горяч", "суп", "вок", "лапш", "паст", "рамен", "удон", "wok"]
+
+
+def classify_by_group(group_path: str | None, group_root: str | None) -> str | None:
+    """Зона по ПУТИ группы меню iiko (надёжнее имени для блюд без ключевых слов,
+    напр. «Плов»/«Лагман» в группе «Горячие блюда»).
+
+    Возвращает None для неоднозначных кухонных групп (Подарок, Выгодное меню,
+    Блюда агрегаторов и т.п.) — там зону решает имя блюда.
+    """
+    p = (group_path or "").lower()
+    r = (group_root or "").lower()
+    # Нерелевантные корни → явно «прочее».
+    if any(k in r for k in _NONFOOD_ROOT_KEYS):
+        return "other"
+    if "пицц" in p:
+        return "pizza"
+    if any(k in p for k in ["ролл", "маки", "суши", "сет"]):
+        return "rolls"
+    if any(k in p for k in _GROUP_HOT_KEYS):
+        return "hot"
+    return None
+
+
+def classify_product(name: str, group_path: str | None = None,
+                     group_root: str | None = None) -> str:
+    """Зона блюда: сначала по группе меню, затем откат на классификацию по имени."""
+    by_group = classify_by_group(group_path, group_root)
+    if by_group:
+        return by_group
+    return classify_name(name)
+
+
 async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
     rows = (await session.execute(select(ProductStationMap))).scalars().all()
     by_product = {r.product_id: r.station for r in rows
@@ -52,16 +89,15 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
     by_category = {r.category_id: r.station for r in rows if r.category_id and not r.product_id}
 
     def resolve(item: WebhookItem) -> str:
+        # Ручная разметка по названию — наивысший приоритет: её создаёт только
+        # человек (авторазметка пишет лишь по product_id), поэтому она должна
+        # побеждать автоматический маппинг даже после перезаписи авторазметкой.
+        if norm_name(item.name) in by_name:
+            return by_name[norm_name(item.name)]
         if item.product_id in by_product:
             return by_product[item.product_id]
         if item.category_id and item.category_id in by_category:
             return by_category[item.category_id]
-        # ручная разметка по названию (надёжнее всего)
-        if norm_name(item.name) in by_name:
-            return by_name[norm_name(item.name)]
-        guess = classify_name(item.name)
-        if guess != "other":
-            return guess
-        return "other"
+        return classify_name(item.name)
 
     return resolve

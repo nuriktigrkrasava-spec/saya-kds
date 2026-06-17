@@ -576,7 +576,7 @@ async def rms_branches():
 # ──────────────────────────────────────────────────────────────────────────
 # Разметка зон (станций) для блюд по группам меню iiko.
 # ──────────────────────────────────────────────────────────────────────────
-from app.stations import build_resolver as _build_resolver, classify_group as _classify_group, classify_name as _classify_name, VALID_STATIONS as _VALID_STATIONS
+from app.stations import build_resolver as _build_resolver, classify_group as _classify_group, classify_name as _classify_name, classify_product as _classify_product, VALID_STATIONS as _VALID_STATIONS
 
 
 def _group_id_to_name(nomenclature: dict) -> dict[str, str]:
@@ -675,7 +675,7 @@ async def admin_stations_auto(org_id: str, overwrite: bool = False,
         pid = p["id"]
         if not overwrite and pid in existing:
             continue  # сохраняем ручную разметку
-        zone = _classify_name(p["name"])
+        zone = _classify_product(p["name"], p.get("group_path"), p.get("group_root"))
         await _upsert_station(session, pid, zone)
         mapped += 1
     await session.commit()
@@ -701,13 +701,15 @@ async def admin_stations_get(org_id: str,
     by_name = {r.product_id[len(_NP):]: r.station for r in rows
                if r.product_id and r.product_id.startswith(_NP)}
 
-    def _station_for(pid: str, name: str) -> str:
-        if pid in by_product:
-            return by_product[pid]
+    def _station_for(p: dict) -> str:
+        pid, name = p["id"], p["name"]
+        # ручная разметка по названию — наивысший приоритет (см. build_resolver)
         nm = _norm(name)
         if nm in by_name:
             return by_name[nm]
-        return _classify_name(name)
+        if pid in by_product:
+            return by_product[pid]
+        return _classify_product(name, p.get("group_path"), p.get("group_root"))
 
     groups: dict[str, list[dict]] = {}
     for p in products:
@@ -716,7 +718,7 @@ async def admin_stations_get(org_id: str,
         groups.setdefault(letter, []).append({
             "product_id": p["id"],
             "name": name,
-            "station": _station_for(p["id"], name),
+            "station": _station_for(p),
         })
 
     out = []

@@ -6,7 +6,8 @@ from sqlalchemy import select
 from app.db import Base
 import app.models  # noqa: F401
 from app.models import ProductStationMap, Order, OrderItem
-from app.stations import classify_group, classify_name, build_resolver
+from app.stations import (classify_group, classify_name, classify_by_group,
+                           classify_product, build_resolver)
 from app.schemas import WebhookItem
 
 
@@ -85,6 +86,45 @@ def test_classify_name_pizza_before_rolls():
 def test_classify_name_empty_is_other():
     assert classify_name("") == "other"
     assert classify_name(None) == "other"
+
+
+# ── Юнит-тесты классификатора по ГРУППЕ меню ──────────────────────────────
+
+def test_group_hot_dish_without_keyword():
+    # «Плов» не содержит ключевых слов, но группа «Горячие блюда» → hot.
+    assert classify_product("Плов", "Кухня / Горячие блюда", "Кухня") == "hot"
+
+
+def test_group_pizza_path():
+    assert classify_by_group("Кухня / Пицца / Пицца 25", "Кухня") == "pizza"
+
+
+def test_group_rolls_maki():
+    assert classify_by_group("Кухня / Маки 4 шт", "Кухня") == "rolls"
+
+
+def test_group_sets_are_rolls():
+    assert classify_by_group("Кухня / Сеты-Комбо", "Кухня") == "rolls"
+
+
+def test_group_nonfood_root_is_other():
+    # Хозтовары/бар/инвентарь → прочее, даже если в имени есть «пицца».
+    assert classify_by_group("КУХНЯ ТОВАРЫ / Упаковка", "КУХНЯ ТОВАРЫ") == "other"
+    assert classify_by_group("БАР / Коктейли", "БАР") == "other"
+
+
+def test_group_ambiguous_returns_none():
+    # «Подарок» неоднозначна — зону решает имя.
+    assert classify_by_group("Кухня / Подарок", "Кухня") is None
+
+
+def test_product_gift_pizza_by_name():
+    # Подарочная пицца: группа неоднозначна, но имя → pizza.
+    assert classify_product("Пицца 4 сезона", "Кухня / Подарок", "Кухня") == "pizza"
+
+
+def test_product_bar_drink_is_other():
+    assert classify_product("Кола 0.5", "БАР / Напитки", "БАР") == "other"
 
 
 # ── Юнит-тест: resolver откатывается на классификацию по имени ─────────────
