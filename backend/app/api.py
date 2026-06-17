@@ -108,6 +108,22 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
             await realtime.broadcast_stoplist(org_id, items)
             handled += 1
             continue
+        if event.get("eventType") == "TableOrderUpdate":
+            # Заказы зала/выноса. В отличие от доставки, by_id-фетча для них может
+            # не быть — ингестим прямо из payload события. Никогда не падаем.
+            org_id = event.get("organizationId")
+            if not org_id:
+                continue
+            try:
+                normalized = iiko_cloud.normalize_table_order(event, org_id)
+            except Exception:
+                continue
+            if not normalized.items:
+                continue
+            order = await ingest.ingest_order(session, normalized)
+            await realtime.broadcast_order(order)
+            handled += 1
+            continue
         if event.get("eventType") != "DeliveryOrderUpdate":
             continue
         org_id = event.get("organizationId")

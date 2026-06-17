@@ -8,6 +8,7 @@ from app.api import app as fastapi_app
 from app.realtime import sio
 from app.db import engine, Base
 from app.poller import start_poller, stop_poller
+from app.alerts import start_alerts, stop_alerts
 import app.models  # noqa: F401
 
 
@@ -18,11 +19,15 @@ async def _create_tables():
     # Фоллбэк-поллер: периодически опрашивает iiko by_revision, чтобы добрать
     # заказы, пропущенные вебхуками. Отключён по умолчанию (POLL_INTERVAL_SECONDS<=0).
     fastapi_app.state.poller_task = start_poller()
+    # Алерты менеджерам в Telegram: фоновая проверка просроченных заказов и
+    # аномалий времени готовки. Отключены по умолчанию (ALERTS_INTERVAL_SECONDS<=0).
+    fastapi_app.state.alerts_task = start_alerts()
 
 
 @fastapi_app.on_event("shutdown")
 async def _stop_poller():
     await stop_poller(getattr(fastapi_app.state, "poller_task", None))
+    await stop_alerts(getattr(fastapi_app.state, "alerts_task", None))
 
 
 # ──────────────────────────────────────────────────────────────────────────

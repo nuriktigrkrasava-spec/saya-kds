@@ -17,7 +17,15 @@ import { playNewOrder, playHandoff } from "../lib/sound.js";
 function serviceTypeBadge(serviceType) {
   if (!serviceType) return null;
   if (serviceType === "DeliveryByCourier") return "🛵 Доставка";
-  if (serviceType === "DeliveryByPickUp") return "🏃 Самовывоз";
+  // Зал (dine-in).
+  if (serviceType === "DineIn" || serviceType === "Common") return "🍽 Зал";
+  // Вынос / самовывоз.
+  if (
+    serviceType === "ToGo" ||
+    serviceType === "PickUp" ||
+    serviceType === "DeliveryByPickUp"
+  )
+    return "🏃 Вынос/Самовывоз";
   return serviceType;
 }
 

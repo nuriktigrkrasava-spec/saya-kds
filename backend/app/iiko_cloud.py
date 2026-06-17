@@ -90,6 +90,67 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
     )
 
 
+def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> NormalizedOrder:
+    """Нормализует TableOrderUpdate (зал/вынос) в NormalizedOrder.
+
+    Форма payload до конца не задокументирована, поэтому работаем максимально
+    защитно. Принимаем либо «сырое» событие (тогда данные в
+    eventInfo.order, а id — в eventInfo.id), либо уже распакованный wrapper
+    вида {id, order}. Для зала адрес/координаты не нужны.
+
+    Логика извлечения позиций повторяет normalize_full_order: берём product
+    {id, name, category}, amount и combo. Тип обслуживания
+    (orderType.orderServiceType) определяет зал/вынос; при отсутствии — "DineIn".
+    """
+    src = event_or_wrapper or {}
+    # Если это сырое событие — спускаемся в eventInfo.
+    info = src.get("eventInfo")
+    if isinstance(info, dict):
+        wrapper = info
+    else:
+        wrapper = src
+
+    o = wrapper.get("order") or {}
+
+    items: list[WebhookItem] = []
+    for it in (o.get("items") or []):
+        if not isinstance(it, dict):
+            continue
+        product = it.get("product") or {}
+        if not product.get("id"):
+            continue
+        combo = it.get("comboInformation") or {}
+        category = product.get("category") or {}
+        items.append(WebhookItem(
+            product_id=str(product["id"]),
+            category_id=(str(category.get("id")) if category.get("id") else None),
+            name=product.get("name", "") or "",
+            amount=float(it.get("amount", 1) or 1),
+            combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
+        ))
+
+    # iiko_order_id: eventInfo.id -> order.id -> order.number (что есть первым).
+    iiko_order_id = wrapper.get("id") or o.get("id") or o.get("number") or ""
+
+    customer = (o.get("customer") or {}).get("name", "") or ""
+    service_type = (o.get("orderType") or {}).get("orderServiceType") or "DineIn"
+
+    return NormalizedOrder(
+        iiko_order_id=str(iiko_order_id),
+        org_id=organization_id,
+        number=str(o.get("number") or ""),
+        status=str(o.get("status") or ""),
+        customer=customer,
+        phone=o.get("phone", "") or "",
+        address="",
+        lat=None,
+        lon=None,
+        total=o.get("sum"),
+        service_type=service_type,
+        items=items,
+    )
+
+
 async def update_webhook_settings(organization_id: str, web_hooks_uri: str,
                                   auth_token: str | None = None) -> dict:
     token = await get_token()

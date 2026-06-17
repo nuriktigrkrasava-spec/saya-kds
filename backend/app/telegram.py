@@ -3,6 +3,7 @@ import hmac
 import hashlib
 import json
 from urllib.parse import parse_qsl
+import httpx
 from app.config import settings
 
 
@@ -34,3 +35,23 @@ def extract_user(pairs: dict) -> dict:
         "first_name": user.get("first_name", ""),
         "username": user.get("username", ""),
     }
+
+
+async def send_message(chat_id: str, text: str) -> bool:
+    """Отправляет сообщение в Telegram через Bot API sendMessage.
+
+    Возвращает True при HTTP 200, иначе False. Любая сетевая ошибка
+    проглатывается (возвращает False), чтобы рассылка алертов не падала.
+    """
+    token = settings.telegram_bot_token
+    if not token or not chat_id:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            )
+            return r.status_code == 200
+    except Exception:
+        return False
