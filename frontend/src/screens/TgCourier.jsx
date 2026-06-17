@@ -7,8 +7,10 @@ const POLL_MS = 15000;
 const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "del", "0", "ok"];
 
 function routeUrl(lat, lon) {
-  // 2GIS route search to the destination coordinates (lon,lat order).
-  return `https://2gis.ru/routeSearch/rsType/car/to/${lon},${lat}`;
+  // /geo/{lon},{lat} надёжно открывает точку в нужном городе (автоопределение по
+  // координатам), откуда курьер строит маршрут «Проезд». Формат routeSearch на web
+  // редиректит на Москву и маршрут не строит, поэтому не используем.
+  return `https://2gis.ru/geo/${lon},${lat}`;
 }
 
 export default function TgCourier() {
