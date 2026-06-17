@@ -44,7 +44,7 @@ async def test_track_on_way_returns_courier_point(client):
                               updated_at=datetime.utcnow()))
         await s.commit()
 
-    r = await c.get("/track/trk-1")
+    r = await c.get("/api/track/trk-1")
     assert r.status_code == 200
     body = r.json()
     assert body["number"] == "501"
@@ -75,7 +75,7 @@ async def test_track_no_courier_when_not_on_way(client):
                               updated_at=datetime.utcnow()))
         await s.commit()
 
-    r = await c.get("/track/trk-2")
+    r = await c.get("/api/track/trk-2")
     assert r.status_code == 200
     body = r.json()
     assert body["courier"] is None
@@ -84,5 +84,5 @@ async def test_track_no_courier_when_not_on_way(client):
 
 async def test_track_404_for_unknown_id(client):
     c, _ = client
-    r = await c.get("/track/does-not-exist")
+    r = await c.get("/api/track/does-not-exist")
     assert r.status_code == 404

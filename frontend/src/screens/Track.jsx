@@ -28,7 +28,7 @@ export default function Track() {
     let alive = true;
     async function load() {
       try {
-        const res = await fetch(`${BASE}/track/${encodeURIComponent(id)}`, {
+        const res = await fetch(`${BASE}/api/track/${encodeURIComponent(id)}`, {
           headers: { Accept: "application/json" },
         });
         if (res.status === 404) {

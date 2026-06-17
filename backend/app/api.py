@@ -839,7 +839,7 @@ def _iso(value) -> str | None:
     return value.isoformat() + "Z" if value is not None else None
 
 
-@app.get("/track/{iiko_order_id}")
+@app.get("/api/track/{iiko_order_id}")
 async def track_order(iiko_order_id: str,
                       session: AsyncSession = Depends(get_session)):
     """ПУБЛИЧНО: статус заказа для клиента по ссылке (как у Domino's).
