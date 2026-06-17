@@ -82,7 +82,7 @@ export default function StationMap() {
       for (const p of g.products) {
         const next = draft[p.product_id];
         if (next != null && next !== p.station) {
-          out.push({ product_id: p.product_id, station: next });
+          out.push({ product_id: p.product_id, station: next, name: p.name });
         }
       }
     }

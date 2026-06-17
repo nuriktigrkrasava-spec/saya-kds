@@ -191,6 +191,18 @@ export default function TgCourier() {
     }
   }
 
+  async function logout() {
+    try {
+      if (initData) await api.tgUnlink(initData);
+    } catch {
+      /* всё равно выходим */
+    }
+    setIdentity(null);
+    setOrders([]);
+    setPin("");
+    setPhase(initData ? "pin" : "outside");
+  }
+
   // --- render -----------------------------------------------------------------
   if (phase === "loading") {
     return (
@@ -297,6 +309,16 @@ export default function TgCourier() {
           aria-label="Обновить"
         >
           {refreshing ? "…" : "↻"}
+        </button>
+        <button
+          type="button"
+          className="tg__refresh"
+          onClick={logout}
+          aria-label="Выйти"
+          title="Выйти / сменить курьера"
+          style={{ marginLeft: 8 }}
+        >
+          Выйти
         </button>
       </header>
 

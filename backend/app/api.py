@@ -694,6 +694,7 @@ async def admin_stations_get(org_id: str,
 class _StationItemIn(BaseModel):
     product_id: str
     station: str
+    name: str = ""
 
 
 class _StationsIn(BaseModel):
@@ -703,7 +704,9 @@ class _StationsIn(BaseModel):
 @app.post("/admin/stations")
 async def admin_stations_post(org_id: str, body: _StationsIn,
                               session: AsyncSession = Depends(get_session)):
-    """Ручные правки разметки: UPSERT по product_id, затем пересчёт активных заказов."""
+    """Ручные правки разметки: UPSERT по product_id И по названию (надёжнее, т.к. в
+    заказе product_id может отличаться от меню), затем пересчёт активных заказов."""
+    from app.stations import NAME_PREFIX as _NP, norm_name as _norm
     updated = 0
     for item in body.items:
         if item.station not in _VALID_STATIONS:
@@ -711,6 +714,8 @@ async def admin_stations_post(org_id: str, body: _StationsIn,
         if not item.product_id:
             continue
         await _upsert_station(session, item.product_id, item.station)
+        if item.name:  # дублируем как override по названию
+            await _upsert_station(session, _NP + _norm(item.name), item.station)
         updated += 1
     await session.commit()
 
@@ -882,6 +887,21 @@ async def tg_my_orders(courier_code: str,
                _Order.delivered_at.is_(None))
         .order_by(_Order.created_at))).scalars().all()
     return [realtime.order_payload(o) for o in rows]
+
+
+@app.post("/tg/unlink")
+async def tg_unlink(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
+    """Выход курьера: удаляем привязку Telegram-аккаунта, чтобы можно было войти другим PIN."""
+    pairs = _telegram.parse_and_validate(body.initData)
+    if pairs is None:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+    telegram_id = str(_telegram.extract_user(pairs).get("id") or "")
+    if telegram_id:
+        from app.models import TelegramLink as _TL
+        from sqlalchemy import delete as _del
+        await session.execute(_del(_TL).where(_TL.telegram_id == telegram_id))
+        await session.commit()
+    return {"ok": True}
 
 
 # ── GPS-трекинг курьеров ────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from typing import Callable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +7,15 @@ from app.models import ProductStationMap
 from app.schemas import WebhookItem
 
 VALID_STATIONS = {"rolls", "pizza", "hot", "other"}
+
+# Ручная разметка по НАЗВАНИЮ хранится в product_station_map с этим префиксом
+# в поле product_id (без изменения схемы БД). Имя стабильно и в меню, и в заказе,
+# поэтому такая привязка надёжнее, чем по product_id.
+NAME_PREFIX = "name::"
+
+
+def norm_name(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
 
 
 def classify_group(group_name: str) -> str:
@@ -35,7 +45,10 @@ def classify_name(name: str) -> str:
 
 async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
     rows = (await session.execute(select(ProductStationMap))).scalars().all()
-    by_product = {r.product_id: r.station for r in rows if r.product_id}
+    by_product = {r.product_id: r.station for r in rows
+                  if r.product_id and not r.product_id.startswith(NAME_PREFIX)}
+    by_name = {r.product_id[len(NAME_PREFIX):]: r.station for r in rows
+               if r.product_id and r.product_id.startswith(NAME_PREFIX)}
     by_category = {r.category_id: r.station for r in rows if r.category_id and not r.product_id}
 
     def resolve(item: WebhookItem) -> str:
@@ -43,9 +56,12 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
             return by_product[item.product_id]
         if item.category_id and item.category_id in by_category:
             return by_category[item.category_id]
-        by_name = classify_name(item.name)
-        if by_name != "other":
-            return by_name
+        # ручная разметка по названию (надёжнее всего)
+        if norm_name(item.name) in by_name:
+            return by_name[norm_name(item.name)]
+        guess = classify_name(item.name)
+        if guess != "other":
+            return guess
         return "other"
 
     return resolve
