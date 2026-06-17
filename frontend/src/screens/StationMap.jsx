@@ -19,6 +19,8 @@ export default function StationMap() {
   const [toast, setToast] = useState(null);
   // product_id -> станция (черновик правок)
   const [draft, setDraft] = useState({});
+  // Фильтр по названию (меню большое — ~1149 блюд).
+  const [query, setQuery] = useState("");
 
   const showToast = useCallback((msg, ok = true) => {
     setToast({ msg, ok });
@@ -116,6 +118,18 @@ export default function StationMap() {
 
   const pendingCount = changedItems().length;
 
+  const q = query.trim().toLowerCase();
+  const visibleGroups = q
+    ? groups
+        .map((g) => ({
+          ...g,
+          products: g.products.filter((p) =>
+            (p.name || "").toLowerCase().includes(q),
+          ),
+        }))
+        .filter((g) => g.products.length > 0)
+    : groups;
+
   return (
     <div className="stationmap">
       <div className="stationmap__inner">
@@ -147,6 +161,14 @@ export default function StationMap() {
           </button>
         </div>
 
+        <input
+          type="search"
+          className="sm-search"
+          placeholder="Поиск блюда по названию…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+
         {toast && (
           <p className={`sm-toast ${toast.ok ? "sm-toast--ok" : "sm-toast--err"}`}>
             {toast.msg}
@@ -166,9 +188,13 @@ export default function StationMap() {
           </p>
         )}
 
+        {!loading && !error && q && visibleGroups.length === 0 && (
+          <p className="stationmap__state">Ничего не найдено.</p>
+        )}
+
         {!loading &&
           !error &&
-          groups.map((g) => (
+          visibleGroups.map((g) => (
             <section key={g.group} className="sm-group">
               <h2 className="sm-group__title">{g.group}</h2>
               <div className="sm-list">

@@ -192,6 +192,39 @@ async def find_employee_by_pin(pin: str) -> dict | None:
     return None
 
 
+_PROD_CACHE: list[dict] | None = None
+_PROD_CACHE_TS: float = 0.0
+_PROD_CACHE_TTL: float = 600.0  # 10 мин — список большой, не дёргаем часто
+
+
+async def fetch_products() -> list[dict]:
+    """Полное меню из RMS: [{id, name, group_id}]. Только DISH/GOODS, не удалённые. Кэш 10 мин."""
+    global _PROD_CACHE, _PROD_CACHE_TS
+    now = time.monotonic()
+    if _PROD_CACHE is not None and (now - _PROD_CACHE_TS) < _PROD_CACHE_TTL:
+        return _PROD_CACHE
+    base = settings.rms_base.rstrip("/")
+    async with session() as token:
+        async with httpx.AsyncClient(timeout=120) as client:
+            r = await client.get(f"{base}/api/v2/entities/products/list",
+                                  params={"key": token, "includeDeleted": "false"})
+            r.raise_for_status()
+            data = r.json()
+    out: list[dict] = []
+    for p in data:
+        if p.get("deleted"):
+            continue
+        if p.get("type") not in ("DISH", "GOODS"):
+            continue
+        pid = p.get("id")
+        name = (p.get("name") or "").strip()
+        if not pid or not name:
+            continue
+        out.append({"id": pid, "name": name, "group_id": p.get("parent") or p.get("parentGroup")})
+    _PROD_CACHE, _PROD_CACHE_TS = out, now
+    return out
+
+
 async def branches_with_employees() -> list[dict]:
     """Группирует сотрудников RMS по филиалам (DEPARTMENT). Один логин/логаут на оба запроса."""
     base = settings.rms_base.rstrip("/")

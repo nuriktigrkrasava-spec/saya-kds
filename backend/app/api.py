@@ -659,12 +659,12 @@ async def _upsert_station(session: AsyncSession, product_id: str, station: str) 
 @app.post("/admin/stations/auto")
 async def admin_stations_auto(org_id: str, overwrite: bool = False,
                               session: AsyncSession = Depends(get_session)):
-    """Авторазметка: тянем номенклатуру iiko, классифицируем блюда по названию/группе.
+    """Авторазметка: тянем ПОЛНОЕ меню из RMS, классифицируем блюда по названию.
     По умолчанию НЕ затираем уже размеченные блюда (ручные правки сохраняются);
     overwrite=true — перезаписать всё.
     """
-    nomenclature = await iiko_cloud.fetch_nomenclature(org_id)
-    products = _products_with_group(nomenclature)
+    from app import rms
+    products = await rms.fetch_products()
 
     # Уже размеченные product_id (ручные/прошлые) — их не трогаем, если не overwrite.
     existing = {r.product_id for r in (await session.execute(
@@ -672,12 +672,11 @@ async def admin_stations_auto(org_id: str, overwrite: bool = False,
 
     mapped = 0
     for p in products:
-        if not overwrite and p["product_id"] in existing:
+        pid = p["id"]
+        if not overwrite and pid in existing:
             continue  # сохраняем ручную разметку
         zone = _classify_name(p["name"])
-        if zone == "other":
-            zone = _classify_group(p["group_name"])
-        await _upsert_station(session, p["product_id"], zone)
+        await _upsert_station(session, pid, zone)
         mapped += 1
     await session.commit()
 
@@ -689,28 +688,42 @@ async def admin_stations_auto(org_id: str, overwrite: bool = False,
 @app.get("/admin/stations")
 async def admin_stations_get(org_id: str,
                              session: AsyncSession = Depends(get_session)):
-    """Текущая разметка для админ-UI: продукты, сгруппированные по группам меню iiko,
-    с текущей зоной (из ProductStationMap, иначе 'other')."""
-    nomenclature = await iiko_cloud.fetch_nomenclature(org_id)
-    products = _products_with_group(nomenclature)
+    """Текущая разметка для админ-UI: ПОЛНОЕ меню из RMS, сгруппированное по
+    первой букве названия, с текущей зоной (маппинг по product_id, иначе
+    override по названию, иначе классификация по названию)."""
+    from app import rms
+    from app.stations import NAME_PREFIX as _NP, norm_name as _norm
+    products = await rms.fetch_products()
 
     rows = (await session.execute(_select(_PSM))).scalars().all()
-    by_product = {r.product_id: r.station for r in rows if r.product_id}
+    by_product = {r.product_id: r.station for r in rows
+                  if r.product_id and not r.product_id.startswith(_NP)}
+    by_name = {r.product_id[len(_NP):]: r.station for r in rows
+               if r.product_id and r.product_id.startswith(_NP)}
+
+    def _station_for(pid: str, name: str) -> str:
+        if pid in by_product:
+            return by_product[pid]
+        nm = _norm(name)
+        if nm in by_name:
+            return by_name[nm]
+        return _classify_name(name)
 
     groups: dict[str, list[dict]] = {}
-    order: list[str] = []
     for p in products:
-        group_name = p["group_name"] or "Без группы"
-        if group_name not in groups:
-            groups[group_name] = []
-            order.append(group_name)
-        groups[group_name].append({
-            "product_id": p["product_id"],
-            "name": p["name"],
-            "station": by_product.get(p["product_id"], "other"),
+        name = p["name"]
+        letter = name[:1].upper() if name else "#"
+        groups.setdefault(letter, []).append({
+            "product_id": p["id"],
+            "name": name,
+            "station": _station_for(p["id"], name),
         })
 
-    return [{"group": g, "products": groups[g]} for g in order]
+    out = []
+    for letter in sorted(groups):
+        items = sorted(groups[letter], key=lambda x: x["name"].lower())
+        out.append({"group": letter, "products": items})
+    return out
 
 
 class _StationItemIn(BaseModel):
