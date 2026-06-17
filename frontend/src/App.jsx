@@ -6,6 +6,7 @@ import Assembler from "./screens/Assembler.jsx";
 import Courier from "./screens/Courier.jsx";
 import Admin from "./screens/Admin.jsx";
 import Branches from "./screens/Branches.jsx";
+import StationMap from "./screens/StationMap.jsx";
 import Login from "./screens/Login.jsx";
 import { isAuthed } from "./lib/auth.js";
 
@@ -25,6 +26,7 @@ export default function App() {
       <Route path="/courier" element={<RequireAuth><Courier /></RequireAuth>} />
       <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
       <Route path="/branches" element={<RequireAuth><Branches /></RequireAuth>} />
+      <Route path="/stations" element={<RequireAuth><StationMap /></RequireAuth>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
   );

@@ -349,6 +349,53 @@ button {
   }
 }
 
+/* ---------- Sound bell toggle ---------- */
+.bell-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  font-size: 15px;
+  font-weight: 720;
+  color: var(--ink-soft);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.bell-btn__icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.bell-btn--on {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.08);
+}
+.bell-btn--on:hover {
+  border-color: var(--ok);
+}
+/* OFF: highlight + animate as a hint to enable sound */
+.bell-btn--off {
+  border-color: var(--brand);
+  color: var(--brand-ink);
+  background: rgba(232, 85, 45, 0.1);
+  animation: bell-hint 1.6s ease-in-out infinite;
+}
+.bell-btn--off:hover {
+  background: rgba(232, 85, 45, 0.16);
+}
+@keyframes bell-hint {
+  0%,
+  100% {
+    box-shadow: var(--shadow-sm), 0 0 0 0 rgba(232, 85, 45, 0.4);
+  }
+  50% {
+    box-shadow: var(--shadow-sm), 0 0 0 6px rgba(232, 85, 45, 0);
+  }
+}
+
 .name-field {
   display: inline-flex;
   align-items: center;
@@ -405,6 +452,69 @@ button {
 }
 .order-card--done {
   opacity: 0.62;
+}
+
+/* ---------- Attention: new order flash ---------- */
+/* Pulsing ember glow + accent top-bar to grab attention on unwatched tablets */
+.order-card--new {
+  border-color: var(--brand);
+  animation: card-new 1.1s ease-in-out infinite;
+}
+.order-card--new::before {
+  height: 6px;
+  background: var(--brand);
+  opacity: 1;
+}
+.order-card--new::after {
+  content: "Новый";
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--brand);
+  padding: 3px 9px;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(178, 60, 25, 0.4);
+}
+@keyframes card-new {
+  0%,
+  100% {
+    box-shadow: var(--shadow), 0 0 0 0 rgba(232, 85, 45, 0.45);
+  }
+  50% {
+    box-shadow: var(--shadow-lift), 0 0 0 8px rgba(232, 85, 45, 0);
+  }
+}
+
+/* ---------- Attention: overdue order pulse ---------- */
+.order-card--overdue {
+  border-color: var(--overdue);
+  background: linear-gradient(0deg, rgba(220, 38, 38, 0.05), rgba(220, 38, 38, 0.05)), var(--card);
+  animation: card-overdue 1.2s ease-in-out infinite;
+}
+.order-card--overdue::before {
+  height: 6px;
+  background: var(--overdue);
+  opacity: 1;
+}
+/* new takes visual priority over overdue if both are set */
+.order-card--new.order-card--overdue {
+  animation: card-new 1.1s ease-in-out infinite;
+  border-color: var(--brand);
+}
+@keyframes card-overdue {
+  0%,
+  100% {
+    box-shadow: var(--shadow), 0 0 0 0 rgba(220, 38, 38, 0.5);
+  }
+  50% {
+    box-shadow: var(--shadow-lift), 0 0 0 8px rgba(220, 38, 38, 0);
+  }
 }
 .order-card__head {
   display: flex;
@@ -470,6 +580,16 @@ button {
 .kitem--overdue {
   background: rgba(220, 38, 38, 0.06);
   box-shadow: inset 3px 0 0 var(--overdue);
+  animation: kitem-overdue 1.2s ease-in-out infinite;
+}
+@keyframes kitem-overdue {
+  0%,
+  100% {
+    background: rgba(220, 38, 38, 0.05);
+  }
+  50% {
+    background: rgba(220, 38, 38, 0.16);
+  }
 }
 .kitem__dot {
   width: 14px;
@@ -521,6 +641,53 @@ button {
 }
 .cookbar--overdue .cookbar__fill {
   background: var(--overdue);
+}
+
+/* ---------- Assembler order progress bar ---------- */
+.asmbar {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  overflow: hidden;
+  margin: 10px 0 2px;
+}
+.asmbar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ok);
+  transition: width 0.5s linear, background 0.4s ease;
+}
+.asmbar--warn .asmbar__fill {
+  background: var(--warn);
+}
+.asmbar--overdue .asmbar__fill {
+  background: var(--overdue);
+}
+
+/* order timer chip, tinted by overdue level (used on the assembler) */
+.order-since--warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
+  background: rgba(245, 158, 11, 0.1);
+}
+.order-since--overdue {
+  color: var(--overdue);
+  border-color: color-mix(in srgb, var(--overdue) 40%, var(--line));
+  background: rgba(220, 38, 38, 0.1);
+}
+
+/* per-zone readiness flag in the assembler group title */
+.asm-group__state {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.asm-group__state--ready {
+  color: var(--ok);
 }
 
 .timer {
@@ -792,6 +959,9 @@ button {
     flex-wrap: wrap;
   }
   .conn__label {
+    display: none;
+  }
+  .bell-btn__label {
     display: none;
   }
 }

@@ -1,12 +1,24 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
 import { useOrders } from "../lib/orders.js";
 import { getOperatorName } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
+import {
+  useTick,
+  formatElapsed,
+  overdueLevel,
+  cookProgress,
+  parseServerTime,
+  TARGET_MS,
+} from "../lib/time.js";
+import { playNewOrder, playOverdue } from "../lib/sound.js";
 
 const ACCENT = "#0ea5e9";
 const ZONE_ORDER = ["rolls", "pizza", "hot", "other"];
+
+const NEW_FLASH_MS = 6000;
+const OVERDUE_REALARM_MS = 60000;
 
 function groupByZone(items) {
   const groups = {};
@@ -17,7 +29,7 @@ function groupByZone(items) {
   return ZONE_ORDER.filter((z) => groups[z]).map((z) => ({ zone: z, items: groups[z] }));
 }
 
-function AssemblerCard({ order, name }) {
+function AssemblerCard({ order, name, isNew }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -25,6 +37,15 @@ function AssemblerCard({ order, name }) {
   const allReady = items.length > 0 && items.every((it) => it.ready);
   const allChecked = items.length > 0 && items.every((it) => it.is_checked);
   const canAssemble = allReady && allChecked && !order.assembled;
+
+  // Overall order timer from created_at -> progress toward the target window.
+  const createdAt = parseServerTime(order.created_at);
+  const elapsed = createdAt != null ? Date.now() - createdAt : 0;
+  const level = order.assembled ? "ok" : overdueLevel(elapsed);
+  const fill = cookProgress(elapsed);
+  const timerText = createdAt != null ? formatElapsed(elapsed) : null;
+
+  const cardOverdue = !order.assembled && level === "overdue";
 
   async function check(item) {
     setErr(null);
@@ -49,41 +70,79 @@ function AssemblerCard({ order, name }) {
 
   const groups = groupByZone(items);
 
+  const cls = [
+    "order-card",
+    order.assembled ? "order-card--done" : "",
+    isNew ? "order-card--new" : "",
+    cardOverdue ? "order-card--overdue" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <section className={`order-card ${order.assembled ? "order-card--done" : ""}`}>
+    <section className={cls}>
       <div className="order-card__head">
         <span className="order-num">№ {order.number}</span>
-        {order.customer && <span className="order-cust">{order.customer}</span>}
+        <div className="order-card__meta-head">
+          {timerText && (
+            <span
+              className={`order-since order-since--${level}`}
+              title="Время с момента заказа"
+            >
+              ⏱ {timerText}
+            </span>
+          )}
+          {order.customer && <span className="order-cust">{order.customer}</span>}
+        </div>
       </div>
 
-      {groups.map((g) => (
-        <div key={g.zone} className="asm-group">
-          <div className="asm-group__title">
-            <span className="kitem__dot" style={{ background: zoneColor(g.zone) }} />
-            {zoneLabel(g.zone)}
-          </div>
-          {g.items.map((it) => (
-            <label
-              key={it.id}
-              className={`asm-item ${it.is_checked ? "asm-item--checked" : ""}`}
-            >
-              <input
-                type="checkbox"
-                checked={!!it.is_checked}
-                disabled={!it.ready || order.assembled}
-                onChange={() => check(it)}
-              />
-              <span className="asm-item__name">
-                {it.name}
-                <span className="kitem__amount"> ×{it.amount}</span>
-              </span>
-              <span className={`ready-flag ${it.ready ? "ready-flag--on" : ""}`}>
-                {it.ready ? "✓ готово" : "ждём…"}
-              </span>
-            </label>
-          ))}
+      {!order.assembled && timerText && (
+        <div
+          className={`asmbar asmbar--${level}`}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(fill * 100)}
+          title={`Сборка идёт ${timerText}`}
+        >
+          <span className="asmbar__fill" style={{ width: `${fill * 100}%` }} />
         </div>
-      ))}
+      )}
+
+      {groups.map((g) => {
+        const zReady = g.items.every((it) => it.ready);
+        return (
+          <div key={g.zone} className="asm-group">
+            <div className="asm-group__title">
+              <span className="kitem__dot" style={{ background: zoneColor(g.zone) }} />
+              {zoneLabel(g.zone)}
+              <span className={`asm-group__state ${zReady ? "asm-group__state--ready" : ""}`}>
+                {zReady ? "✓ готово" : "ждём…"}
+              </span>
+            </div>
+            {g.items.map((it) => (
+              <label
+                key={it.id}
+                className={`asm-item ${it.is_checked ? "asm-item--checked" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!it.is_checked}
+                  disabled={!it.ready || order.assembled}
+                  onChange={() => check(it)}
+                />
+                <span className="asm-item__name">
+                  {it.name}
+                  <span className="kitem__amount"> ×{it.amount}</span>
+                </span>
+                <span className={`ready-flag ${it.ready ? "ready-flag--on" : ""}`}>
+                  {it.ready ? "✓ готово" : "ждём…"}
+                </span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
 
       {err && <div className="kitem__err">{err}</div>}
 
@@ -104,11 +163,80 @@ function AssemblerCard({ order, name }) {
 
 export default function Assembler() {
   const name = getOperatorName();
+  useTick(1000); // keep overall order timers / progress bars fresh
+
   const { orders, loading, error, connected } = useOrders(["assembler"]);
 
   const visible = orders
     .filter((o) => !o.delivered && (o.items || []).length > 0)
-    .sort((a, b) => Number(a.assembled) - Number(b.assembled) || (a.number || 0) - (b.number || 0));
+    .sort(
+      (a, b) =>
+        Number(a.assembled) - Number(b.assembled) || (a.number || 0) - (b.number || 0)
+    );
+
+  // --- new-order detection (same approach as KitchenScreen) ----------------
+  const seenIds = useRef(null);
+  const newIds = useRef(new Set());
+  const flashTimers = useRef(new Map());
+
+  // ids that are not yet assembled (those we want to alert/flash on arrival)
+  const activeIds = visible.filter((o) => !o.assembled).map((o) => o.id);
+
+  useEffect(() => {
+    if (loading) return;
+    if (seenIds.current === null) {
+      seenIds.current = new Set(activeIds);
+      return;
+    }
+    let gotNew = false;
+    for (const id of activeIds) {
+      if (!seenIds.current.has(id)) {
+        gotNew = true;
+        seenIds.current.add(id);
+        newIds.current.add(id);
+        const handle = setTimeout(() => {
+          newIds.current.delete(id);
+          flashTimers.current.delete(id);
+        }, NEW_FLASH_MS);
+        flashTimers.current.set(id, handle);
+      }
+    }
+    if (gotNew) playNewOrder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, activeIds.join(",")]);
+
+  useEffect(() => {
+    return () => {
+      for (const h of flashTimers.current.values()) clearTimeout(h);
+      flashTimers.current.clear();
+    };
+  }, []);
+
+  // --- overdue alarm: order in progress past the target window -------------
+  const overdueAlarmed = useRef(new Map());
+
+  useEffect(() => {
+    const now = Date.now();
+    let shouldAlarm = false;
+    const liveOverdue = new Set();
+
+    for (const o of visible) {
+      if (o.assembled) continue;
+      const createdAt = parseServerTime(o.created_at);
+      if (createdAt == null) continue;
+      if (overdueLevel(now - createdAt) !== "overdue") continue;
+      liveOverdue.add(o.id);
+      const last = overdueAlarmed.current.get(o.id);
+      if (last == null || now - last >= OVERDUE_REALARM_MS) {
+        shouldAlarm = true;
+        overdueAlarmed.current.set(o.id, now);
+      }
+    }
+    for (const id of overdueAlarmed.current.keys()) {
+      if (!liveOverdue.has(id)) overdueAlarmed.current.delete(id);
+    }
+    if (shouldAlarm) playOverdue();
+  });
 
   return (
     <div className="screen" style={{ "--accent": ACCENT }}>
@@ -121,7 +249,12 @@ export default function Assembler() {
         )}
         <div className="cards-grid">
           {visible.map((o) => (
-            <AssemblerCard key={o.id} order={o} name={name} />
+            <AssemblerCard
+              key={o.id}
+              order={o}
+              name={name}
+              isNew={newIds.current.has(o.id)}
+            />
           ))}
         </div>
       </main>

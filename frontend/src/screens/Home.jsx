@@ -116,6 +116,9 @@ export default function Home() {
             <Link to="/admin" className="home-link">
               Аналитика
             </Link>
+            <Link to="/stations" className="home-link">
+              Разметка зон
+            </Link>
             <Link to="/branches" className="home-link">
               Филиалы и сотрудники
             </Link>

@@ -347,3 +347,157 @@ async def rms_branches():
     """Филиалы и сотрудники из RMS (живой вызов: логин/логаут на стороне rms)."""
     from app import rms
     return await rms.branches_with_employees()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Разметка зон (станций) для блюд по группам меню iiko.
+# ──────────────────────────────────────────────────────────────────────────
+from app.stations import build_resolver as _build_resolver, classify_group as _classify_group, VALID_STATIONS as _VALID_STATIONS
+
+
+def _group_id_to_name(nomenclature: dict) -> dict[str, str]:
+    """groupId -> чистое имя группы меню iiko."""
+    return {
+        str(g.get("id")): (g.get("name") or "")
+        for g in (nomenclature.get("groups") or [])
+        if g.get("id")
+    }
+
+
+def _products_with_group(nomenclature: dict) -> list[dict]:
+    """Список продуктов с присоединённым именем группы меню."""
+    g2n = _group_id_to_name(nomenclature)
+    out: list[dict] = []
+    for p in (nomenclature.get("products") or []):
+        pid = p.get("id")
+        if not pid:
+            continue
+        group_id = str(p.get("groupId")) if p.get("groupId") else None
+        out.append({
+            "product_id": str(pid),
+            "name": p.get("name", "") or "",
+            "group_id": group_id,
+            "group_name": g2n.get(group_id, "") if group_id else "",
+        })
+    return out
+
+
+async def _reresolve_active_orders(session: AsyncSession, org_id: str) -> int:
+    """Пересчитать station у позиций активных заказов филиала и разослать обновления.
+
+    Возвращает число изменённых позиций. Вызывать ПОСЛЕ commit изменений маппинга,
+    чтобы build_resolver увидел свежие правила.
+    """
+    resolve = await _build_resolver(session)
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id, _Order.status != "Closed"))
+    ).scalars().all()
+
+    changed = 0
+    touched: list[_Order] = []
+    for order in orders:
+        order_changed = False
+        for it in order.items:
+            new_station = resolve(_WebhookItem(
+                product_id=it.product_id or "",
+                category_id=None,
+                name=it.name or "",
+                amount=it.amount,
+                combo_id=it.combo_id,
+            ))
+            if new_station != it.station:
+                it.station = new_station
+                changed += 1
+                order_changed = True
+        if order_changed:
+            touched.append(order)
+
+    if changed:
+        await session.commit()
+        for order in touched:
+            await session.refresh(order)
+    for order in touched:
+        await realtime.broadcast_order(order)
+    return changed
+
+
+async def _upsert_station(session: AsyncSession, product_id: str, station: str) -> None:
+    """UPSERT строки маппинга по product_id (category_id=None)."""
+    row = (await session.execute(
+        _select(_PSM).where(_PSM.product_id == product_id, _PSM.category_id.is_(None)))
+    ).scalar_one_or_none()
+    if row is None:
+        session.add(_PSM(product_id=product_id, category_id=None, station=station))
+    else:
+        row.station = station
+
+
+@app.post("/admin/stations/auto")
+async def admin_stations_auto(org_id: str,
+                              session: AsyncSession = Depends(get_session)):
+    """Авторазметка: тянем номенклатуру iiko, классифицируем блюда по группам меню,
+    сохраняем маппинг по product_id и пересчитываем активные заказы."""
+    nomenclature = await iiko_cloud.fetch_nomenclature(org_id)
+    products = _products_with_group(nomenclature)
+
+    for p in products:
+        zone = _classify_group(p["group_name"])
+        await _upsert_station(session, p["product_id"], zone)
+    await session.commit()
+
+    reclassified = await _reresolve_active_orders(session, org_id)
+    return {"mapped_products": len(products), "reclassified_items": reclassified}
+
+
+@app.get("/admin/stations")
+async def admin_stations_get(org_id: str,
+                             session: AsyncSession = Depends(get_session)):
+    """Текущая разметка для админ-UI: продукты, сгруппированные по группам меню iiko,
+    с текущей зоной (из ProductStationMap, иначе 'other')."""
+    nomenclature = await iiko_cloud.fetch_nomenclature(org_id)
+    products = _products_with_group(nomenclature)
+
+    rows = (await session.execute(_select(_PSM))).scalars().all()
+    by_product = {r.product_id: r.station for r in rows if r.product_id}
+
+    groups: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for p in products:
+        group_name = p["group_name"] or "Без группы"
+        if group_name not in groups:
+            groups[group_name] = []
+            order.append(group_name)
+        groups[group_name].append({
+            "product_id": p["product_id"],
+            "name": p["name"],
+            "station": by_product.get(p["product_id"], "other"),
+        })
+
+    return [{"group": g, "products": groups[g]} for g in order]
+
+
+class _StationItemIn(BaseModel):
+    product_id: str
+    station: str
+
+
+class _StationsIn(BaseModel):
+    items: list[_StationItemIn] = []
+
+
+@app.post("/admin/stations")
+async def admin_stations_post(org_id: str, body: _StationsIn,
+                              session: AsyncSession = Depends(get_session)):
+    """Ручные правки разметки: UPSERT по product_id, затем пересчёт активных заказов."""
+    updated = 0
+    for item in body.items:
+        if item.station not in _VALID_STATIONS:
+            raise HTTPException(status_code=400, detail=f"bad station: {item.station}")
+        if not item.product_id:
+            continue
+        await _upsert_station(session, item.product_id, item.station)
+        updated += 1
+    await session.commit()
+
+    await _reresolve_active_orders(session, org_id)
+    return {"updated": updated}
