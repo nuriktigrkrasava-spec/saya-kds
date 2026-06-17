@@ -256,6 +256,22 @@ async def item_check(item_id: int, body: ActionIn,
     return await _item_and_broadcast(session, item_id)
 
 
+@app.post("/items/{item_id}/revert")
+async def item_revert(item_id: int, body: ActionIn,
+                      session: AsyncSession = Depends(get_session)):
+    """Сборщик возвращает позицию назад повару: снимаем «готово» и галочку,
+    позиция снова попадает на кухню (таймер с момента «Принял» продолжает идти —
+    чтобы сушист не мог накрутить KPI преждевременным «Готово»)."""
+    item = (await session.execute(
+        _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="item not found")
+    item.station_ready_at = None
+    item.is_checked = False
+    item.checked_at = None
+    return await _item_and_broadcast(session, item_id)
+
+
 async def _order_action_and_broadcast(session: AsyncSession, order_id: int) -> dict:
     await session.commit()
     order = await _load_order(session, order_id)

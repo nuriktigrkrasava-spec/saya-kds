@@ -48,3 +48,22 @@ async def test_accept_then_ready_sets_timestamps(client):
         it = (await s.execute(select(OrderItem).where(OrderItem.id == item_id))).scalar_one()
         assert it.station_accepted_at is not None
         assert it.station_ready_at is not None
+
+
+@respx.mock
+async def test_revert_returns_item_to_kitchen(client):
+    c, maker = client
+    async with maker() as s:
+        item_id = (await s.execute(select(OrderItem.id))).scalar_one()
+    await c.post(f"/items/{item_id}/accept", json={"by": "Алия"})
+    await c.post(f"/items/{item_id}/ready", json={"by": "Алия"})
+    await c.post(f"/items/{item_id}/check", json={"by": "Сборщик"})
+
+    r = await c.post(f"/items/{item_id}/revert", json={"by": "Сборщик"})
+    assert r.status_code == 200
+
+    async with maker() as s:
+        it = (await s.execute(select(OrderItem).where(OrderItem.id == item_id))).scalar_one()
+        assert it.station_ready_at is None      # снова «не готово» -> вернётся на кухню
+        assert it.is_checked is False
+        assert it.station_accepted_at is not None  # таймер с «Принял» продолжает идти

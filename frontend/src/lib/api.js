@@ -71,6 +71,7 @@ export const api = {
   acceptItem: (itemId, by) => post(`/items/${itemId}/accept`, { by }),
   readyItem: (itemId, by) => post(`/items/${itemId}/ready`, { by }),
   checkItem: (itemId, by) => post(`/items/${itemId}/check`, { by }),
+  revertItem: (itemId, by) => post(`/items/${itemId}/revert`, { by }),
   assembleOrder: (orderId, by) => post(`/orders/${orderId}/assemble`, { by }),
   takeOrder: (orderId, by) => post(`/orders/${orderId}/take`, { by }),
   deliverOrder: (orderId, by) => post(`/orders/${orderId}/delivered`, { by }),

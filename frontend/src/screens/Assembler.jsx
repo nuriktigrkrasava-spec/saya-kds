@@ -86,6 +86,19 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
     }
   }
 
+  async function revert(item, e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setErr(null);
+    try {
+      await api.revertItem(item.id, name || "—");
+    } catch (err) {
+      setErr(err.message || String(err));
+    }
+  }
+
   async function assemble() {
     setBusy(true);
     setErr(null);
@@ -205,6 +218,16 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                 <span className={`ready-flag ${(it.ready || !needsReady(it)) ? "ready-flag--on" : ""}`}>
                   {it.ready ? "✓ готово" : (!needsReady(it) ? "—" : "ждём…")}
                 </span>
+                {it.ready && needsReady(it) && !order.assembled && (
+                  <button
+                    type="button"
+                    className="asm-revert"
+                    title="Вернуть повару (не готово)"
+                    onClick={(e) => revert(it, e)}
+                  >
+                    ↩ Вернуть
+                  </button>
+                )}
               </label>
             ))}
           </div>
