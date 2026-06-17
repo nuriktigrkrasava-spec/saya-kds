@@ -45,7 +45,10 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const [courierCode, setCourierCode] = useState("");
 
   const items = order.items || [];
-  const allReady = items.length > 0 && items.every((it) => it.ready);
+  // Блюда зоны «прочее» (напитки/подарки/соусы) не готовятся на кухне —
+  // их не нужно ждать «готово», сборщик отмечает их сразу.
+  const needsReady = (it) => it.station !== "other";
+  const allReady = items.length > 0 && items.every((it) => it.ready || !needsReady(it));
   const allChecked = items.length > 0 && items.every((it) => it.is_checked);
   const canAssemble = allReady && allChecked && !order.assembled;
 
@@ -192,15 +195,15 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                 <input
                   type="checkbox"
                   checked={!!it.is_checked}
-                  disabled={!it.ready || order.assembled}
+                  disabled={order.assembled || (!it.ready && needsReady(it))}
                   onChange={() => check(it)}
                 />
                 <span className="asm-item__name">
                   {it.name}
                   <span className="kitem__amount"> ×{it.amount}</span>
                 </span>
-                <span className={`ready-flag ${it.ready ? "ready-flag--on" : ""}`}>
-                  {it.ready ? "✓ готово" : "ждём…"}
+                <span className={`ready-flag ${(it.ready || !needsReady(it)) ? "ready-flag--on" : ""}`}>
+                  {it.ready ? "✓ готово" : (!needsReady(it) ? "—" : "ждём…")}
                 </span>
               </label>
             ))}

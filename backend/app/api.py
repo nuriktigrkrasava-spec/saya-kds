@@ -635,23 +635,33 @@ async def _upsert_station(session: AsyncSession, product_id: str, station: str) 
 
 
 @app.post("/admin/stations/auto")
-async def admin_stations_auto(org_id: str,
+async def admin_stations_auto(org_id: str, overwrite: bool = False,
                               session: AsyncSession = Depends(get_session)):
-    """Авторазметка: тянем номенклатуру iiko, классифицируем блюда по группам меню,
-    сохраняем маппинг по product_id и пересчитываем активные заказы."""
+    """Авторазметка: тянем номенклатуру iiko, классифицируем блюда по названию/группе.
+    По умолчанию НЕ затираем уже размеченные блюда (ручные правки сохраняются);
+    overwrite=true — перезаписать всё.
+    """
     nomenclature = await iiko_cloud.fetch_nomenclature(org_id)
     products = _products_with_group(nomenclature)
 
+    # Уже размеченные product_id (ручные/прошлые) — их не трогаем, если не overwrite.
+    existing = {r.product_id for r in (await session.execute(
+        _select(_PSM).where(_PSM.product_id.is_not(None)))).scalars().all()}
+
+    mapped = 0
     for p in products:
-        # Классифицируем по НАЗВАНИЮ блюда (надёжнее), с откатом на группу меню.
+        if not overwrite and p["product_id"] in existing:
+            continue  # сохраняем ручную разметку
         zone = _classify_name(p["name"])
         if zone == "other":
             zone = _classify_group(p["group_name"])
         await _upsert_station(session, p["product_id"], zone)
+        mapped += 1
     await session.commit()
 
     reclassified = await _reresolve_active_orders(session, org_id)
-    return {"mapped_products": len(products), "reclassified_items": reclassified}
+    return {"mapped_products": mapped, "skipped_existing": len(existing) if not overwrite else 0,
+            "reclassified_items": reclassified}
 
 
 @app.get("/admin/stations")
