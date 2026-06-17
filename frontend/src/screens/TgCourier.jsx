@@ -106,36 +106,44 @@ export default function TgCourier() {
     return () => clearInterval(t);
   }, [phase, identity, loadOrders]);
 
-  // --- send GPS location every 20s while on shift -----------------------------
+  // --- геолокация: на смене курьер шлёт позицию, иначе его нельзя назначить ----
   const [geo, setGeo] = useState("выкл");
-  useEffect(() => {
-    if (phase !== "orders" || !initData || !navigator.geolocation) {
-      setGeo("нет доступа");
-      return;
-    }
-    let alive = true;
-    const send = () => {
+  const sendLocation = useCallback(
+    (announce = false) => {
+      if (!initData || !navigator.geolocation) {
+        setGeo("недоступно");
+        if (announce) alert("Это устройство не отдаёт геолокацию.");
+        return;
+      }
+      setGeo("определяем…");
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
-          if (!alive) return;
           try {
             await api.tgLocation(initData, pos.coords.latitude, pos.coords.longitude);
-            setGeo("вкл");
+            setGeo("вкл ✅ (на смене)");
           } catch {
-            /* молча: не ломаем UI заказов */
+            setGeo("ошибка отправки");
           }
         },
-        () => alive && setGeo("нет доступа"),
+        () => {
+          setGeo("нет доступа");
+          if (announce)
+            alert(
+              "Разреши доступ к геолокации (в Telegram/настройках телефона), иначе тебе нельзя назначить заказы."
+            );
+        },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
       );
-    };
-    send();
-    const t = setInterval(send, 20000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [phase, initData]);
+    },
+    [initData]
+  );
+
+  useEffect(() => {
+    if (phase !== "orders") return;
+    sendLocation();
+    const t = setInterval(() => sendLocation(), 20000);
+    return () => clearInterval(t);
+  }, [phase, sendLocation]);
 
   // --- PIN pad ----------------------------------------------------------------
   function press(key) {
@@ -323,6 +331,24 @@ export default function TgCourier() {
       </header>
 
       <main className="tg__body">
+        <div
+          style={{
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+            padding: "10px 12px", marginBottom: 10, borderRadius: 12,
+            background: geo.startsWith("вкл") ? "#e8f7ee" : "#fff4e5",
+          }}
+        >
+          <span style={{ fontSize: 14 }}>📍 Геолокация: <b>{geo}</b></span>
+          <button
+            type="button"
+            className="tg-btn tg-btn--route"
+            style={{ marginLeft: "auto", padding: "8px 14px" }}
+            onClick={() => sendLocation(true)}
+          >
+            Включить геолокацию
+          </button>
+        </div>
+
         {ordersErr && <p className="tg__err tg__err--show">{ordersErr}</p>}
 
         {orders.length === 0 ? (
