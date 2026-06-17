@@ -614,20 +614,55 @@ from app.models import TelegramLink as _TelegramLink
 _COURIER_ROLES = {"КР", "КЭКСПО20"}
 
 
+# «На смене» = у курьера есть свежая геопозиция из Telegram-аппа за это окно.
+_ACTIVE_WINDOW_MIN = 30
+
+
 @app.get("/branches/couriers")
-async def branches_couriers(branch_code: str = ""):
-    """Курьеры конкретного филиала RMS (роли КР/КЭКСПО20)."""
+async def branches_couriers(branch_code: str = "",
+                            session: AsyncSession = Depends(get_session)):
+    """Курьеры конкретного филиала RMS (роли КР/КЭКСПО20).
+
+    Каждый курьер помечается active=на смене, если его Telegram-апп присылал
+    геопозицию за последние _ACTIVE_WINDOW_MIN минут (надёжный признак смены
+    без отдельной интеграции с iiko). Активные идут первыми, далее по имени.
+    """
     if not branch_code:
         return []
     branches = await _rms.branches_with_employees()
     branch = next((b for b in branches if b["code"] == branch_code), None)
     if not branch:
         return []
-    return [
+
+    couriers = [
         {"code": e["code"], "name": e["name"]}
         for e in branch["employees"]
         if e.get("role") in _COURIER_ROLES
     ]
+    if not couriers:
+        return []
+
+    codes = [c["code"] for c in couriers]
+    locs = (await session.execute(
+        _select(_CourierLocation).where(_CourierLocation.courier_code.in_(codes)))
+    ).scalars().all()
+    by_code = {loc.courier_code: loc for loc in locs}
+
+    now = _dt.utcnow()
+    out = []
+    for c in couriers:
+        loc = by_code.get(c["code"])
+        minutes_ago = None
+        active = False
+        if loc is not None and loc.updated_at is not None:
+            minutes_ago = int((now - loc.updated_at).total_seconds() // 60)
+            active = minutes_ago < _ACTIVE_WINDOW_MIN
+        out.append({"code": c["code"], "name": c["name"],
+                    "active": active, "minutes_ago": minutes_ago})
+
+    # Активные первыми, затем по имени.
+    out.sort(key=lambda c: (not c["active"], c["name"]))
+    return out
 
 
 class AssignCourierIn(BaseModel):

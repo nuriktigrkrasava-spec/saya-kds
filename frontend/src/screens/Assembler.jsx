@@ -48,7 +48,12 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const allChecked = items.length > 0 && items.every((it) => it.is_checked);
   const canAssemble = allReady && allChecked && !order.assembled;
 
-  const hasCouriers = (couriers || []).length > 0;
+  const courierList = couriers || [];
+  const hasCouriers = courierList.length > 0;
+  const activeCouriers = courierList.filter((c) => c.active);
+  const activeCount = activeCouriers.length;
+  // Поток не блокируется: если на смене никого нет — откат на обычную сборку.
+  const hasActiveCouriers = activeCount > 0;
   // Name of the assigned courier, if any (from server payload).
   const assignedName =
     order.courier_name ||
@@ -90,9 +95,13 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   }
 
   async function assign() {
-    const courier = (couriers || []).find((c) => c.code === courierCode);
+    const courier = courierList.find((c) => c.code === courierCode);
     if (!courier) {
       setErr("Выберите курьера");
+      return;
+    }
+    if (!courier.active) {
+      setErr("Курьер не на смене");
       return;
     }
     setBusy(true);
@@ -208,8 +217,14 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
         <button className="btn btn--big btn--assemble" disabled>
           Загрузка курьеров…
         </button>
-      ) : hasCouriers ? (
+      ) : hasActiveCouriers ? (
         <div className="asm-courier">
+          <div
+            className="asm-courier__hint"
+            style={{ fontWeight: 700, color: "#16a34a" }}
+          >
+            На смене: {activeCount}
+          </div>
           <select
             className="asm-courier__select"
             value={courierCode}
@@ -217,9 +232,11 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
             disabled={!canAssemble || busy}
           >
             <option value="">Выберите курьера…</option>
-            {couriers.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
+            {courierList.map((c) => (
+              <option key={c.code} value={c.code} disabled={!c.active}>
+                {c.active
+                  ? `${c.name} · на смене`
+                  : `${c.name} · не на смене`}
               </option>
             ))}
           </select>
@@ -233,7 +250,11 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
         </div>
       ) : (
         <>
-          <div className="asm-courier__hint">Нет курьеров в филиале</div>
+          <div className="asm-courier__hint">
+            {hasCouriers
+              ? "Нет курьеров на смене"
+              : "Нет курьеров в филиале"}
+          </div>
           <button
             className="btn btn--big btn--assemble"
             onClick={assemble}
