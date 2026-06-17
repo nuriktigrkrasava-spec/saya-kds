@@ -1,0 +1,158 @@
+.history {
+  min-height: 100vh;
+  background: #f5f6f8;
+  color: #1f2937;
+  padding: 32px 16px 64px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.history__inner {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.history__back {
+  display: inline-block;
+  margin-bottom: 16px;
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.history__back:hover {
+  text-decoration: underline;
+}
+
+.history__title {
+  margin: 0 0 20px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.history__state {
+  font-size: 16px;
+  color: #6b7280;
+  padding: 24px 0;
+}
+
+.history__state--err {
+  color: #dc2626;
+}
+
+.history__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.history__summary--alert {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.emp-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.emp-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.emp-card__name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.emp-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.emp-card__meta b {
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.emp-card__warn {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.history__table-wrap {
+  border: 1px solid #f1f3f5;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.history-table th,
+.history-table td {
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.history-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  font-size: 13px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.history-table td {
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.history-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-table .row--suspicious {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.history-table .row--suspicious td {
+  font-weight: 600;
+}
+
+.row__flag {
+  margin-right: 2px;
+}

@@ -342,6 +342,105 @@ async def admin_analytics(org_id: str, session: AsyncSession = Depends(get_sessi
     }
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# История сотрудников за сегодня + детектор аномалий по времени (анти-фрод).
+# «Готово» менее чем за минуту после «принял» — физически невозможно.
+# ──────────────────────────────────────────────────────────────────────────
+_SUSPICIOUS_PREP_SECONDS = 60  # порог: меньше минуты = подозрительно
+
+
+def _worked_items_today(orders: list[_Order]) -> list[tuple[str, _Order, "_OrderItem"]]:
+    """Позиции, принятые сегодня (по серверной UTC-дате), с непустым исполнителем.
+
+    Возвращает кортежи (имя_исполнителя, заказ, позиция).
+    """
+    today = _dt.utcnow().date()
+    out: list[tuple[str, _Order, _OrderItem]] = []
+    for o in orders:
+        for it in o.items:
+            if it.station_accepted_at is None:
+                continue
+            if it.station_accepted_at.date() != today:
+                continue
+            name = (it.checked_by or "").strip()
+            if not name:
+                continue
+            out.append((name, o, it))
+    return out
+
+
+@app.get("/admin/employee-history")
+async def admin_employee_history(org_id: str,
+                                 session: AsyncSession = Depends(get_session)):
+    """Что каждый сотрудник делал сегодня: позиции, состав, времена + подозрения.
+
+    Группируем сегодняшние принятые позиции филиала по checked_by (исполнителю).
+    suspicious = время готовки задано И меньше минуты (физически невозможно).
+    """
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    by_emp: dict[str, list[dict]] = {}
+    preps: dict[str, list[float]] = {}
+    suspicious: dict[str, int] = {}
+
+    for name, order, it in _worked_items_today(orders):
+        prep = _prep_seconds(it)
+        is_susp = prep is not None and prep < _SUSPICIOUS_PREP_SECONDS
+        by_emp.setdefault(name, []).append({
+            "order_number": order.number,
+            "item_name": it.name,
+            "station": it.station,
+            "accepted_at": _iso(it.station_accepted_at),
+            "ready_at": _iso(it.station_ready_at),
+            "prep_seconds": int(prep) if prep is not None else None,
+            "suspicious": is_susp,
+        })
+        if prep is not None:
+            preps.setdefault(name, []).append(prep)
+        if is_susp:
+            suspicious[name] = suspicious.get(name, 0) + 1
+
+    return [
+        {
+            "name": name,
+            "items": by_emp[name],
+            "count": len(by_emp[name]),
+            "avg_prep_seconds": _mean(preps.get(name, [])),
+            "suspicious_count": suspicious.get(name, 0),
+        }
+        for name in sorted(by_emp.keys())
+    ]
+
+
+@app.get("/admin/anomalies")
+async def admin_anomalies(org_id: str,
+                          session: AsyncSession = Depends(get_session)):
+    """Плоский список подозрительно быстрых позиций филиала за сегодня.
+
+    «Готово» менее чем за минуту после «принял» — сортировка по времени готовки.
+    """
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+
+    anomalies: list[dict] = []
+    for name, order, it in _worked_items_today(orders):
+        prep = _prep_seconds(it)
+        if prep is None or prep >= _SUSPICIOUS_PREP_SECONDS:
+            continue
+        anomalies.append({
+            "name": name,
+            "order_number": order.number,
+            "item_name": it.name,
+            "prep_seconds": int(prep),
+            "accepted_at": _iso(it.station_accepted_at),
+            "ready_at": _iso(it.station_ready_at),
+        })
+
+    anomalies.sort(key=lambda a: a["prep_seconds"])
+    return anomalies
+
+
 @app.get("/rms/branches")
 async def rms_branches():
     """Филиалы и сотрудники из RMS (живой вызов: логин/логаут на стороне rms)."""

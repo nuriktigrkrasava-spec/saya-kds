@@ -10,6 +10,7 @@ import StationMap from "./screens/StationMap.jsx";
 import CourierMap from "./screens/CourierMap.jsx";
 import Login from "./screens/Login.jsx";
 import Track from "./screens/Track.jsx";
+import EmployeeHistory from "./screens/EmployeeHistory.jsx";
 import { isAuthed, isManager } from "./lib/auth.js";
 
 function RequireAuth({ children }) {
@@ -37,6 +38,7 @@ export default function App() {
       <Route path="/admin" element={<RequireManager><Admin /></RequireManager>} />
       <Route path="/branches" element={<RequireManager><Branches /></RequireManager>} />
       <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
+      <Route path="/history" element={<RequireManager><EmployeeHistory /></RequireManager>} />
       <Route path="/map" element={<RequireAuth><CourierMap /></RequireAuth>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>

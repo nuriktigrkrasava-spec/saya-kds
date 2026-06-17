@@ -112,6 +112,9 @@ export default function Home() {
               <Link to="/stations" className="home-link">
                 Разметка зон
               </Link>
+              <Link to="/history" className="home-link">
+                История сотрудников
+              </Link>
               <Link to="/branches" className="home-link">
                 Филиалы и сотрудники
               </Link>

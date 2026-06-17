@@ -8,6 +8,7 @@ import {
   formatElapsed,
   parseServerTime,
   overdueLevel,
+  orderUrgency,
 } from "../lib/time.js";
 import { playNewOrder, playOverdue } from "../lib/sound.js";
 
@@ -39,7 +40,9 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
     .filter((o) => o._items.length > 0)
     // hide orders where every relevant item is ready (kitchen done)
     .filter((o) => o._items.some((it) => !it.ready))
-    .sort((a, b) => (a.number || 0) - (b.number || 0));
+    // Smart queue: most urgent first (overdue, then burning, then by age).
+    // useTick re-renders every second, so this re-sorts as time passes.
+    .sort((a, b) => orderUrgency(b, stations) - orderUrgency(a, stations));
 
   // --- new-order detection -------------------------------------------------
   // Track which order ids we've already seen so we only flash/beep genuinely
@@ -140,6 +143,21 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
               const a = parseServerTime(it.accepted_at) ?? Date.now();
               return overdueLevel(Date.now() - a) === "overdue";
             });
+            // card-level warn: any accepted, not-ready item in the 5–10 min band
+            const cardWarn =
+              !cardOverdue &&
+              o._items.some((it) => {
+                if (!it.accepted || it.ready) return false;
+                const a = parseServerTime(it.accepted_at);
+                if (a == null) return false;
+                return overdueLevel(Date.now() - a) === "warn";
+              });
+
+            const urgencyBadge = cardOverdue
+              ? { text: "🔴 просрочка", bg: "#c0392b" }
+              : cardWarn
+              ? { text: "🟡 горит", bg: "#b8860b" }
+              : null;
 
             const cls = [
               "order-card",
@@ -154,6 +172,22 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
                 <div className="order-card__head">
                   <span className="order-num">№ {o.number}</span>
                   <div className="order-card__meta-head">
+                    {urgencyBadge && (
+                      <span
+                        title="Срочность заказа"
+                        style={{
+                          fontSize: "0.8em",
+                          fontWeight: 700,
+                          color: "#fff",
+                          background: urgencyBadge.bg,
+                          borderRadius: "6px",
+                          padding: "2px 8px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {urgencyBadge.text}
+                      </span>
+                    )}
                     {sinceOrder && (
                       <span className="order-since" title="Время с момента заказа">
                         ⏱ {sinceOrder}
