@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
@@ -172,6 +173,58 @@ async def webhooks_register(key: str = Query(default="")):
     if settings.webhook_secret and key != settings.webhook_secret:
         raise HTTPException(status_code=403, detail="bad key")
     return await iiko_cloud.register_all_webhooks()
+
+
+class FrontItemIn(BaseModel):
+    name: str = ""
+    category: str = ""      # категория блюда (Роллы/Пиццы/Горячее) — для зоны
+    amount: float = 1
+    comment: str = ""
+    product_id: str = ""
+
+
+class FrontOrderIn(BaseModel):
+    id: str                 # id заказа на терминале (для идемпотентности)
+    org_id: str             # Cloud org_id филиала (куда слать на планшет)
+    number: str = ""
+    status: str = "New"
+    service_type: str = "DineIn"   # DineIn=зал, ToGo/PickUp=вынос
+    customer: str = ""
+    phone: str = ""
+    comment: str = ""
+    items: list[FrontItemIn] = []
+
+
+@app.post("/ingest/front")
+async def ingest_front(body: FrontOrderIn, key: str = Query(default=""),
+                       session: AsyncSession = Depends(get_session)):
+    """Приём заказов ЗАЛА/ВЫНОСА с терминала iikoFront.
+
+    Заказы зала не уходят в Cloud-вебхуки, поэтому их форвардит плагин с кассы
+    прямо сюда. Дальше — тот же конвейер: ingest -> разбор по зонам (по категории)
+    -> рассылка на планшет. Идемпотентно по id (front-<id>).
+    Защищён тем же секретом, что и вебхуки.
+    """
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    from app.schemas import NormalizedOrder as _NO, WebhookItem as _WI
+    normalized = _NO(
+        iiko_order_id=f"front-{body.id}",
+        org_id=body.org_id,
+        number=body.number,
+        status=body.status,
+        customer=body.customer,
+        phone=body.phone,
+        comment=body.comment,
+        service_type=body.service_type,
+        items=[_WI(product_id=(it.product_id or f"front-{body.id}-{i}"),
+                   category_name=it.category, name=it.name,
+                   amount=it.amount, comment=it.comment)
+               for i, it in enumerate(body.items)],
+    )
+    order = await ingest.ingest_order(session, normalized)
+    await realtime.broadcast_order(order)
+    return realtime.order_payload(order)
 
 
 @app.post("/debug/pull")

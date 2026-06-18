@@ -65,3 +65,27 @@ async def test_webhook_ingests_delivery_event(client):
     async with maker() as s:
         n = (await s.execute(select(func.count()).select_from(Order))).scalar_one()
         assert n == 1
+
+
+async def test_ingest_front_hall_order_by_category(client):
+    """Заказ зала с терминала: ингестится и зона берётся по категории блюда."""
+    c, maker = client
+    settings.webhook_secret = ""  # без проверки ключа
+    payload = {
+        "id": "T1", "org_id": "org-1", "number": "55", "service_type": "DineIn",
+        "customer": "Гость", "comment": "без имбиря",
+        "items": [
+            {"name": "Сет Фаворит", "category": "Роллы", "amount": 1, "comment": "без лука"},
+            {"name": "Кола", "category": "Напитки", "amount": 2},
+        ],
+    }
+    r = await c.post("/ingest/front", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["number"] == "55"
+    assert body["comment"] == "без имбиря"
+    stations = {it["name"]: it["station"] for it in body["items"]}
+    assert stations["Сет Фаворит"] == "rolls"   # по категории «Роллы»
+    assert stations["Кола"] == "other"            # напитки -> прочее
+    notes = {it["name"]: it["comment"] for it in body["items"]}
+    assert notes["Сет Фаворит"] == "без лука"
