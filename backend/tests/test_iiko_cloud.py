@@ -51,9 +51,30 @@ def test_normalize_full_order_extracts_items_and_combo():
     n = c.normalize_full_order(wrapper, "org-1")
     assert n.iiko_order_id == "o1"
     assert n.org_id == "org-1"
-    assert n.address == "Абая"
+    assert n.address == "Абая, 1"
     assert n.lat == 51.1 and n.lon == 71.4
     assert len(n.items) == 2
     assert n.items[0].product_id == "p-roll" and n.items[0].amount == 2
     assert n.items[0].category_id == "cat-rolls"
     assert n.items[1].combo_id == "combo-7"
+
+
+def test_normalize_full_order_builds_full_address():
+    wrapper = {
+        "id": "o2",
+        "order": {
+            "number": "102",
+            "deliveryPoint": {
+                "address": {
+                    "street": {"name": "Кабанбай батыра"},
+                    "house": "1",
+                    "flat": "42",
+                    "entrance": "3",
+                    "floor": "5",
+                },
+                "comment": "код 1234",
+            },
+        },
+    }
+    n = c.normalize_full_order(wrapper, "org-1")
+    assert n.address == "Кабанбай батыра, 1, кв. 42, подъезд 3, этаж 5 (код 1234)"

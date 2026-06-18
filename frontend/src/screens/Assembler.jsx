@@ -6,6 +6,7 @@ import { useOrders } from "../lib/orders.js";
 import { getOperatorName, getSession } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
+import { orderChannel, channelBadge, completeLabel } from "../lib/orderType.js";
 import {
   useTick,
   formatElapsed,
@@ -22,21 +23,6 @@ const ZONE_ORDER = ["rolls", "pizza", "hot", "other"];
 const NEW_FLASH_MS = 6000;
 const OVERDUE_REALARM_MS = 60000;
 
-// Map an iiko orderServiceType to a short Russian badge label.
-function serviceTypeBadge(serviceType) {
-  if (!serviceType) return null;
-  if (serviceType === "DeliveryByCourier") return "🛵 Доставка";
-  if (serviceType === "DineIn" || serviceType === "Common") return "🍽 Зал";
-  if (
-    serviceType === "DeliveryByPickUp" ||
-    serviceType === "DeliveryByClient" ||
-    serviceType === "PickUp" ||
-    serviceType === "ToGo"
-  )
-    return "🏃 Самовывоз";
-  return serviceType;
-}
-
 function groupByZone(items) {
   const groups = {};
   for (const it of items || []) {
@@ -50,6 +36,10 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [courierCode, setCourierCode] = useState("");
+
+  // Канал заказа решает, нужна ли курьерская панель.
+  // Доставка (needsCourier) -> выбор курьера; зал/вынос/самовывоз/агрегатор -> «Выдан».
+  const channel = orderChannel(order);
 
   const items = order.items || [];
   // Блюда зоны «прочее» (напитки/подарки/соусы) не готовятся на кухне.
@@ -108,6 +98,21 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
     }
   }
 
+  // Некурьерские заказы (зал/вынос/самовывоз/агрегатор) закрываются здесь же:
+  // помечаем собранным и сразу выданным — заказ уходит из списка сборщика.
+  async function handout() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.assembleOrder(order.id, name || "—");
+      await api.deliverOrder(order.id, name || "—");
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function assign() {
     const courier = courierList.find((c) => c.code === courierCode);
     if (!courier) {
@@ -145,7 +150,7 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
       <div className="order-card__head">
         <span className="order-num">№ {order.number}</span>
         <div className="order-card__meta-head">
-          {serviceTypeBadge(order.service_type) && (
+          {channelBadge(order) && (
             <span
               title="Тип заказа"
               style={{
@@ -158,7 +163,7 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                 whiteSpace: "nowrap",
               }}
             >
-              {serviceTypeBadge(order.service_type)}
+              {channelBadge(order)}
             </span>
           )}
           {timerText && (
@@ -226,8 +231,21 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
 
       {order.assembled ? (
         <div className="badge badge--ready asm-handed">
-          {assignedName ? `Назначен: ${assignedName}` : "Передан курьеру"}
+          {channel.needsCourier
+            ? assignedName
+              ? `Назначен: ${assignedName}`
+              : "Передан курьеру"
+            : completeLabel(channel)}
         </div>
+      ) : !channel.needsCourier ? (
+        // Зал / вынос / самовывоз / агрегатор: курьер не нужен — закрываем «Выдан».
+        <button
+          className="btn btn--big btn--assemble"
+          onClick={handout}
+          disabled={!canAssemble || busy}
+        >
+          {busy ? "…" : completeLabel(channel)}
+        </button>
       ) : !couriersReady ? (
         <button className="btn btn--big btn--assemble" disabled>
           Загрузка курьеров…

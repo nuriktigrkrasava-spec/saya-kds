@@ -64,12 +64,50 @@ async def fetch_nomenclature(organization_id: str) -> dict:
         return r.json()
 
 
+def _format_address(dp: dict) -> str:
+    """Собирает читаемый адрес доставки из deliveryPoint.
+
+    iiko Cloud кладёт адрес по частям (улица, дом, квартира, подъезд, этаж),
+    а раньше мы брали только название улицы — курьер видел «Абая» без дома.
+    Склеиваем всё, что есть, в одну строку.
+    """
+    addr = (dp.get("address") or {})
+    street = (addr.get("street") or {}).get("name") or addr.get("line1") or ""
+    house = addr.get("house") or ""
+    building = addr.get("building") or ""
+
+    # Первая часть: «Улица, дом[ к.корпус]».
+    head_parts = [p for p in (street, house) if p]
+    head = ", ".join(head_parts)
+    if building:
+        head = f"{head} к.{building}" if head else f"к.{building}"
+
+    # Уточнения: квартира / подъезд / этаж — добавляем подписи, чтобы было понятно.
+    extras = []
+    if addr.get("flat"):
+        extras.append(f"кв. {addr['flat']}")
+    if addr.get("entrance"):
+        extras.append(f"подъезд {addr['entrance']}")
+    if addr.get("floor"):
+        extras.append(f"этаж {addr['floor']}")
+    if addr.get("doorphone"):
+        extras.append(f"домофон {addr['doorphone']}")
+
+    parts = [p for p in (head, *extras) if p]
+    address = ", ".join(parts)
+
+    # Комментарий курьеру («во дворе», «не звонить») — отдельной припиской.
+    comment = (dp.get("comment") or "").strip()
+    if comment:
+        address = f"{address} ({comment})" if address else comment
+    return address
+
+
 def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder:
     o = wrapper.get("order") or {}
     customer = (o.get("customer") or {}).get("name", "")
     dp = o.get("deliveryPoint") or {}
-    addr_block = (dp.get("address") or {})
-    address = ((addr_block.get("street") or {}).get("name")) or addr_block.get("line1", "") or ""
+    address = _format_address(dp)
     coords = dp.get("coordinates") or {}
     items: list[WebhookItem] = []
     for it in o.get("items", []) or []:
