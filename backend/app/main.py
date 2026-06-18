@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import asyncio
 import socketio
 from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +10,7 @@ from app.realtime import sio
 from app.db import engine, Base
 from app.poller import start_poller, stop_poller
 from app.alerts import start_alerts, stop_alerts
+from app import iiko_cloud
 import app.models  # noqa: F401
 
 
@@ -22,6 +24,17 @@ async def _create_tables():
     # Алерты менеджерам в Telegram: фоновая проверка просроченных заказов и
     # аномалий времени готовки. Отключены по умолчанию (ALERTS_INTERVAL_SECONDS<=0).
     fastapi_app.state.alerts_task = start_alerts()
+    # Пере-подписываем iiko на вебхуки (доставка + зал/вынос/самовывоз). Фоном,
+    # чтобы внешний вызов iiko не задерживал старт сервиса и не ронял его при сбое.
+    fastapi_app.state.webhook_task = asyncio.create_task(_register_webhooks_safe())
+
+
+async def _register_webhooks_safe():
+    import logging
+    try:
+        await iiko_cloud.register_all_webhooks()
+    except Exception:  # noqa: BLE001 — старт сервиса важнее
+        logging.getLogger("saya.webhooks").exception("webhook auto-register crashed")
 
 
 @fastapi_app.on_event("shutdown")

@@ -59,6 +59,14 @@ def test_normalize_full_order_extracts_items_and_combo():
     assert n.items[1].combo_id == "combo-7"
 
 
+def test_webhooks_filter_includes_table_orders():
+    # Без tableOrderFilter iiko не присылает зал/вынос/самовывоз -> их не видно.
+    f = c.build_webhooks_filter()
+    assert "deliveryOrderFilter" in f
+    assert "tableOrderFilter" in f
+    assert f["tableOrderFilter"]["orderStatuses"]  # непустой список статусов
+
+
 def test_normalize_full_order_builds_full_address():
     wrapper = {
         "id": "o2",

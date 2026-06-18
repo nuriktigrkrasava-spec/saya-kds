@@ -157,6 +157,15 @@ async def get_stoplist(org_id: str, session: AsyncSession = Depends(get_session)
     ]
 
 
+@app.post("/webhooks/register")
+async def webhooks_register(key: str = Query(default="")):
+    """Пере-подписать iiko на вебхуки (доставка + зал/вынос). Ручной триггер для
+    проверки/восстановления; защищён тем же секретом, что и приём вебхуков."""
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    return await iiko_cloud.register_all_webhooks()
+
+
 @app.post("/debug/pull")
 async def debug_pull(org_id: str, order_id: str,
                      session: AsyncSession = Depends(get_session)):

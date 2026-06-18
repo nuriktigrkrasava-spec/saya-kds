@@ -10,6 +10,12 @@ DELIVERY_ORDER_STATUSES = [
     "Waiting", "OnWay", "Delivered", "Closed", "Cancelled",
 ]
 
+# Статусы заказов зала/выноса (TableOrderUpdate). Без них iiko НЕ шлёт зал/вынос/
+# самовывоз — а значит они не появляются на планшете сборщика/кухни.
+TABLE_ORDER_STATUSES = ["New", "Bill", "Closed", "Deleted"]
+
+ITEM_STATUSES = ["Added", "CookingStarted", "CookingCompleted", "Served"]
+
 
 async def get_token() -> str:
     async with httpx.AsyncClient(timeout=30) as client:
@@ -200,19 +206,34 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
     )
 
 
+def build_webhooks_filter() -> dict:
+    """Фильтр подписки на вебхуки: доставка + зал/вынос/самовывоз.
+
+    Вынесено отдельно, чтобы покрыть тестом наличие обоих фильтров — без
+    tableOrderFilter iiko не присылает зал/вынос и они не видны на планшете.
+    """
+    return {
+        "deliveryOrderFilter": {
+            "orderStatuses": DELIVERY_ORDER_STATUSES,
+            "itemStatuses": ITEM_STATUSES,
+            "errors": True,
+        },
+        "tableOrderFilter": {
+            "orderStatuses": TABLE_ORDER_STATUSES,
+            "itemStatuses": ITEM_STATUSES,
+            "errors": True,
+        },
+    }
+
+
 async def update_webhook_settings(organization_id: str, web_hooks_uri: str,
-                                  auth_token: str | None = None) -> dict:
-    token = await get_token()
+                                  auth_token: str | None = None,
+                                  token: str | None = None) -> dict:
+    token = token or await get_token()
     body = {
         "organizationId": organization_id,
         "webHooksUri": web_hooks_uri,
-        "webHooksFilter": {
-            "deliveryOrderFilter": {
-                "orderStatuses": DELIVERY_ORDER_STATUSES,
-                "itemStatuses": ["Added", "CookingStarted", "CookingCompleted", "Served"],
-                "errors": True,
-            }
-        },
+        "webHooksFilter": build_webhooks_filter(),
     }
     if auth_token:
         body["authToken"] = auth_token
@@ -221,3 +242,49 @@ async def update_webhook_settings(organization_id: str, web_hooks_uri: str,
                               headers={"Authorization": f"Bearer {token}"}, json=body)
         r.raise_for_status()
         return r.json() if r.text.strip() else {"ok": True}
+
+
+def _public_base_url() -> str:
+    """Публичный адрес сервиса для приёма вебхуков.
+
+    На Render автоматически доступен RENDER_EXTERNAL_URL; локально/иначе можно
+    задать PUBLIC_BASE_URL. Без него авто-регистрация пропускается.
+    """
+    import os
+    return (os.environ.get("PUBLIC_BASE_URL")
+            or os.environ.get("RENDER_EXTERNAL_URL")
+            or "").rstrip("/")
+
+
+async def register_all_webhooks() -> dict:
+    """Пере-подписывает iiko на вебхуки (доставка + зал/вынос) для всех орг.
+
+    Идемпотентно: update_settings перезаписывает фильтры. Вызывается на старте
+    сервиса, чтобы новый tableOrderFilter (зал/вынос/самовывоз) применился без
+    ручных действий. Каждую орг обрабатываем отдельно — сбой по одной не валит
+    остальные. Один access_token на все вызовы.
+    """
+    import logging
+    log = logging.getLogger("saya.webhooks")
+
+    base = _public_base_url()
+    if not (base and settings.cloud_api_login and settings.webhook_secret):
+        log.info("webhook auto-register skipped (base=%s, login=%s, secret=%s)",
+                 bool(base), bool(settings.cloud_api_login), bool(settings.webhook_secret))
+        return {"registered": 0, "skipped": True}
+
+    uri = f"{base}/webhooks/iiko/cloud?key={settings.webhook_secret}"
+    token = await get_token()
+    orgs = await fetch_organizations()
+    ok = 0
+    for org in orgs:
+        org_id = org.get("id")
+        if not org_id:
+            continue
+        try:
+            await update_webhook_settings(org_id, uri, token=token)
+            ok += 1
+        except Exception:  # noqa: BLE001 — одна орг не должна валить остальные
+            log.exception("webhook register failed for org %s", org_id)
+    log.info("webhook auto-register: %s/%s orgs -> %s", ok, len(orgs), uri)
+    return {"registered": ok, "total": len(orgs)}
