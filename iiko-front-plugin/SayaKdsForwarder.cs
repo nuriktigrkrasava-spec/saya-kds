@@ -98,8 +98,10 @@ namespace SayaKds
                 string category = (item.Product != null && item.Product.Category != null)
                     ? item.Product.Category.Name : "";
                 double amount = ToDouble(item.Amount);
-                // item.Comment is IOrderCookingItemComment, not a string -> take .Text
-                string comment = item.Comment != null ? item.Comment.Text : "";
+                // item.Comment is IOrderCookingItemComment (not a string). Exact text
+                // property varies by SDK; skip per-item note for now (order.Comment
+                // still carries the customer's note). TODO: map item note once confirmed.
+                string comment = "";
 
                 sb.Append('{');
                 sb.AppendFormat("\"name\":{0},", Json(name));
