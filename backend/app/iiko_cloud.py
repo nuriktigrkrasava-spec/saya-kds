@@ -256,26 +256,18 @@ def _public_base_url() -> str:
             or "").rstrip("/")
 
 
-async def _register_one(org_id: str, uri: str, token: str,
-                        retries: int = 5) -> str | None:
-    """Подписывает одну орг с retry на 429 (iiko рейт-лимитит update_settings).
-    Возвращает None при успехе или короткое описание ошибки."""
-    import asyncio
-    delay = 3.0
-    for attempt in range(retries):
-        try:
-            await update_webhook_settings(org_id, uri, token=token)
-            return None
-        except httpx.HTTPStatusError as e:
-            code = e.response.status_code
-            if code == 429 and attempt < retries - 1:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 30.0)
-                continue
-            return f"HTTP {code}: {e.response.text[:120]}"
-        except Exception as e:  # noqa: BLE001
-            return str(e)[:120]
-    return "429: retries exhausted"
+async def _register_one(org_id: str, uri: str, token: str) -> str | None:
+    """Подписывает одну орг РОВНО одним вызовом update_settings.
+    Без retry-бурстов: iiko жёстко рейт-лимитит этот endpoint, а повторы в
+    пределах короткого окна только продлевают кулдаун 429. Возвращает None при
+    успехе или короткое описание ошибки."""
+    try:
+        await update_webhook_settings(org_id, uri, token=token)
+        return None
+    except httpx.HTTPStatusError as e:
+        return f"HTTP {e.response.status_code}: {e.response.text[:120]}"
+    except Exception as e:  # noqa: BLE001
+        return str(e)[:120]
 
 
 async def register_all_webhooks() -> dict:
