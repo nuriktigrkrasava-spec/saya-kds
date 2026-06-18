@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Цель netstandard2.0: совпадает с Resto.Front.Api.V8 и собирается .NET SDK
+       БЕЗ доп. targeting-pack'ов. Готовый SayaKds.dll грузится в iikoFront
+       (.NET Framework 4.7.2+ умеет netstandard 2.0). -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>SayaKds</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Ссылки на SDK iikoFront. Файлы должны лежать рядом с этим .csproj.
+         Private=false — не копировать в bin (на кассе они уже есть). -->
+    <Reference Include="Resto.Front.Api">
+      <HintPath>Resto.Front.Api.exe</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Resto.Front.Api.V8">
+      <HintPath>Resto.Front.Api.V8.exe</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

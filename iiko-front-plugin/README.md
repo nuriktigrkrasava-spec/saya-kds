@@ -25,15 +25,18 @@ POST https://saya-kds.onrender.com/ingest/front?key=saya-kds-webhook-secret
 
 .NET: как требует ваш Resto.Front.Api (обычно .NET Framework 4.7.x). Среда — Visual Studio.
 
-## Сборка
-1. Создай проект **Class Library (.NET Framework)**.
-2. Добавь ссылки `Resto.Front.Api` + `Resto.Front.Api.V8` (Copy Local = False).
-3. Добавь `SayaKdsForwarder.cs`.
-4. Собери `SayaKds.dll`.
+## Сборка — через .NET SDK (рекомендуется, проще всего)
+Resto.Front.Api.V8 собран под **netstandard 2.0**, поэтому старый csc.exe не
+годится. Берём .NET SDK:
 
-Проще всего — взять готовый sample-проект из официального SDK
-(github.com/iiko/front.api.sdk) и заменить в нём код на `SayaKdsForwarder.cs`:
-тогда ссылки и таргет уже настроены правильно.
+1. Поставь **.NET SDK** (один установщик): https://dotnet.microsoft.com/download
+2. Сложи в ОДНУ папку: `SayaKds.csproj`, `SayaKdsForwarder.cs`,
+   `Resto.Front.Api.exe`, `Resto.Front.Api.V8.exe`.
+3. Запусти `build-dotnet.bat` (или в этой папке `dotnet build -c Release`).
+4. Результат: `bin\Release\netstandard2.0\SayaKds.dll`.
+
+(Старый `build.bat` через csc оставлен на крайний случай — он требует .NET
+Framework Developer Pack и часто спотыкается о netstandard. Используй dotnet.)
 
 ## Установка на терминал
 1. Создай папку: `…\iikoFront\Plugins\SayaKds\`.
