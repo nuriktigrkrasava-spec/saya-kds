@@ -127,6 +127,27 @@ def test_product_bar_drink_is_other():
     assert classify_product("Кола 0.5", "БАР / Напитки", "БАР") == "other"
 
 
+def test_combo_visible_to_kitchen_not_other():
+    # Комбо без ключевых слов не должно прятаться в «прочее» — отдаём на роллы.
+    assert classify_product("Комбо Универсал стандарт",
+                            "Меню для Агрегаторов", "Меню для Агрегаторов") == "rolls"
+    assert classify_product("Сытный микс",
+                            "Кухня / Спецпредложение для зала", "Кухня") == "rolls"
+
+
+def test_aggregator_drinks_stay_other():
+    # Напитки внутри меню агрегаторов — всё равно «прочее», не на кухню.
+    assert classify_product("Кола 1л", "Меню для Агрегаторов / Напитки для Агрегаторов",
+                            "Меню для Агрегаторов") == "other"
+
+
+def test_nuggets_and_chicken_are_hot():
+    assert classify_product("*Куриные наггетсы 9 шт",
+                            "Меню для Агрегаторов / Блюда агрегаторов",
+                            "Меню для Агрегаторов") == "hot"
+    assert classify_name("Боул с курицей") == "hot"
+
+
 # ── Юнит-тест: resolver откатывается на классификацию по имени ─────────────
 
 async def test_resolver_falls_back_to_name():

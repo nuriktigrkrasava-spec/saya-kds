@@ -38,7 +38,9 @@ def classify_name(name: str) -> str:
         return "pizza"
     if any(k in n for k in ["ролл", "сет", "суши", "маки", "темпура", "урамаки", "филадельфия", "калифорни"]):
         return "rolls"
-    if any(k in n for k in ["суп", "том ям", "том-ям", "вок", "лапш", "горяч", "паста", "удон", "рамен", "wok"]):
+    if any(k in n for k in ["суп", "том ям", "том-ям", "том кха", "вок", "лапш", "горяч",
+                            "паста", "удон", "рамен", "wok", "наггетс", "нагетс", "чикен",
+                            "стрипс", "крыл", "боул", "тяхан", "терияки", "мисо", "лагман", "плов"]):
         return "hot"
     return "other"
 
@@ -48,6 +50,11 @@ def classify_name(name: str) -> str:
 _NONFOOD_ROOT_KEYS = ["товар", "хоз", "инвентар", "канцел", "архив",
                       "п/ф", "доп услуг", "цех", "бар"]
 _GROUP_HOT_KEYS = ["горяч", "суп", "вок", "лапш", "паст", "рамен", "удон", "wok"]
+# Кухонные подгруппы, которые точно «прочее» (не готовятся на роллах/пицце/горячем).
+_OTHER_GROUP_KEYS = ["напит", "десерт", "добавк", "соус", "закуск", "салат"]
+# Комбо/промо/подарки: смесь блюд. Если имя зону не определило — НЕ прячем в
+# «прочее» (иначе заказ невидим кухне), а отдаём на роллы (основной цех).
+_PROMO_GROUP_KEYS = ["подарок", "выгодн", "спецпредложен", "комбо", "агрегатор"]
 
 
 def classify_by_group(group_path: str | None, group_root: str | None) -> str | None:
@@ -68,16 +75,29 @@ def classify_by_group(group_path: str | None, group_root: str | None) -> str | N
         return "rolls"
     if any(k in p for k in _GROUP_HOT_KEYS):
         return "hot"
+    # Напитки/десерты/соусы/закуски/салаты — точно «прочее».
+    if any(k in p for k in _OTHER_GROUP_KEYS):
+        return "other"
     return None
+
+
+def is_promo_group(group_path: str | None) -> bool:
+    """Группа-комбо/промо/подарок (смесь блюд, должна быть видна кухне)."""
+    return any(k in (group_path or "").lower() for k in _PROMO_GROUP_KEYS)
 
 
 def classify_product(name: str, group_path: str | None = None,
                      group_root: str | None = None) -> str:
-    """Зона блюда: сначала по группе меню, затем откат на классификацию по имени."""
+    """Зона блюда: группа меню → имя → для комбо/промо откат на роллы (видно кухне)."""
     by_group = classify_by_group(group_path, group_root)
     if by_group:
         return by_group
-    return classify_name(name)
+    by_name = classify_name(name)
+    if by_name != "other":
+        return by_name
+    if is_promo_group(group_path):
+        return "rolls"
+    return "other"
 
 
 async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
