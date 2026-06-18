@@ -11,18 +11,29 @@ POST https://saya-kds.onrender.com/ingest/front?key=saya-kds-webhook-secret
 Контракт тела — см. `SayaKdsForwarder.BuildJson`. Идемпотентно по id заказа.
 
 ## Что нужно для сборки
-- **Версия iikoFront** — от неё зависит, какой `Resto.Front.Api.dll` подключать.
-  Файлы лежат в папке установки iikoFront (обычно
-  `C:\Program Files\iiko\iikoRMS\Front.Net\` или `…\iikoFront\Api\`).
-- .NET (под версию, которую требует ваш Resto.Front.Api — обычно .NET Framework 4.x).
-- Visual Studio / `msbuild` / `dotnet build`.
+Код написан под **Resto.Front.Api V8** (методы взяты прямо из вашей сборки SDK).
 
-## Сборка (пример)
-1. Создай проект Class Library под нужный .NET Framework.
-2. Добавь ссылки на `Resto.Front.Api.dll` (и зависимые `Resto.Front.Api.*.dll`)
-   из папки iikoFront. Свойство ссылок: **Copy Local = False**.
-3. Добавь в проект `SayaKdsForwarder.cs`.
-4. Собери в `SayaKds.dll`.
+Ссылки в проект (из SDK / папки iikoFront), **Copy Local = False**:
+- **`Resto.Front.Api`** — основной контракт: `PluginContext`, `IFrontPlugin`,
+  `IOperationService`, `INotificationService`. (у тебя в Downloads: `Resto.Front.Api.exe`)
+- **`Resto.Front.Api.V8`** — модель данных V8: `IOrder`, `IOrderProductItem`,
+  `OrderServiceTypes`, `IProduct`/`IProductCategory`. (у тебя: `Resto.Front.Api.V8.exe`)
+- если компилятор попросит — добавь **System.Reactive** (его тянет API).
+
+(Если терминал на другой версии — возьми `Resto.Front.Api.V7`/`V9` вместо V8.
+Типы те же, IntelliSense поправит мелочи.)
+
+.NET: как требует ваш Resto.Front.Api (обычно .NET Framework 4.7.x). Среда — Visual Studio.
+
+## Сборка
+1. Создай проект **Class Library (.NET Framework)**.
+2. Добавь ссылки `Resto.Front.Api` + `Resto.Front.Api.V8` (Copy Local = False).
+3. Добавь `SayaKdsForwarder.cs`.
+4. Собери `SayaKds.dll`.
+
+Проще всего — взять готовый sample-проект из официального SDK
+(github.com/iiko/front.api.sdk) и заменить в нём код на `SayaKdsForwarder.cs`:
+тогда ссылки и таргет уже настроены правильно.
 
 ## Установка на терминал
 1. Создай папку: `…\iikoFront\Plugins\SayaKds\`.
