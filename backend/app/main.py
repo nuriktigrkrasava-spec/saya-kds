@@ -1,5 +1,9 @@
 from __future__ import annotations
 import os
+import logging
+# Делаем логи приложения (saya.*) видимыми в Render — по умолчанию uvicorn
+# настраивает только свои логгеры, и наши INFO/WARNING не выводятся.
+logging.basicConfig(level=logging.INFO)
 import socketio
 from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles

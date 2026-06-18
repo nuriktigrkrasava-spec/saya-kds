@@ -110,11 +110,21 @@ def _format_address(dp: dict) -> str:
 
 
 def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder:
+    import logging
     o = wrapper.get("order") or {}
-    customer = (o.get("customer") or {}).get("name", "")
+    cust_obj = o.get("customer") or {}
+    customer = cust_obj.get("name", "") or ""
+    # Телефон: на уровне заказа, иначе у клиента. Берём первый непустой.
+    phone = (o.get("phone") or cust_obj.get("phone") or "").strip()
     dp = o.get("deliveryPoint") or {}
     address = _format_address(dp)
     coords = dp.get("coordinates") or {}
+    # ДИАГНОСТИКА: смотрим сырую структуру адреса/телефона от iiko, чтобы
+    # прицельно чинить «неполный адрес / неверный телефон» у курьера.
+    logging.getLogger("saya.ingest").info(
+        "delivery raw: number=%s phone=%r customer_keys=%s dp_addr=%r dp_keys=%s",
+        o.get("number"), phone, list(cust_obj.keys()),
+        (dp.get("address") or {}), list(dp.keys()))
     items: list[WebhookItem] = []
     for it in o.get("items", []) or []:
         product = it.get("product") or {}
@@ -136,7 +146,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         number=str(o.get("number") or ""),
         status=str(o.get("status") or ""),
         customer=customer,
-        phone=o.get("phone", "") or "",
+        phone=phone,
         address=address,
         lat=coords.get("latitude"),
         lon=coords.get("longitude"),
