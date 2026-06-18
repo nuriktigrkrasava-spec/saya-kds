@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class WebhookItem(BaseModel):
     product_id: str = ""
     category_id: str | None = None
+    category_name: str = ""  # категория блюда из iiko (Роллы/Пиццы/Горячее) — для зоны
     name: str = ""
     amount: float = 1
     combo_id: str | None = None

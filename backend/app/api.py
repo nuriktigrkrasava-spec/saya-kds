@@ -83,8 +83,12 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
     if settings.webhook_secret and key != settings.webhook_secret:
         raise HTTPException(status_code=403, detail="bad key")
 
+    import logging as _logging
+    _wlog = _logging.getLogger("saya.webhook")
     handled = 0
     for event in events or []:
+        _wlog.info("event: type=%s org=%s", event.get("eventType"),
+                   event.get("organizationId"))
         if event.get("eventType") == "StopListUpdate":
             org_id = event.get("organizationId")
             if not org_id:
@@ -117,8 +121,12 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
             try:
                 normalized = iiko_cloud.normalize_table_order(event, org_id)
             except Exception:
+                _wlog.exception("table order normalize failed")
                 continue
+            _wlog.info("table order: number=%s status=%s items=%d",
+                       normalized.number, normalized.status, len(normalized.items))
             if not normalized.items:
+                _wlog.warning("table order SKIPPED (no items) number=%s", normalized.number)
                 continue
             order = await ingest.ingest_order(session, normalized)
             await realtime.broadcast_order(order)

@@ -134,10 +134,11 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         if not product.get("id"):
             continue
         combo = it.get("comboInformation") or {}
+        cat = product.get("category") or {}
         items.append(WebhookItem(
             product_id=str(product["id"]),
-            category_id=(str((product.get("category") or {}).get("id"))
-                         if (product.get("category") or {}).get("id") else None),
+            category_id=(str(cat.get("id")) if cat.get("id") else None),
+            category_name=(cat.get("name") or "").strip(),
             name=product.get("name", ""),
             amount=float(it.get("amount", 1) or 1),
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
@@ -194,6 +195,7 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
         items.append(WebhookItem(
             product_id=str(product["id"]),
             category_id=(str(category.get("id")) if category.get("id") else None),
+            category_name=(category.get("name") or "").strip(),
             name=product.get("name", "") or "",
             amount=float(it.get("amount", 1) or 1),
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),

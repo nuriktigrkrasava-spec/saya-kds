@@ -88,13 +88,18 @@ def is_promo_group(group_path: str | None) -> bool:
 
 def classify_product(name: str, group_path: str | None = None,
                      group_root: str | None = None) -> str:
-    """Зона блюда: группа меню → имя → для комбо/промо откат на роллы (видно кухне)."""
-    by_group = classify_by_group(group_path, group_root)
-    if by_group:
-        return by_group
+    """Зона блюда: явный сигнал по ИМЕНИ → группа меню → для комбо/промо откат на роллы.
+
+    Имя проверяем первым: «Сет Фаворит» в группе «Архив блюд» должен попасть в
+    роллы, а не в other (архив). Группа решает только когда имя ничего не дало
+    (напр. «Пепперони» без слова «пицца» — по группе «Пиццы»).
+    """
     by_name = classify_name(name)
     if by_name != "other":
         return by_name
+    by_group = classify_by_group(group_path, group_root)
+    if by_group:
+        return by_group
     if is_promo_group(group_path):
         return "rolls"
     return "other"
@@ -127,6 +132,10 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
         # побеждать автоматический маппинг даже после перезаписи авторазметкой.
         if nm in by_name:
             return by_name[nm]
+        # Категория блюда из iiko (Роллы/Пиццы/Горячее) — самый надёжный сигнал.
+        cat_zone = classify_name(item.category_name)
+        if cat_zone != "other":
+            return cat_zone
         if item.product_id in by_product:
             return by_product[item.product_id]
         if item.category_id and item.category_id in by_category:
@@ -134,6 +143,7 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
         # Группа меню по имени — точнее, чем грубый classify_name.
         if nm in auto_by_name:
             return auto_by_name[nm]
-        return classify_name(item.name)
+        # Имя блюда + откат на группу/промо.
+        return classify_product(item.name, group_path=None, group_root=None)
 
     return resolve
