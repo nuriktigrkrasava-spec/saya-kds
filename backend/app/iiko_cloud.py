@@ -256,35 +256,75 @@ def _public_base_url() -> str:
             or "").rstrip("/")
 
 
+async def _register_one(org_id: str, uri: str, token: str,
+                        retries: int = 5) -> str | None:
+    """Подписывает одну орг с retry на 429 (iiko рейт-лимитит update_settings).
+    Возвращает None при успехе или короткое описание ошибки."""
+    import asyncio
+    delay = 3.0
+    for attempt in range(retries):
+        try:
+            await update_webhook_settings(org_id, uri, token=token)
+            return None
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            if code == 429 and attempt < retries - 1:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30.0)
+                continue
+            return f"HTTP {code}: {e.response.text[:120]}"
+        except Exception as e:  # noqa: BLE001
+            return str(e)[:120]
+    return "429: retries exhausted"
+
+
 async def register_all_webhooks() -> dict:
     """Пере-подписывает iiko на вебхуки (доставка + зал/вынос) для всех орг.
 
     Идемпотентно: update_settings перезаписывает фильтры. Вызывается на старте
     сервиса, чтобы новый tableOrderFilter (зал/вынос/самовывоз) применился без
-    ручных действий. Каждую орг обрабатываем отдельно — сбой по одной не валит
-    остальные. Один access_token на все вызовы.
+    ручных действий. iiko рейт-лимитит update_settings (429), поэтому между
+    вызовами делаем паузу и ретраим с backoff. Один access_token на все вызовы.
+    Ошибки по орг возвращаем в ответе — иначе их не видно (app-логи на Render
+    не выводятся).
     """
+    import asyncio
     import logging
     log = logging.getLogger("saya.webhooks")
 
     base = _public_base_url()
     if not (base and settings.cloud_api_login and settings.webhook_secret):
-        log.info("webhook auto-register skipped (base=%s, login=%s, secret=%s)",
-                 bool(base), bool(settings.cloud_api_login), bool(settings.webhook_secret))
-        return {"registered": 0, "skipped": True}
+        return {"registered": 0, "skipped": True,
+                "reason": f"base={bool(base)} login={bool(settings.cloud_api_login)} "
+                          f"secret={bool(settings.webhook_secret)}"}
 
     uri = f"{base}/webhooks/iiko/cloud?key={settings.webhook_secret}"
     token = await get_token()
     orgs = await fetch_organizations()
+
+    # Allowlist: подписываем только нужные филиалы (WEBHOOK_ORG_IDS через запятую).
+    # Это и убирает 429 (iiko рейт-лимитит update_settings), и фокусирует на
+    # рабочем филиале. Пусто -> подписываем все орг.
+    import os
+    allow = {x.strip() for x in (os.environ.get("WEBHOOK_ORG_IDS") or "").split(",") if x.strip()}
+    if allow:
+        orgs = [o for o in orgs if o.get("id") in allow]
+
     ok = 0
-    for org in orgs:
+    errors: dict[str, str] = {}
+    for i, org in enumerate(orgs):
         org_id = org.get("id")
         if not org_id:
             continue
-        try:
-            await update_webhook_settings(org_id, uri, token=token)
+        if i:
+            await asyncio.sleep(1.0)  # троттлинг, чтобы не ловить 429
+        err = await _register_one(org_id, uri, token)
+        if err is None:
             ok += 1
-        except Exception:  # noqa: BLE001 — одна орг не должна валить остальные
-            log.exception("webhook register failed for org %s", org_id)
-    log.info("webhook auto-register: %s/%s orgs -> %s", ok, len(orgs), uri)
-    return {"registered": ok, "total": len(orgs)}
+        else:
+            errors[org.get("name") or org_id] = err
+    log.info("webhook auto-register: %s/%s orgs", ok, len(orgs))
+    result: dict = {"registered": ok, "total": len(orgs)}
+    if errors:
+        result["errors"] = errors
+    return result
