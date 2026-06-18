@@ -113,7 +113,10 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
     import logging
     o = wrapper.get("order") or {}
     cust_obj = o.get("customer") or {}
-    customer = cust_obj.get("name", "") or ""
+    # Полное имя клиента: имя + фамилия (что есть).
+    customer = " ".join(
+        p for p in [(cust_obj.get("name") or "").strip(),
+                    (cust_obj.get("surname") or "").strip()] if p)
     # Телефон: на уровне заказа, иначе у клиента. Берём первый непустой.
     phone = (o.get("phone") or cust_obj.get("phone") or "").strip()
     dp = o.get("deliveryPoint") or {}

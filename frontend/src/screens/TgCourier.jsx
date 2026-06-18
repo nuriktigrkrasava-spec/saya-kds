@@ -364,11 +364,16 @@ export default function TgCourier() {
                     <span className="tg-card__cust">{o.customer}</span>
                   )}
                 </div>
-                {o.address && <div className="tg-card__addr">📍 {o.address}</div>}
+                <div className="tg-card__addr">
+                  📍 {o.address || "Адрес не указан"}
+                </div>
                 {o.phone && (
                   <a className="tg-card__phone" href={`tel:${o.phone}`}>
                     📞 {o.phone}
                   </a>
+                )}
+                {o.comment && (
+                  <div className="tg-card__note">📝 {o.comment}</div>
                 )}
                 {Array.isArray(o.items) && o.items.length > 0 && (
                   <ul className="tg-card__items">
@@ -377,6 +382,11 @@ export default function TgCourier() {
                         {it.name}
                         {it.amount != null && (
                           <span className="tg-card__amount"> ×{it.amount}</span>
+                        )}
+                        {it.comment && (
+                          <span className="tg-card__note tg-card__note--inline">
+                            📝 {it.comment}
+                          </span>
                         )}
                       </li>
                     ))}

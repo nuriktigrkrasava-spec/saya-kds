@@ -344,6 +344,25 @@
   width: fit-content;
 }
 
+/* Комментарий клиента («без помидор») — заметная плашка. */
+.tg-card__note {
+  font-size: 14px;
+  font-weight: 700;
+  color: #7a4f00;
+  background: #fff3cd;
+  border: 1px solid #f0c000;
+  border-radius: 8px;
+  padding: 6px 10px;
+  line-height: 1.35;
+}
+.tg-card__note--inline {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: none;
+  background: #fff3cd;
+}
+
 .tg-card__items {
   list-style: none;
   margin: 4px 0 0;
