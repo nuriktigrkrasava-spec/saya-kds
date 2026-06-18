@@ -30,6 +30,7 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     order.address_lon = data.lon
     order.total = data.total
     order.service_type = data.service_type
+    order.comment = data.comment
 
     await session.flush()  # гарантирует order.id
 
@@ -41,6 +42,7 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
             amount=it.amount,
             combo_id=it.combo_id,
             station=resolve(it),
+            comment=it.comment,
         ))
     await session.commit()
     await session.refresh(order)

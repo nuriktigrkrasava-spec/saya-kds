@@ -128,6 +128,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
             name=product.get("name", ""),
             amount=float(it.get("amount", 1) or 1),
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
+            comment=(it.get("comment") or "").strip(),
         ))
     return NormalizedOrder(
         iiko_order_id=str(wrapper.get("id", "")),
@@ -141,6 +142,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         lon=coords.get("longitude"),
         total=o.get("sum"),
         service_type=(o.get("orderType") or {}).get("orderServiceType"),
+        comment=(o.get("comment") or "").strip(),
         items=items,
     )
 
@@ -182,6 +184,7 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
             name=product.get("name", "") or "",
             amount=float(it.get("amount", 1) or 1),
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
+            comment=(it.get("comment") or "").strip(),
         ))
 
     # iiko_order_id: eventInfo.id -> order.id -> order.number (что есть первым).
@@ -202,6 +205,7 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
         lon=None,
         total=o.get("sum"),
         service_type=service_type,
+        comment=(o.get("comment") or "").strip(),
         items=items,
     )
 

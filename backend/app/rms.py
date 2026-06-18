@@ -256,6 +256,12 @@ async def fetch_products() -> list[dict]:
     return out
 
 
+def products_cached() -> list[dict]:
+    """Меню RMS из кэша БЕЗ сетевого запроса (пусто, если ещё не прогрет).
+    Нужно резолверу зон на каждый ingest — без удара по RMS/лицензии."""
+    return _PROD_CACHE or []
+
+
 async def branches_with_employees() -> list[dict]:
     """Группирует сотрудников RMS по филиалам (DEPARTMENT). Один логин/логаут на оба запроса."""
     base = settings.rms_base.rstrip("/")

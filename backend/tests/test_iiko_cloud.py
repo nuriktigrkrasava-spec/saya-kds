@@ -59,6 +59,23 @@ def test_normalize_full_order_extracts_items_and_combo():
     assert n.items[1].combo_id == "combo-7"
 
 
+def test_normalize_captures_comments():
+    wrapper = {
+        "id": "o3",
+        "order": {
+            "number": "103",
+            "comment": "без помидор",
+            "items": [
+                {"type": "Product", "amount": 1, "comment": "без лука",
+                 "product": {"id": "p1", "name": "Бургер"}},
+            ],
+        },
+    }
+    n = c.normalize_full_order(wrapper, "org-1")
+    assert n.comment == "без помидор"
+    assert n.items[0].comment == "без лука"
+
+
 def test_webhooks_filter_includes_table_orders():
     # Без tableOrderFilter iiko не присылает зал/вынос/самовывоз -> их не видно.
     f = c.build_webhooks_filter()

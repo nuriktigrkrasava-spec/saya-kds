@@ -29,6 +29,7 @@ def order_payload(order: Order) -> dict:
         "lat": order.address_lat,
         "lon": order.address_lon,
         "service_type": order.service_type,
+        "comment": order.comment or "",
         "created_at": _iso(order.created_at),
         "assembled": order.assembled_at is not None,
         "on_way": order.on_way_at is not None,
@@ -37,6 +38,7 @@ def order_payload(order: Order) -> dict:
             {
                 "id": i.id, "product_id": i.product_id, "name": i.name,
                 "amount": i.amount, "station": i.station,
+                "comment": i.comment or "",
                 "is_checked": i.is_checked,
                 "accepted": i.station_accepted_at is not None,
                 "ready": i.station_ready_at is not None,

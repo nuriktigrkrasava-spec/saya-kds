@@ -8,6 +8,7 @@ class WebhookItem(BaseModel):
     name: str = ""
     amount: float = 1
     combo_id: str | None = None
+    comment: str = ""  # пожелание по блюду («без лука»)
 
 
 class NormalizedOrder(BaseModel):
@@ -22,4 +23,5 @@ class NormalizedOrder(BaseModel):
     lon: float | None = None
     total: float | None = None
     service_type: str | None = None
+    comment: str = ""  # комментарий клиента к заказу («без помидор»)
     items: list[WebhookItem] = Field(default_factory=list)

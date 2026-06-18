@@ -228,6 +228,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
                     {o.customer && <span className="order-cust">{o.customer}</span>}
                   </div>
                 </div>
+                {o.comment && <div className="order-note">📝 {o.comment}</div>}
                 <div className="order-card__items">
                   {o._items.map((it) => (
                     <KitchenItemRow

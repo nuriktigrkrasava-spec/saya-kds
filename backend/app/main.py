@@ -12,10 +12,30 @@ from app.alerts import start_alerts, stop_alerts
 import app.models  # noqa: F401
 
 
+# Колонки, добавленные после первого деплоя. create_all не меняет существующие
+# таблицы, поэтому добиваем их вручную (идемпотентно). (таблица, колонка, DDL-тип).
+_ADDED_COLUMNS = [
+    ("orders", "comment", "VARCHAR DEFAULT ''"),
+    ("order_items", "comment", "VARCHAR DEFAULT ''"),
+]
+
+
+async def _migrate_columns(conn):
+    """ADD COLUMN IF NOT EXISTS для новых полей. Каждый ALTER отдельно и под
+    try/except, чтобы старт не падал, если БД не поддерживает IF NOT EXISTS."""
+    for table, col, ddl in _ADDED_COLUMNS:
+        try:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}")
+        except Exception:  # noqa: BLE001 — колонка уже есть / старый диалект
+            pass
+
+
 @fastapi_app.on_event("startup")
 async def _create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_columns(conn)
     # Фоллбэк-поллер: периодически опрашивает iiko by_revision, чтобы добрать
     # заказы, пропущенные вебхуками. Отключён по умолчанию (POLL_INTERVAL_SECONDS<=0).
     fastapi_app.state.poller_task = start_poller()
@@ -25,6 +45,19 @@ async def _create_tables():
     # NB: подписку на вебхуки (update_settings) на старте НЕ дёргаем — она persists
     # в iiko и нужна разово, а iiko жёстко рейт-лимитит этот вызов (429). Применяем
     # вручную через POST /webhooks/register.
+    # Прогреваем кэш меню RMS, чтобы резолвер зон сразу классифицировал по группам
+    # (а не по грубым keyword'ам). Фоном, под guard — RMS-сбой не валит старт.
+    import asyncio as _asyncio
+    fastapi_app.state.menu_warm_task = _asyncio.create_task(_warm_menu_cache())
+
+
+async def _warm_menu_cache():
+    import logging
+    try:
+        from app import rms
+        await rms.fetch_products()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("saya.menu").warning("menu cache warm failed", exc_info=True)
 
 
 @fastapi_app.on_event("shutdown")

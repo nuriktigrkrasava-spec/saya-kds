@@ -108,16 +108,32 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
                if r.product_id and r.product_id.startswith(NAME_PREFIX)}
     by_category = {r.category_id: r.station for r in rows if r.category_id and not r.product_id}
 
+    # Авто-классификация по ИМЕНИ через дерево групп меню RMS (надёжнее keyword'ов:
+    # «Пепперони» в группе «Пиццы» -> pizza). В заказе product_id часто не совпадает
+    # с меню, а имя стабильно — поэтому матчим по имени. Берём кэш меню без сетевого
+    # запроса (прогревается фоном на старте); если пуст — откат на classify_name.
+    from app import rms
+    auto_by_name: dict[str, str] = {}
+    for p in rms.products_cached():
+        nm = norm_name(p.get("name"))
+        if nm:
+            auto_by_name[nm] = classify_product(
+                p.get("name", ""), p.get("group_path"), p.get("group_root"))
+
     def resolve(item: WebhookItem) -> str:
+        nm = norm_name(item.name)
         # Ручная разметка по названию — наивысший приоритет: её создаёт только
         # человек (авторазметка пишет лишь по product_id), поэтому она должна
         # побеждать автоматический маппинг даже после перезаписи авторазметкой.
-        if norm_name(item.name) in by_name:
-            return by_name[norm_name(item.name)]
+        if nm in by_name:
+            return by_name[nm]
         if item.product_id in by_product:
             return by_product[item.product_id]
         if item.category_id and item.category_id in by_category:
             return by_category[item.category_id]
+        # Группа меню по имени — точнее, чем грубый classify_name.
+        if nm in auto_by_name:
+            return auto_by_name[nm]
         return classify_name(item.name)
 
     return resolve

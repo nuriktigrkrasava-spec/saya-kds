@@ -178,6 +178,8 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
         </div>
       </div>
 
+      {order.comment && <div className="order-note">📝 {order.comment}</div>}
+
       {!order.assembled && timerText && (
         <div
           className={`asmbar asmbar--${level}`}
@@ -207,6 +209,7 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                 <span className="asm-item__name">
                   {it.name}
                   <span className="kitem__amount"> ×{it.amount}</span>
+                  {it.comment && <span className="kitem__note">📝 {it.comment}</span>}
                 </span>
                 <span className={`ready-flag ${(it.ready || !needsReady(it)) ? "ready-flag--on" : ""}`}>
                   {it.ready ? "✓ готово" : (!needsReady(it) ? "—" : "ждём…")}

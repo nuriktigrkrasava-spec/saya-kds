@@ -61,6 +61,7 @@ export default function KitchenItemRow({ item, name, orderCreatedAt }) {
         <span className="kitem__name">
           {item.name}
           <span className="kitem__amount"> ×{item.amount}</span>
+          {item.comment && <span className="kitem__note">📝 {item.comment}</span>}
         </span>
 
         <div className="kitem__action">
