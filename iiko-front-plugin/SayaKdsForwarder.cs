@@ -65,14 +65,14 @@ namespace SayaKds
         }
 
         // Common -> hall, DeliveryByClient -> takeaway, DeliveryByCourier -> null (Cloud).
+        // Compare by name via ToString() so we don't depend on the exact enum type name.
         private static string MapServiceType(IOrder order)
         {
-            var t = order.OrderType != null
-                ? order.OrderType.OrderServiceType
-                : OrderServiceTypes.Common;
-            if (t == OrderServiceTypes.Common) return "DineIn";
-            if (t == OrderServiceTypes.DeliveryByClient) return "ToGo";
-            return null;
+            if (order.OrderType == null) return "DineIn";
+            var t = order.OrderType.OrderServiceType.ToString();
+            if (t == "Common") return "DineIn";
+            if (t == "DeliveryByClient") return "ToGo";
+            return null; // DeliveryByCourier and others -> handled by Cloud
         }
 
         private static string BuildJson(IOrder order, string serviceType)
@@ -98,7 +98,8 @@ namespace SayaKds
                 string category = (item.Product != null && item.Product.Category != null)
                     ? item.Product.Category.Name : "";
                 double amount = ToDouble(item.Amount);
-                string comment = item.Comment;
+                // item.Comment is IOrderCookingItemComment, not a string -> take .Text
+                string comment = item.Comment != null ? item.Comment.Text : "";
 
                 sb.Append('{');
                 sb.AppendFormat("\"name\":{0},", Json(name));
