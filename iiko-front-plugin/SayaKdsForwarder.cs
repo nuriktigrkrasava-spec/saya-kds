@@ -1,17 +1,18 @@
-// Плагин iikoFront (Resto.Front.Api V8): форвардит заказы ЗАЛА/ВЫНОСА с терминала
-// в Saya KDS (POST /ingest/front). Заказы зала не уходят в iiko Cloud-вебхуки,
-// поэтому забираем их прямо на кассе.
+// iikoFront plugin (Resto.Front.Api V8): forwards HALL / TAKEAWAY orders from the
+// terminal to Saya KDS (POST /ingest/front). Hall orders are NOT delivered via the
+// iiko Cloud webhooks, so we read them locally on the cashier terminal.
 //
-// Стратегия — ПОЛЛИНГ локальных заказов раз в N секунд (надёжнее подписки на
-// события). Приёмник идемпотентен по id (front-<id>): повторная отправка того же
-// заказа просто обновляет его на планшете, дублей нет.
+// Strategy: POLL local orders every N seconds (more robust than event subscription).
+// The receiver is idempotent by id (front-<id>): re-sending the same order just
+// updates it on the board, no duplicates.
 //
-// Собрано под Resto.Front.Api **V8** (методы/свойства взяты из самой сборки):
-//   PluginContext.Operations.GetOrders()       — заказы зала/ресторана
+// Built against Resto.Front.Api V8 (members taken from the SDK assembly):
+//   PluginContext.Operations.GetOrders()
 //   IOrder.Id / Number / Comment / OrderType.OrderServiceType / Items
 //   IOrderProductItem.Product(.Name/.Category.Name) / Amount / Comment
-//   OrderServiceTypes.Common (зал) / DeliveryByClient (вынос) / DeliveryByCourier (доставка)
-// Если у вас другая версия (V7/V9) — namespace'ы те же, IntelliSense поправит мелочи.
+//   OrderServiceTypes.Common (hall) / DeliveryByClient (takeaway) / DeliveryByCourier (skip)
+//
+// NOTE: ASCII-only on purpose (no Cyrillic) so csc.exe can't misread encoding.
 
 using System;
 using System.Linq;
@@ -20,17 +21,17 @@ using System.Text;
 using System.Threading;
 using Resto.Front.Api;
 using Resto.Front.Api.Attributes;
-using Resto.Front.Api.Data.Orders;       // IOrder, IOrderProductItem, OrderServiceTypes
+using Resto.Front.Api.Data.Orders;
 
 namespace SayaKds
 {
-    [PluginLicenseModuleId(21005108)] // при сборке сверь номер модуля с примером из SDK
+    [PluginLicenseModuleId(21005108)]
     public sealed class SayaKdsForwarder : IFrontPlugin
     {
-        // === НАСТРОЙКИ ===
+        // === SETTINGS ===
         private const string IngestUrl =
             "https://saya-kds.onrender.com/ingest/front?key=saya-kds-webhook-secret";
-        // Cloud org_id филиала (Алиева 10 EXPO). Для другого филиала — поменять.
+        // Cloud org_id of the branch (Aliyeva 10 EXPO). Change for another branch.
         private const string OrgId = "d9a4272f-65f0-4e56-8846-434f2348889c";
         private const int PollSeconds = 4;
 
@@ -50,11 +51,10 @@ namespace SayaKds
         {
             try
             {
-                // Заказы зала/ресторана терминала (доставка идёт отдельно — её не берём).
                 foreach (var order in PluginContext.Operations.GetOrders())
                 {
                     var serviceType = MapServiceType(order);
-                    if (serviceType == null) continue; // доставку пропускаем (Cloud)
+                    if (serviceType == null) continue; // skip delivery (handled by Cloud)
                     Post(BuildJson(order, serviceType));
                 }
             }
@@ -64,13 +64,15 @@ namespace SayaKds
             }
         }
 
-        // Common -> зал, DeliveryByClient -> вынос/самовывоз, DeliveryByCourier -> null (Cloud).
+        // Common -> hall, DeliveryByClient -> takeaway, DeliveryByCourier -> null (Cloud).
         private static string MapServiceType(IOrder order)
         {
-            var t = order.OrderType != null ? order.OrderType.OrderServiceType : OrderServiceTypes.Common;
+            var t = order.OrderType != null
+                ? order.OrderType.OrderServiceType
+                : OrderServiceTypes.Common;
             if (t == OrderServiceTypes.Common) return "DineIn";
             if (t == OrderServiceTypes.DeliveryByClient) return "ToGo";
-            return null; // DeliveryByCourier
+            return null;
         }
 
         private static string BuildJson(IOrder order, string serviceType)
@@ -81,7 +83,7 @@ namespace SayaKds
             sb.AppendFormat("\"org_id\":{0},", Json(OrgId));
             sb.AppendFormat("\"number\":{0},", Json(Convert.ToString(order.Number)));
             sb.AppendFormat("\"service_type\":{0},", Json(serviceType));
-            sb.AppendFormat("\"customer\":{0},", Json(""));   // у заказов зала клиента обычно нет
+            sb.AppendFormat("\"customer\":{0},", Json(""));
             sb.AppendFormat("\"phone\":{0},", Json(""));
             sb.AppendFormat("\"comment\":{0},", Json(order.Comment));
             sb.Append("\"items\":[");
