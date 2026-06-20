@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net10.0 = под установленный у вас .NET SDK 10. Если не соберётся —
+         поменяй на net8.0. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SayaPrintCapture</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Для cp866/windows-1251 (кириллица в чеках). -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
