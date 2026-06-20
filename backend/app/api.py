@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -1021,21 +1021,16 @@ class TgLocationIn(BaseModel):
     lon: float
 
 
-@app.post("/tg/location")
-async def tg_location(body: TgLocationIn,
-                      session: AsyncSession = Depends(get_session)):
-    """Курьер из Telegram-аппа шлёт свою геопозицию (раз в ~20с)."""
-    pairs = _telegram.parse_and_validate(body.initData)
-    if pairs is None:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-    user = _telegram.extract_user(pairs)
-    telegram_id = str(user.get("id") or "")
+async def _save_courier_location(session: AsyncSession, telegram_id: str,
+                                 lat: float, lon: float) -> bool:
+    """Пишет последнюю позицию курьера по его telegram_id. False — если не привязан."""
+    if not telegram_id or lat is None or lon is None:
+        return False
     link = (await session.execute(
         _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=401, detail="not linked")
-
+        return False
     loc = (await session.execute(
         _select(_CourierLocation).where(
             _CourierLocation.courier_code == link.employee_code))
@@ -1045,11 +1040,57 @@ async def tg_location(body: TgLocationIn,
         session.add(loc)
     loc.name = link.name
     loc.branch_code = link.branch_code
-    loc.lat = body.lat
-    loc.lon = body.lon
+    loc.lat = lat
+    loc.lon = lon
     loc.updated_at = _dt.utcnow()
     await session.commit()
+    return True
+
+
+@app.post("/tg/location")
+async def tg_location(body: TgLocationIn,
+                      session: AsyncSession = Depends(get_session)):
+    """Курьер из Telegram-аппа шлёт свою геопозицию (раз в ~20с, пока апп открыт)."""
+    pairs = _telegram.parse_and_validate(body.initData)
+    if pairs is None:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+    telegram_id = str(_telegram.extract_user(pairs).get("id") or "")
+    if not await _save_courier_location(session, telegram_id, body.lat, body.lon):
+        raise HTTPException(status_code=401, detail="not linked")
     return {"ok": True}
+
+
+@app.post("/tg/bot-webhook")
+async def tg_bot_webhook(request: Request,
+                         session: AsyncSession = Depends(get_session)):
+    """Webhook бота: принимает Live Location курьера в ФОНЕ (даже когда апп закрыт).
+    Живая геопозиция приходит как edited_message с обновляемым location."""
+    if settings.webhook_secret:
+        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != settings.webhook_secret:
+            raise HTTPException(status_code=403, detail="bad secret")
+    try:
+        update = await request.json()
+    except Exception:
+        return {"ok": True}
+    msg = update.get("edited_message") or update.get("message") or {}
+    loc = msg.get("location") or {}
+    telegram_id = str((msg.get("from") or {}).get("id") or "")
+    if loc and telegram_id:
+        await _save_courier_location(session, telegram_id,
+                                     loc.get("latitude"), loc.get("longitude"))
+    return {"ok": True}
+
+
+@app.post("/tg/set-bot-webhook")
+async def tg_set_bot_webhook(key: str = Query(default="")):
+    """Разово: зарегистрировать webhook бота на наш /tg/bot-webhook (для Live Location)."""
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    base = iiko_cloud._public_base_url()
+    if not base:
+        raise HTTPException(status_code=400, detail="no public base url")
+    return await _telegram.set_webhook(f"{base}/tg/bot-webhook",
+                                       secret_token=settings.webhook_secret)
 
 
 @app.get("/admin/couriers-locations")

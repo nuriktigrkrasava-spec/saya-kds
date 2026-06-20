@@ -37,6 +37,28 @@ def extract_user(pairs: dict) -> dict:
     }
 
 
+async def set_webhook(url: str, secret_token: str = "") -> dict:
+    """Регистрирует webhook бота на наш URL для приёма Live Location (и сообщений).
+    allowed_updates: message + edited_message (живая геопозиция приходит как
+    edited_message с обновлённым location)."""
+    token = settings.telegram_bot_token
+    if not token:
+        return {"ok": False, "error": "no bot token"}
+    body = {
+        "url": url,
+        "allowed_updates": ["message", "edited_message"],
+        "drop_pending_updates": True,
+    }
+    if secret_token:
+        body["secret_token"] = secret_token
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"https://api.telegram.org/bot{token}/setWebhook", json=body)
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": False, "status": r.status_code}
+
+
 async def send_message(chat_id: str, text: str) -> bool:
     """Отправляет сообщение в Telegram через Bot API sendMessage.
 

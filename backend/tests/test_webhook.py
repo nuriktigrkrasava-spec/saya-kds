@@ -89,3 +89,26 @@ async def test_ingest_front_hall_order_by_category(client):
     assert stations["Кола"] == "other"            # напитки -> прочее
     notes = {it["name"]: it["comment"] for it in body["items"]}
     assert notes["Сет Фаворит"] == "без лука"
+
+
+async def test_bot_webhook_live_location_updates_courier(client):
+    """Live Location из бота (edited_message) пишет позицию курьера в фоне."""
+    from app.models import TelegramLink, CourierLocation
+    from sqlalchemy import select as _sel
+    c, maker = client
+    settings.webhook_secret = ""  # без проверки секрета в тесте
+    async with maker() as s:
+        s.add(TelegramLink(telegram_id="555", employee_code="CR1",
+                           name="Курьер", branch_code="B1", org_id="org-1"))
+        await s.commit()
+
+    update = {"edited_message": {"from": {"id": 555},
+                                 "location": {"latitude": 51.18, "longitude": 71.43}}}
+    r = await c.post("/tg/bot-webhook", json=update)
+    assert r.status_code == 200
+
+    async with maker() as s:
+        loc = (await s.execute(
+            _sel(CourierLocation).where(CourierLocation.courier_code == "CR1"))
+        ).scalar_one()
+        assert round(loc.lat, 2) == 51.18 and round(loc.lon, 2) == 71.43

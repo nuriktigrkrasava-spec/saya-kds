@@ -345,6 +345,12 @@ export default function TgCourier() {
           </button>
         </div>
 
+        <div className="tg__hint">
+          🛰 Чтобы тебя видели на карте <b>в фоне</b> (даже когда апп закрыт):
+          в чате с ботом нажми <b>📎 → Геопозиция → Транслировать геопозицию</b>
+          на 8 часов. Включи в начале смены.
+        </div>
+
         {ordersErr && <p className="tg__err tg__err--show">{ordersErr}</p>}
 
         {orders.length === 0 ? (

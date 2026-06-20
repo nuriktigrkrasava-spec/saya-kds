@@ -441,3 +441,15 @@
     transition: none !important;
   }
 }
+
+/* Подсказка курьеру про трансляцию геопозиции (Live Location). */
+.tg__hint {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eef6ff;
+  border: 1px solid #bcdcff;
+  color: #234;
+  font-size: 13px;
+  line-height: 1.4;
+}
