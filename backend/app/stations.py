@@ -8,6 +8,14 @@ from app.schemas import WebhookItem
 
 VALID_STATIONS = {"rolls", "pizza", "hot", "other"}
 
+# Слияние зон по требованию филиала: горячее готовят на пиццерийной станции,
+# поэтому все блюда зоны «hot» отправляем в «pizza». Меняется в одном месте.
+ZONE_MERGE = {"hot": "pizza"}
+
+
+def merge_zone(zone: str) -> str:
+    return ZONE_MERGE.get(zone, zone)
+
 # Ручная разметка по НАЗВАНИЮ хранится в product_station_map с этим префиксом
 # в поле product_id (без изменения схемы БД). Имя стабильно и в меню, и в заказе,
 # поэтому такая привязка надёжнее, чем по product_id.
@@ -96,10 +104,10 @@ def classify_product(name: str, group_path: str | None = None,
     """
     by_name = classify_name(name)
     if by_name != "other":
-        return by_name
+        return merge_zone(by_name)
     by_group = classify_by_group(group_path, group_root)
     if by_group:
-        return by_group
+        return merge_zone(by_group)
     if is_promo_group(group_path):
         return "rolls"
     return "other"
@@ -125,7 +133,7 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
             auto_by_name[nm] = classify_product(
                 p.get("name", ""), p.get("group_path"), p.get("group_root"))
 
-    def resolve(item: WebhookItem) -> str:
+    def _raw(item: WebhookItem) -> str:
         nm = norm_name(item.name)
         # Ручная разметка по названию — наивысший приоритет: её создаёт только
         # человек (авторазметка пишет лишь по product_id), поэтому она должна
@@ -145,5 +153,9 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
             return auto_by_name[nm]
         # Имя блюда + откат на группу/промо.
         return classify_product(item.name, group_path=None, group_root=None)
+
+    # Любой источник зоны проходит через merge (hot -> pizza).
+    def resolve(item: WebhookItem) -> str:
+        return merge_zone(_raw(item))
 
     return resolve

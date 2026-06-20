@@ -14,7 +14,7 @@ async def test_product_exception_wins_over_category(session):
     unknown = WebhookItem(product_id="pX", category_id="cat-unknown", name="?")
 
     assert resolver(roll) == "rolls"
-    assert resolver(special) == "hot"   # исключение по product_id важнее категории
+    assert resolver(special) == "pizza"  # product_id->hot, но hot слит в pizza
     assert resolver(unknown) == "other"
 
 

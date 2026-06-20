@@ -91,8 +91,8 @@ def test_classify_name_empty_is_other():
 # ── Юнит-тесты классификатора по ГРУППЕ меню ──────────────────────────────
 
 def test_group_hot_dish_without_keyword():
-    # «Плов» не содержит ключевых слов, но группа «Горячие блюда» → hot.
-    assert classify_product("Плов", "Кухня / Горячие блюда", "Кухня") == "hot"
+    # «Плов» по группе «Горячие блюда» → hot, но зоны слиты: hot -> pizza.
+    assert classify_product("Плов", "Кухня / Горячие блюда", "Кухня") == "pizza"
 
 
 def test_group_pizza_path():
@@ -142,10 +142,11 @@ def test_aggregator_drinks_stay_other():
 
 
 def test_nuggets_and_chicken_are_hot():
+    # hot объединён с pizza -> classify_product отдаёт pizza.
     assert classify_product("*Куриные наггетсы 9 шт",
                             "Меню для Агрегаторов / Блюда агрегаторов",
-                            "Меню для Агрегаторов") == "hot"
-    assert classify_name("Боул с курицей") == "hot"
+                            "Меню для Агрегаторов") == "pizza"
+    assert classify_name("Боул с курицей") == "hot"  # сырое имя всё ещё hot
 
 
 # ── Юнит-тест: resolver откатывается на классификацию по имени ─────────────
@@ -257,11 +258,11 @@ async def test_manual_override_post(client):
         row = (await s.execute(
             select(ProductStationMap).where(ProductStationMap.product_id == "p-fila"))
         ).scalar_one()
-        assert row.station == "hot"
+        assert row.station == "hot"  # в карте сохраняется как есть
         item = (await s.execute(
             select(OrderItem).where(OrderItem.product_id == "p-fila"))
         ).scalar_one()
-        assert item.station == "hot"
+        assert item.station == "pizza"  # на доске hot слит в pizza
 
 
 @respx.mock
