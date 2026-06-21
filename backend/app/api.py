@@ -73,7 +73,9 @@ async def health():
 async def list_orders(org_id: str, session: AsyncSession = Depends(get_session)):
     """Активные заказы филиала для начальной загрузки экрана (live-обновления идут по Socket.IO)."""
     rows = (await session.execute(
-        select(Order).where(Order.org_id == org_id, Order.status != "Closed")
+        select(Order).where(
+            Order.org_id == org_id,
+            Order.status.notin_(["Closed", "Deleted", "Cancelled"]))
         .order_by(Order.created_at))).scalars().all()
     return [realtime.order_payload(o) for o in rows]
 

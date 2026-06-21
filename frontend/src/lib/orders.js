@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import { joinZones, socket } from "./socket.js";
 
+// Терминальные статусы iiko: заказ закрыт/удалён/отменён — убираем с экрана.
+// iiko шлёт по одному заказу несколько вебхуков (New->Bill->Closed), поэтому
+// без явного удаления upsert возвращал закрытую карточку обратно.
+const TERMINAL_STATUSES = new Set(["Closed", "Deleted", "Cancelled"]);
+
 /**
  * useOrders — loads orders once on mount, subscribes to "order:update",
  * upserts by id, and keeps them in state. Joins the given zones (and re-joins
@@ -39,6 +44,12 @@ export function useOrders(zones, filterFn) {
       if (!payload || payload.id == null) return;
       setOrders((prev) => {
         const idx = prev.findIndex((o) => o.id === payload.id);
+        // Заказ закрыт/удалён в iiko — убрать с экрана, не воскрешать. iiko шлёт
+        // несколько вебхуков на заказ (New->Bill->Closed); без этого upsert
+        // возвращал закрытую карточку обратно.
+        if (TERMINAL_STATUSES.has(payload.status)) {
+          return idx === -1 ? prev : prev.filter((o) => o.id !== payload.id);
+        }
         if (idx === -1) return [...prev, payload];
         const next = prev.slice();
         next[idx] = payload;
