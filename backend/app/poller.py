@@ -3,11 +3,8 @@ import os
 import asyncio
 import logging
 
-from sqlalchemy import select
-
 from app import iiko_cloud, ingest, realtime
 from app.db import SessionLocal
-from app.models import Order
 
 log = logging.getLogger("saya.poller")
 
@@ -65,115 +62,9 @@ async def run_poller() -> None:
         await asyncio.sleep(interval)
 
 
-# ── Поллер ЗАЛА (active pull через Cloud order/by_table) ─────────────────────
-# Доставка едет через вебхуки/by_revision выше. Зал в Cloud сам не появляется,
-# поэтому тянем его активно: init_by_table (протолкнуть) -> by_table (забрать).
-# Справочники (терминалы/столы) кэшируем, исчезнувшие заказы считаем закрытыми.
-
-_hall_cache: dict[str, dict] = {}        # org_id -> {"tgs", "tables", "ttl"}
-_hall_active: dict[str, set[str]] = {}   # org_id -> iiko_order_id прошлого прохода
-_HALL_CACHE_TTL = 60                     # проходов между обновлениями справочников
-
-
-def _read_hall_interval() -> int:
-    """Интервал опроса зала, сек. <=0 (или не число) => поллер зала ОТКЛЮЧЁН."""
-    try:
-        return int(os.environ.get("HALL_POLL_INTERVAL_SECONDS", "0") or "0")
-    except (TypeError, ValueError):
-        return 0
-
-
-def _read_hall_orgs() -> list[str]:
-    """Cloud org GUID для опроса зала: HALL_POLL_ORG_IDS, иначе WEBHOOK_ORG_IDS."""
-    raw = (os.environ.get("HALL_POLL_ORG_IDS")
-           or os.environ.get("WEBHOOK_ORG_IDS") or "")
-    return [o.strip() for o in raw.split(",") if o.strip()]
-
-
-async def _hall_refs(org_id: str) -> tuple[list[str], list[str]]:
-    """Терминальные группы и столы филиала (с кэшированием на _HALL_CACHE_TTL проходов)."""
-    cache = _hall_cache.get(org_id)
-    if cache and cache["ttl"] > 0:
-        cache["ttl"] -= 1
-        return cache["tgs"], cache["tables"]
-    tgs = await iiko_cloud.fetch_terminal_groups(org_id)
-    tables = await iiko_cloud.fetch_sections(tgs)
-    _hall_cache[org_id] = {"tgs": tgs, "tables": tables, "ttl": _HALL_CACHE_TTL}
-    return tgs, tables
-
-
-async def _close_vanished(org_id: str, vanished: set[str]) -> None:
-    """Заказы, пропавшие из выдачи by_table (закрыты/удалены на кассе) —
-    помечаем Closed и рассылаем, чтобы исчезли с экранов."""
-    if not vanished:
-        return
-    async with SessionLocal() as session:
-        rows = (await session.execute(
-            select(Order).where(Order.iiko_order_id.in_(vanished)))).scalars().all()
-        changed = [o for o in rows if o.status not in ("Closed", "Deleted")]
-        for o in changed:
-            o.status = "Closed"
-        if changed:
-            await session.commit()
-            for o in changed:
-                await realtime.broadcast_order(o)
-
-
-async def hall_poll_once(org_id: str) -> None:
-    """Один проход по залу: init_by_table -> by_table -> ingest + broadcast.
-
-    Ошибки по филиалу логируются и проглатываются, чтобы не ронять общий цикл.
-    """
-    try:
-        tgs, tables = await _hall_refs(org_id)
-        if not tables:
-            return
-        # Протолкнуть текущее состояние зала из терминалов в Cloud.
-        for tg in tgs:
-            try:
-                await iiko_cloud.order_init_by_table(org_id, tg, tables)
-            except Exception:  # noqa: BLE001 — init не критичен для чтения
-                log.exception("hall init_by_table failed org=%s tg=%s", org_id, tg)
-        # Забрать открытые заказы зала.
-        wrappers = await iiko_cloud.order_by_table([org_id], tables, ["New", "Bill"])
-        seen: set[str] = set()
-        for w in wrappers:
-            normalized = iiko_cloud.normalize_table_order(w, org_id)
-            if not normalized.iiko_order_id or not normalized.items:
-                continue
-            seen.add(normalized.iiko_order_id)
-            async with SessionLocal() as session:
-                order = await ingest.ingest_order(session, normalized)
-                await realtime.broadcast_order(order)
-        # Закрытие: было в прошлом проходе, пропало сейчас.
-        await _close_vanished(org_id, _hall_active.get(org_id, set()) - seen)
-        _hall_active[org_id] = seen
-    except Exception:  # noqa: BLE001 — устойчивость важнее точечной обработки
-        log.exception("hall poller: hall_poll_once failed for org %s", org_id)
-
-
-async def run_hall_poller() -> None:
-    """Фоновый цикл опроса зала. Отключён по умолчанию (interval<=0 или нет org)."""
-    interval = _read_hall_interval()
-    orgs = _read_hall_orgs()
-    if interval <= 0 or not orgs:
-        log.info("hall poller disabled (interval=%s, orgs=%s)", interval, len(orgs))
-        return
-    log.info("hall poller started: interval=%ss, orgs=%s", interval, orgs)
-    while True:
-        for org in orgs:
-            await hall_poll_once(org)
-        await asyncio.sleep(interval)
-
-
 def start_poller() -> asyncio.Task:
     """Запускает run_poller() как фоновую задачу и возвращает её."""
     return asyncio.create_task(run_poller())
-
-
-def start_hall_poller() -> asyncio.Task:
-    """Запускает run_hall_poller() как фоновую задачу и возвращает её."""
-    return asyncio.create_task(run_hall_poller())
 
 
 async def stop_poller(task: asyncio.Task | None) -> None:
