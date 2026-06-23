@@ -229,6 +229,16 @@ async def ingest_front(body: FrontOrderIn, key: str = Query(default=""),
     return realtime.order_payload(order)
 
 
+@app.get("/debug/orgs")
+async def debug_orgs(key: str = Query(default="")):
+    """Карта Cloud org_id -> название филиала (из iiko organizations). Для
+    сопоставления GUID из логов с филиалами. Защищён тем же секретом."""
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    orgs = await iiko_cloud.fetch_organizations()
+    return [{"id": o.get("id"), "name": o.get("name")} for o in orgs]
+
+
 @app.post("/debug/pull")
 async def debug_pull(org_id: str, order_id: str,
                      session: AsyncSession = Depends(get_session)):
