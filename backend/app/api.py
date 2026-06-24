@@ -369,12 +369,20 @@ async def _order_action_and_broadcast(session: AsyncSession, order_id: int) -> d
     return realtime.order_payload(order)
 
 
-async def _log_iiko_event(session, order_id: int, method: str,
-                          ok: bool, detail: dict) -> None:
-    """Аудит вызова записи в iiko в order_events (материал и для аналитики п.4)."""
-    session.add(_OrderEvent(order_id=order_id, type="iiko_write",
-                            payload={"method": method, "ok": ok, "detail": detail}))
+async def _log_action(session, order, type: str, *, actor_name: str = "",
+                      actor_code: str = "", item_id: int | None = None,
+                      payload: dict | None = None) -> None:
+    """Событие действия в order_events (журнал «кто что когда» + материал аналитики)."""
+    session.add(_OrderEvent(order_id=order.id, org_id=order.org_id, type=type,
+                            actor_name=actor_name or None, actor_code=actor_code or None,
+                            item_id=item_id, payload=payload or {}))
     await session.commit()
+
+
+async def _log_iiko_event(session, order, method: str, ok: bool, detail: dict) -> None:
+    """Аудит вызова записи в iiko (обёртка над _log_action)."""
+    await _log_action(session, order, "iiko_write",
+                      payload={"method": method, "ok": ok, "detail": detail})
 
 
 @app.post("/orders/{order_id}/assemble")
@@ -415,7 +423,7 @@ async def order_delivered(order_id: int, body: ActionIn,
             "payment_type_not_found" if detail.get("error") == "payment_type_not_found"
             else str(detail)[:500])
         await session.commit()
-        await _log_iiko_event(session, order_id, "close", ok, detail)
+        await _log_iiko_event(session, order, "close", ok, detail)
     return await _order_action_and_broadcast(session, order_id)
 
 
@@ -956,7 +964,7 @@ async def order_assign_courier(order_id: int, body: AssignCourierIn,
 
     await session.commit()
     if order.org_id:
-        await _log_iiko_event(session, order_id, method, ok, detail)
+        await _log_iiko_event(session, order, method, ok, detail)
     order = await _load_order(session, order_id)
     await realtime.broadcast_order(order)
     return realtime.order_payload(order)
