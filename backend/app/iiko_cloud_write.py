@@ -77,3 +77,34 @@ async def cloud_courier_id(org_id: str, courier_name: str) -> str | None:
         index = await _fetch_courier_index(org_id)
         _COURIER_CACHE[org_id] = (now, index)
     return index.get(_norm_name(courier_name))
+
+
+_PAY_TTL = 1800.0  # сек
+
+
+async def _payment_types(org_id: str) -> dict[str, dict]:
+    now = time.monotonic()
+    cached = _PAY_CACHE.get(org_id)
+    if cached and (now - cached[0]) < _PAY_TTL:
+        return cached[1]
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post(f"{BASE}/api/1/payment_types",
+                         headers={"Authorization": f"Bearer {token}"},
+                         json={"organizationIds": [org_id]})
+    out: dict[str, dict] = {}
+    if r.is_success:
+        for pt in (r.json().get("paymentTypes") or []):
+            kind = pt.get("paymentTypeKind")
+            if kind and kind not in out:
+                out[kind] = {"id": pt.get("id"), "name": pt.get("name")}
+    _PAY_CACHE[org_id] = (now, out)
+    return out
+
+
+async def payment_item(org_id: str, kind: str, total: float | None) -> dict | None:
+    pt = (await _payment_types(org_id)).get(kind)
+    if not pt:
+        return None
+    return {"paymentTypeKind": kind, "sum": total or 0,
+            "paymentTypeId": pt["id"], "isProcessedExternally": True}

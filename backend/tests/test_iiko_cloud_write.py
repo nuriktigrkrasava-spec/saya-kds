@@ -71,3 +71,26 @@ async def test_cloud_courier_id_uses_cache_second_call():
     await w.cloud_courier_id("org-cache", "Адильхан Курьер")
     await w.cloud_courier_id("org-cache", "Адильхан Курьер")
     assert route.call_count == 1  # второй раз — из кэша
+
+
+def _paytypes_route():
+    return respx.post(f"{BASE}/api/1/payment_types").mock(
+        return_value=httpx.Response(200, json={"paymentTypes": [
+            {"id": "pt-cash", "name": "Наличные", "paymentTypeKind": "Cash"},
+            {"id": "pt-card", "name": "Карта", "paymentTypeKind": "Card"}]}))
+
+
+@respx.mock
+async def test_payment_item_builds_cash_item():
+    w.reset_caches()
+    _token_route(); _paytypes_route()
+    item = await w.payment_item("org-p", "Cash", 8500)
+    assert item == {"paymentTypeKind": "Cash", "sum": 8500,
+                    "paymentTypeId": "pt-cash", "isProcessedExternally": True}
+
+
+@respx.mock
+async def test_payment_item_none_for_unknown_kind():
+    w.reset_caches()
+    _token_route(); _paytypes_route()
+    assert await w.payment_item("org-p2", "Bonus", 100) is None
