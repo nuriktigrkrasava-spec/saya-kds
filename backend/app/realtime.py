@@ -34,6 +34,7 @@ def order_payload(order: Order) -> dict:
         "assembled": order.assembled_at is not None,
         "on_way": order.on_way_at is not None,
         "delivered": order.delivered_at is not None,
+        "iiko_sync_error": order.iiko_sync_error,
         "items": [
             {
                 "id": i.id, "product_id": i.product_id, "name": i.name,

@@ -21,6 +21,7 @@ import app.models  # noqa: F401
 _ADDED_COLUMNS = [
     ("orders", "comment", "VARCHAR DEFAULT ''"),
     ("order_items", "comment", "VARCHAR DEFAULT ''"),
+    ("orders", "iiko_sync_error", "VARCHAR"),
 ]
 
 

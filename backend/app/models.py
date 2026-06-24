@@ -45,6 +45,7 @@ class Order(Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     assigned_courier_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     assigned_courier_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    iiko_sync_error: Mapped[str | None] = mapped_column(String, nullable=True)
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin")
 
