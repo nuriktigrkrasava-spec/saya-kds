@@ -1,3 +1,4 @@
+import time
 import httpx, respx, pytest
 from app import iiko_cloud_write as w
 
@@ -7,6 +8,13 @@ BASE = "https://api-ru.iiko.services"
 def _token_route():
     return respx.post(f"{BASE}/api/1/access_token").mock(
         return_value=httpx.Response(200, json={"token": "T"}))
+
+
+def _couriers_route():
+    return respx.post(f"{BASE}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": [
+            {"organizationId": "org-c", "items": [
+                {"id": "emp-42", "displayName": "Адильхан Курьер"}]}]}))
 
 
 @respx.mock
@@ -38,3 +46,28 @@ async def test_set_payments_sends_payment_items_key():
     ok, _ = await w.set_payments("org-1", "ord-1", [{"paymentTypeKind": "Cash"}])
     assert ok is True
     assert b'"paymentItems"' in route.calls.last.request.read()
+
+
+@respx.mock
+async def test_cloud_courier_id_matches_by_normalized_name():
+    w.reset_caches()
+    _token_route(); _couriers_route()
+    got = await w.cloud_courier_id("org-c", "адильхан   курьер")
+    assert got == "emp-42"
+
+
+@respx.mock
+async def test_cloud_courier_id_none_when_no_match():
+    w.reset_caches()
+    _token_route(); _couriers_route()
+    assert await w.cloud_courier_id("org-c", "Кто-то Другой") is None
+
+
+@respx.mock
+async def test_cloud_courier_id_uses_cache_second_call():
+    w.reset_caches()
+    _token_route()
+    route = _couriers_route()
+    await w.cloud_courier_id("org-cache", "Адильхан Курьер")
+    await w.cloud_courier_id("org-cache", "Адильхан Курьер")
+    assert route.call_count == 1  # второй раз — из кэша
