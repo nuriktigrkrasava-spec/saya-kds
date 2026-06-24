@@ -7,16 +7,19 @@ from app.rms import _norm_name
 
 async def _post(path: str, body: dict) -> tuple[bool, dict]:
     """POST в iiko Transport API. Возвращает (ok, detail). НЕ бросает на ошибку iiko."""
-    token = await get_token()
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(f"{BASE}/api/1/{path}",
-                         headers={"Authorization": f"Bearer {token}"},
-                         json=body)
     try:
-        detail = r.json()
-    except Exception:  # noqa: BLE001 — не-JSON ответ
-        detail = {"raw": r.text}
-    return r.is_success, detail
+        token = await get_token()
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{BASE}/api/1/{path}",
+                             headers={"Authorization": f"Bearer {token}"},
+                             json=body)
+        try:
+            detail = r.json()
+        except Exception:  # noqa: BLE001 — не-JSON ответ
+            detail = {"raw": r.text}
+        return r.is_success, detail
+    except Exception as e:  # noqa: BLE001 — сеть / токен
+        return False, {"error": str(e)[:500]}
 
 
 async def assign_courier(org_id: str, order_id: str, employee_id: str) -> tuple[bool, dict]:
@@ -49,21 +52,24 @@ def reset_caches() -> None:
 
 
 async def _fetch_courier_index(org_id: str) -> dict[str, str]:
-    token = await get_token()
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(f"{BASE}/api/1/employees/couriers",
-                         headers={"Authorization": f"Bearer {token}"},
-                         json={"organizationIds": [org_id]})
-    if not r.is_success:
+    try:
+        token = await get_token()
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{BASE}/api/1/employees/couriers",
+                             headers={"Authorization": f"Bearer {token}"},
+                             json={"organizationIds": [org_id]})
+        if not r.is_success:
+            return {}
+        index: dict[str, str] = {}
+        for blk in (r.json().get("employees") or []):
+            for it in (blk.get("items") or []):
+                name = (it.get("displayName") or
+                        f"{it.get('firstName', '')} {it.get('lastName', '')}").strip()
+                if name and it.get("id"):
+                    index[_norm_name(name)] = it["id"]
+        return index
+    except Exception:  # noqa: BLE001 — сеть / токен
         return {}
-    index: dict[str, str] = {}
-    for blk in (r.json().get("employees") or []):
-        for it in (blk.get("items") or []):
-            name = (it.get("displayName") or
-                    f"{it.get('firstName', '')} {it.get('lastName', '')}").strip()
-            if name and it.get("id"):
-                index[_norm_name(name)] = it["id"]
-    return index
 
 
 async def cloud_courier_id(org_id: str, courier_name: str) -> str | None:
@@ -75,7 +81,8 @@ async def cloud_courier_id(org_id: str, courier_name: str) -> str | None:
         index = cached[1]
     else:
         index = await _fetch_courier_index(org_id)
-        _COURIER_CACHE[org_id] = (now, index)
+        if index:  # кэшируем только непустой результат — провал не замораживает TTL
+            _COURIER_CACHE[org_id] = (now, index)
     return index.get(_norm_name(courier_name))
 
 
@@ -87,19 +94,23 @@ async def _payment_types(org_id: str) -> dict[str, dict]:
     cached = _PAY_CACHE.get(org_id)
     if cached and (now - cached[0]) < _PAY_TTL:
         return cached[1]
-    token = await get_token()
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(f"{BASE}/api/1/payment_types",
-                         headers={"Authorization": f"Bearer {token}"},
-                         json={"organizationIds": [org_id]})
-    out: dict[str, dict] = {}
-    if r.is_success:
-        for pt in (r.json().get("paymentTypes") or []):
-            kind = pt.get("paymentTypeKind")
-            if kind and kind not in out:
-                out[kind] = {"id": pt.get("id"), "name": pt.get("name")}
-    _PAY_CACHE[org_id] = (now, out)
-    return out
+    try:
+        token = await get_token()
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{BASE}/api/1/payment_types",
+                             headers={"Authorization": f"Bearer {token}"},
+                             json={"organizationIds": [org_id]})
+        out: dict[str, dict] = {}
+        if r.is_success:
+            for pt in (r.json().get("paymentTypes") or []):
+                kind = pt.get("paymentTypeKind")
+                if kind and kind not in out:
+                    out[kind] = {"id": pt.get("id"), "name": pt.get("name")}
+        if out:  # кэшируем только непустой результат — провал не замораживает TTL
+            _PAY_CACHE[org_id] = (now, out)
+        return out
+    except Exception:  # noqa: BLE001 — сеть / токен
+        return {}
 
 
 async def payment_item(org_id: str, kind: str, total: float | None) -> dict | None:

@@ -216,3 +216,22 @@ async def test_delivered_without_payment_kind_unchanged(client):
     r = await c.post(f"/orders/{oid}/delivered", json={"by": "Курьер"})
     assert r.status_code == 200
     assert r.json()["delivered"] is True  # без iiko-вызовов
+
+
+@respx.mock
+async def test_delivered_iiko_down_still_200(client):
+    """Если токен-эндпоинт недоступен — /delivered всё равно 200, локальный статус сохранён."""
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    respx.post(f"{_IIKO}/api/1/access_token").mock(
+        side_effect=httpx.ConnectError("iiko down"))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_kind": "Cash"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["delivered"] is True
+    assert body["iiko_sync_error"] is not None and isinstance(body["iiko_sync_error"], str)

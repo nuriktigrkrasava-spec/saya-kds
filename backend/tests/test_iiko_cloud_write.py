@@ -94,3 +94,35 @@ async def test_payment_item_none_for_unknown_kind():
     w.reset_caches()
     _token_route(); _paytypes_route()
     assert await w.payment_item("org-p2", "Bonus", 100) is None
+
+
+@respx.mock
+async def test_post_returns_false_when_token_fails():
+    """Если токен-эндпоинт недоступен — _post возвращает (False, dict), не бросает."""
+    respx.post(f"{BASE}/api/1/access_token").mock(
+        side_effect=httpx.ConnectError("boom"))
+    ok, detail = await w.assign_courier("org-1", "ord-1", "emp-1")
+    assert ok is False
+    assert isinstance(detail, dict)
+
+
+@respx.mock
+async def test_cloud_courier_id_none_when_token_fails():
+    """Если токен-эндпоинт недоступен — cloud_courier_id возвращает None и не кэширует провал."""
+    w.reset_caches()
+    # Первый вызов: токен падает
+    respx.post(f"{BASE}/api/1/access_token").mock(
+        side_effect=httpx.ConnectError("boom"))
+    result = await w.cloud_courier_id("org-fail-unique", "Адильхан Курьер")
+    assert result is None
+
+    # Второй вызов: токен работает, курьер есть — должен найти (провал не закэширован)
+    w.reset_caches()
+    respx.post(f"{BASE}/api/1/access_token").mock(
+        return_value=httpx.Response(200, json={"token": "T"}))
+    respx.post(f"{BASE}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": [
+            {"organizationId": "org-fail-unique", "items": [
+                {"id": "emp-99", "displayName": "Адильхан Курьер"}]}]}))
+    result2 = await w.cloud_courier_id("org-fail-unique", "Адильхан Курьер")
+    assert result2 == "emp-99"
