@@ -49,3 +49,31 @@ def test_pctl_and_aggregates():
     cooking = next(s for s in agg["stages"] if s["key"] == "cooking")
     assert cooking["count"] == 2 and cooking["avg"] == 210
     assert agg["bottleneck_distribution"]["cooking"] == 2
+
+
+def test_sla_breaches():
+    from datetime import datetime
+    def ord_(num, created, delivered):
+        o = Order(iiko_order_id=num, org_id="org-1", number=num)
+        o.created_at = created; o.delivered_at = delivered; o.items = []
+        return o
+    orders = [
+        ord_("1", datetime(2026,6,20,12,0), datetime(2026,6,20,12,30)),  # 30m ok
+        ord_("2", datetime(2026,6,20,13,0), datetime(2026,6,20,14,0)),   # 60m breach
+        ord_("3", datetime(2026,6,21,12,0), datetime(2026,6,21,13,0)),   # 60m breach, next day
+    ]
+    r = A.sla_breaches(orders, threshold_sec=45*60)
+    assert r["total"] == 3 and r["breached"] == 2
+    assert round(r["rate"], 2) == 0.67
+    days = {d["date"]: d for d in r["by_day"]}
+    assert days["2026-06-20"]["breached"] == 1 and days["2026-06-21"]["breached"] == 1
+    hours = {h["hour"]: h for h in r["by_hour"]}
+    assert hours[13]["breached"] == 1
+
+
+def test_pickup_lag():
+    from datetime import datetime
+    o = Order(iiko_order_id="1", org_id="org-1", number="9"); o.items = []
+    o.assembled_at = datetime(2026,6,20,12,0); o.on_way_at = datetime(2026,6,20,12,5)  # 300s
+    r = A.pickup_lag([o])
+    assert r["avg"] == 300 and r["worst"][0]["number"] == "9"

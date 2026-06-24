@@ -63,6 +63,46 @@ def pctl(values: list[float], p: float) -> float | None:
     return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
 
 
+def sla_breaches(orders, threshold_sec: float) -> dict:
+    total = breached = 0
+    by_day: dict[str, dict] = {}
+    by_hour: dict[int, dict] = {}
+    for o in orders:
+        full = _dur(o.created_at, o.delivered_at)
+        if full is None:
+            continue
+        total += 1
+        is_breach = full > threshold_sec
+        day = o.created_at.strftime("%Y-%m-%d")
+        hour = o.created_at.hour
+        d = by_day.setdefault(day, {"date": day, "total": 0, "breached": 0})
+        h = by_hour.setdefault(hour, {"hour": hour, "total": 0, "breached": 0})
+        d["total"] += 1; h["total"] += 1
+        if is_breach:
+            breached += 1; d["breached"] += 1; h["breached"] += 1
+    return {
+        "total": total, "breached": breached,
+        "rate": (breached / total) if total else 0.0,
+        "by_day": sorted(by_day.values(), key=lambda x: x["date"]),
+        "by_hour": sorted(by_hour.values(), key=lambda x: x["hour"]),
+    }
+
+
+def pickup_lag(orders) -> dict:
+    rows = []
+    for o in orders:
+        s = _dur(o.assembled_at, o.on_way_at)
+        if s is not None:
+            rows.append({"number": o.number, "seconds": s})
+    vals = [r["seconds"] for r in rows]
+    return {
+        "avg": (sum(vals) / len(vals)) if vals else None,
+        "median": statistics.median(vals) if vals else None,
+        "p95": pctl(vals, 95),
+        "worst": sorted(rows, key=lambda r: r["seconds"], reverse=True)[:10],
+    }
+
+
 def stage_aggregates(orders, close_at_by_order: dict | None = None) -> dict:
     close_at_by_order = close_at_by_order or {}
     buckets: dict[str, list[float]] = {k: [] for k, _ in STAGES}
