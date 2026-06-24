@@ -3,6 +3,7 @@ import hashlib
 import json
 from urllib.parse import urlencode
 
+import httpx
 import respx
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -14,6 +15,8 @@ import app.models  # noqa: F401
 from app.models import Order, OrderItem
 from app.config import settings
 from app import telegram
+
+_IIKO = "https://api-ru.iiko.services"
 
 
 def _build_init_data(token: str, user: dict, auth_date: str = "1700000000") -> str:
@@ -86,9 +89,19 @@ async def client():
 
 @respx.mock
 async def test_assign_courier_then_my_orders(client):
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
     c, maker = client
     async with maker() as s:
         order_id = (await s.execute(select(Order.id))).scalar_one()
+
+    respx.post(f"{_IIKO}/api/1/access_token").mock(
+        return_value=httpx.Response(200, json={"token": "T"}))
+    respx.post(f"{_IIKO}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": [
+            {"organizationId": "org-1", "items": [{"id": "emp-1", "displayName": "Айдос"}]}]}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
+        return_value=httpx.Response(200, json={}))
 
     r = await c.post(f"/orders/{order_id}/assign-courier",
                      json={"courier_code": "C7", "courier_name": "Айдос",
