@@ -77,3 +77,81 @@ def test_pickup_lag():
     o.assembled_at = datetime(2026,6,20,12,0); o.on_way_at = datetime(2026,6,20,12,5)  # 300s
     r = A.pickup_lag([o])
     assert r["avg"] == 300 and r["worst"][0]["number"] == "9"
+
+
+def test_kitchen_zones():
+    base = datetime(2026, 6, 20, 12, 0, 0)
+    o1, _ = _order(
+        acc=datetime(2026, 6, 20, 12, 2),
+        ready=datetime(2026, 6, 20, 12, 12),  # cooking 600s, station="rolls"
+    )
+    o1.items[0].station = "rolls"
+    o1.items[0].checked_by = "Алия"
+    # second order: item with no station -> "other", no checked_by -> "—"
+    o2 = Order(iiko_order_id="y", org_id="org-1", number="2")
+    o2.created_at = base
+    it2 = OrderItem(product_id="q", name="Суп", station="")
+    it2.station_accepted_at = datetime(2026, 6, 20, 12, 1)
+    it2.station_ready_at = datetime(2026, 6, 20, 12, 3)  # 120s
+    it2.checked_by = None
+    o2.items = [it2]
+    o2.assembled_at = None; o2.on_way_at = None; o2.delivered_at = None
+
+    zones = A.kitchen_zones([o1, o2])
+    by_zone = {z["zone"]: z for z in zones}
+
+    assert "rolls" in by_zone
+    rolls = by_zone["rolls"]
+    assert rolls["avg"] == 600
+    assert rolls["employees"][0]["name"] == "Алия"
+
+    assert "other" in by_zone
+    other = by_zone["other"]
+    assert other["avg"] == 120
+    assert other["employees"][0]["name"] == "—"
+
+
+def test_anomalies_and_synth_events():
+    from app.models import OrderEvent
+    base = datetime(2026, 6, 20, 12, 0, 0)
+
+    # fast order: cooking < 60s
+    fast_o, _ = _order(
+        acc=datetime(2026, 6, 20, 12, 0, 10),
+        ready=datetime(2026, 6, 20, 12, 0, 40),  # 30s
+    )
+    fast_o.id = 10
+
+    # normal order: cooking 300s, but 2 reverts
+    revert_o, _ = _order(
+        acc=datetime(2026, 6, 20, 12, 1),
+        ready=datetime(2026, 6, 20, 12, 6),  # 300s
+        assembled=datetime(2026, 6, 20, 12, 8),
+        on_way=datetime(2026, 6, 20, 12, 13),
+        delivered=datetime(2026, 6, 20, 12, 43),
+    )
+    revert_o.id = 20
+    revert_o.assigned_courier_name = "Данияр"
+
+    events = [
+        OrderEvent(order_id=20, type="item_revert"),
+        OrderEvent(order_id=20, type="item_revert"),  # 2 reverts -> flag
+        OrderEvent(order_id=10, type="item_revert"),  # only 1 for fast_o -> not flagged
+    ]
+
+    r = A.anomalies([fast_o, revert_o], events)
+    assert len(r["fast"]) == 1
+    assert r["fast"][0]["order_id"] == 10
+    assert len(r["reverts"]) == 1
+    assert r["reverts"][0]["order_id"] == 20 and r["reverts"][0]["revert_count"] == 2
+
+    # synth_events for revert_o
+    evs = A.synth_events(revert_o)
+    types = [e["type"] for e in evs]
+    assert types == ["created", "accepted", "ready", "assembled", "take", "delivered"]
+    take_ev = next(e for e in evs if e["type"] == "take")
+    assert take_ev["actor"] == "Данияр"
+    delivered_ev = next(e for e in evs if e["type"] == "delivered")
+    assert delivered_ev["actor"] == "Данияр"
+    # created/accepted/ready/assembled have no actor key
+    assert "actor" not in next(e for e in evs if e["type"] == "created")

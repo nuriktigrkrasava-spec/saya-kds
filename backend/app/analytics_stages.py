@@ -103,6 +103,87 @@ def pickup_lag(orders) -> dict:
     }
 
 
+def kitchen_zones(orders) -> list[dict]:
+    """Сводка по кухонным зонам: avg/median/p95 времени готовки + топ сотрудников."""
+    zone_emp: dict[str, dict[str, list[float]]] = {}
+    for o in orders:
+        for it in o.items:
+            zone = it.station or "other"
+            dur = _dur(it.station_accepted_at, it.station_ready_at)
+            if dur is None:
+                continue
+            emp = it.checked_by or "—"
+            zone_emp.setdefault(zone, {}).setdefault(emp, []).append(dur)
+
+    result = []
+    for zone, emps in zone_emp.items():
+        all_vals = [v for vs in emps.values() for v in vs]
+        employees = sorted(
+            [{"name": emp, "count": len(vs), "avg": sum(vs) / len(vs)}
+             for emp, vs in emps.items()],
+            key=lambda e: e["avg"], reverse=True,
+        )
+        result.append({
+            "zone": zone,
+            "count": len(all_vals),
+            "avg": (sum(all_vals) / len(all_vals)) if all_vals else None,
+            "median": statistics.median(all_vals) if all_vals else None,
+            "p95": pctl(all_vals, 95),
+            "employees": employees,
+        })
+    return result
+
+
+def anomalies(orders, events: list | None = None) -> dict:
+    """Аномалии: быстрые заказы (prep<60s) + заказы с ≥2 откатами позиций."""
+    fast = []
+    for o in orders:
+        acc = _accepted_min(o)
+        ready = _ready_max(o)
+        dur = _dur(acc, ready)
+        if dur is not None and dur < 60:
+            fast.append({"order_id": o.id, "number": o.number, "seconds": dur})
+
+    reverts = []
+    if events:
+        from collections import Counter
+        revert_counts: dict[int, int] = Counter(
+            e.order_id for e in events if e.type == "item_revert"
+        )
+        order_map = {o.id: o for o in orders}
+        for order_id, count in sorted(revert_counts.items()):
+            if count >= 2 and order_id in order_map:
+                o = order_map[order_id]
+                reverts.append({"order_id": o.id, "number": o.number, "revert_count": count})
+
+    return {"fast": fast, "reverts": reverts}
+
+
+def synth_events(order) -> list[dict]:
+    """Синтез хронологии из таймстампов заказа."""
+    acc = _accepted_min(order)
+    ready = _ready_max(order)
+    courier = order.assigned_courier_name or ""
+
+    candidates = [
+        ("created", order.created_at, False),
+        ("accepted", acc, False),
+        ("ready", ready, False),
+        ("assembled", order.assembled_at, False),
+        ("take", order.on_way_at, True),
+        ("delivered", order.delivered_at, True),
+    ]
+    result = []
+    for type_, at, has_actor in candidates:
+        if at is None:
+            continue
+        ev: dict = {"type": type_, "at": at}
+        if has_actor:
+            ev["actor"] = courier
+        result.append(ev)
+    return sorted(result, key=lambda e: e["at"])
+
+
 def stage_aggregates(orders, close_at_by_order: dict | None = None) -> dict:
     close_at_by_order = close_at_by_order or {}
     buckets: dict[str, list[float]] = {k: [] for k, _ in STAGES}
