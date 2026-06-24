@@ -1,4 +1,5 @@
 import respx
+import httpx
 from httpx import ASGITransport, AsyncClient
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine, AsyncSession
@@ -113,3 +114,53 @@ async def test_seed_is_idempotent(client):
     r = await c.get("/orders?org_id=demo")
     numbers = [o["number"] for o in r.json()]
     assert numbers.count("1001") == 1
+
+
+_IIKO = "https://api-ru.iiko.services"
+
+
+def _token():
+    respx.post(f"{_IIKO}/api/1/access_token").mock(
+        return_value=httpx.Response(200, json={"token": "T"}))
+
+
+@respx.mock
+async def test_assign_courier_success_syncs_to_iiko(client):
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    respx.post(f"{_IIKO}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": [
+            {"organizationId": "org-1", "items": [{"id": "emp-9", "displayName": "Иван Курьер"}]}]}))
+    upd = respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/assign-courier",
+                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+    assert r.status_code == 200
+    assert upd.called
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_assign_courier_unmatched_sets_sync_error(client):
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    respx.post(f"{_IIKO}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": []}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/assign-courier",
+                     json={"courier_code": "K1", "courier_name": "Нет В Cloud"})
+    assert r.status_code == 200
+    assert r.json()["iiko_sync_error"] == "courier_not_matched"
+    # локальное назначение всё равно сохранено
+    async with maker() as s:
+        o = (await s.execute(select(Order).where(Order.id == oid))).scalar_one()
+        assert o.assigned_courier_name == "Нет В Cloud"

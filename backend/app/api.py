@@ -9,6 +9,7 @@ from app.db import get_session
 from datetime import datetime as _dt
 from sqlalchemy import delete as _sl_delete
 from app import iiko_cloud, ingest, realtime
+from app import iiko_cloud_write as _iiko_write
 from app.models import Order, OrderEvent as _OrderEvent
 from app.models import StopListItem as _StopList
 
@@ -925,7 +926,21 @@ async def order_assign_courier(order_id: int, body: AssignCourierIn,
         order.assembled_at = _dt.utcnow()
     order.assigned_courier_code = body.courier_code
     order.assigned_courier_name = body.courier_name
+
+    ok, detail, method = True, {}, "update_order_courier"
+    if order.org_id:
+        emp_id = await _iiko_write.cloud_courier_id(order.org_id, body.courier_name)
+        if emp_id:
+            ok, detail = await _iiko_write.assign_courier(
+                order.org_id, order.iiko_order_id, emp_id)
+            order.iiko_sync_error = None if ok else str(detail)[:500]
+        else:
+            ok, detail = False, {"error": "courier_not_matched"}
+            order.iiko_sync_error = "courier_not_matched"
+
     await session.commit()
+    if order.org_id:
+        await _log_iiko_event(session, order_id, method, ok, detail)
     order = await _load_order(session, order_id)
     await realtime.broadcast_order(order)
     return realtime.order_payload(order)
