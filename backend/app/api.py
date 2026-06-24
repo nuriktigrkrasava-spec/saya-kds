@@ -313,6 +313,9 @@ async def item_accept(item_id: int, body: ActionIn,
         raise HTTPException(status_code=404, detail="item not found")
     item.station_accepted_at = _dt.utcnow()
     item.checked_by = body.by or item.checked_by
+    order = await _load_order(session, item.order_id)
+    await _log_action(session, order, "item_accept", actor_name=body.by,
+                      item_id=item.id, payload={"name": item.name, "station": item.station})
     return await _item_and_broadcast(session, item_id)
 
 
@@ -330,6 +333,10 @@ async def item_ready(item_id: int, body: ActionIn,
     if item.station_accepted_at is None:
         order = await _load_order(session, item.order_id)
         item.station_accepted_at = order.created_at
+    else:
+        order = await _load_order(session, item.order_id)
+    await _log_action(session, order, "item_ready", actor_name=body.by,
+                      item_id=item.id, payload={"name": item.name, "station": item.station})
     return await _item_and_broadcast(session, item_id)
 
 
@@ -343,6 +350,9 @@ async def item_check(item_id: int, body: ActionIn,
     item.is_checked = True
     item.checked_at = _dt.utcnow()
     item.checked_by = body.by or item.checked_by
+    order = await _load_order(session, item.order_id)
+    await _log_action(session, order, "item_check", actor_name=body.by,
+                      item_id=item.id, payload={"name": item.name})
     return await _item_and_broadcast(session, item_id)
 
 
@@ -359,6 +369,9 @@ async def item_revert(item_id: int, body: ActionIn,
     item.station_ready_at = None
     item.is_checked = False
     item.checked_at = None
+    order = await _load_order(session, item.order_id)
+    await _log_action(session, order, "item_revert", actor_name=body.by,
+                      item_id=item.id, payload={"name": item.name})
     return await _item_and_broadcast(session, item_id)
 
 
@@ -391,6 +404,7 @@ async def order_assemble(order_id: int, body: ActionIn,
     """Сборщик: «передать курьеру»."""
     order = await _load_order(session, order_id)
     order.assembled_at = _dt.utcnow()
+    await _log_action(session, order, "order_assemble", actor_name=body.by)
     return await _order_action_and_broadcast(session, order_id)
 
 
@@ -400,6 +414,7 @@ async def order_take(order_id: int, body: ActionIn,
     """Курьер забрал заказ."""
     order = await _load_order(session, order_id)
     order.on_way_at = _dt.utcnow()
+    await _log_action(session, order, "take", actor_name=body.by)
     return await _order_action_and_broadcast(session, order_id)
 
 
@@ -409,6 +424,7 @@ async def order_delivered(order_id: int, body: ActionIn,
     """Курьер доставил заказ."""
     order = await _load_order(session, order_id)
     order.delivered_at = _dt.utcnow()
+    await _log_action(session, order, "delivered", actor_name=body.by)
     if body.payment_kind and order.org_id:
         item = await _iiko_write.payment_item(order.org_id, body.payment_kind, order.total)
         if item:
