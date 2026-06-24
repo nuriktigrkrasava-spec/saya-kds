@@ -33,6 +33,7 @@ export default function TgCourier() {
   const [ordersErr, setOrdersErr] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [actingId, setActingId] = useState(null);
+  const [paymentOrder, setPaymentOrder] = useState(null); // order awaiting payment-kind pick
 
   // --- Telegram init + theme --------------------------------------------------
   useEffect(() => {
@@ -188,11 +189,21 @@ export default function TgCourier() {
     else window.open(url, "_blank");
   }
 
-  async function markDelivered(order) {
+  function startDeliver(order) {
+    setPaymentOrder(order);
+  }
+
+  function cancelDeliver() {
+    setPaymentOrder(null);
+  }
+
+  async function confirmDeliver(paymentKind) {
+    const order = paymentOrder;
+    setPaymentOrder(null);
     setActingId(order.id);
     setOrdersErr("");
     try {
-      await api.deliverOrder(order.id, identity?.name || "курьер");
+      await api.deliverOrder(order.id, identity?.name || "курьер", paymentKind);
       await loadOrders(identity?.courier_code);
     } catch (e) {
       setOrdersErr(e.message || String(e));
@@ -410,7 +421,7 @@ export default function TgCourier() {
                   <button
                     type="button"
                     className="tg-btn tg-btn--success"
-                    onClick={() => markDelivered(o)}
+                    onClick={() => startDeliver(o)}
                     disabled={actingId === o.id}
                   >
                     {actingId === o.id ? "…" : "✓ Доставлено"}
@@ -421,6 +432,38 @@ export default function TgCourier() {
           </div>
         )}
       </main>
+
+      {paymentOrder && (
+        <div className="tg-payment-overlay" role="dialog" aria-modal="true" aria-label="Способ оплаты">
+          <div className="tg-payment-sheet">
+            <p className="tg-payment-sheet__title">Способ оплаты</p>
+            <p className="tg-payment-sheet__sub">Заказ № {paymentOrder.number}</p>
+            <div className="tg-payment-sheet__btns">
+              <button
+                type="button"
+                className="tg-btn tg-btn--cash"
+                onClick={() => confirmDeliver("Cash")}
+              >
+                💵 Наличные
+              </button>
+              <button
+                type="button"
+                className="tg-btn tg-btn--card"
+                onClick={() => confirmDeliver("Card")}
+              >
+                💳 Карта
+              </button>
+            </div>
+            <button
+              type="button"
+              className="tg-btn tg-btn--ghost tg-payment-sheet__cancel"
+              onClick={cancelDeliver}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

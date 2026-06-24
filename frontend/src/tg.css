@@ -433,6 +433,67 @@
   filter: brightness(0.95);
 }
 
+/* ---- payment-kind overlay ----------------------------------------------- */
+.tg-payment-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.tg-payment-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--tg-card);
+  border-radius: var(--tg-radius) var(--tg-radius) 0 0;
+  padding: 24px 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tg-payment-sheet__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tg-payment-sheet__sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--tg-hint);
+  text-align: center;
+}
+
+.tg-payment-sheet__btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.tg-payment-sheet__cancel {
+  margin-top: 4px;
+}
+
+.tg-btn--cash {
+  background: #16a34a;
+  color: #fff;
+}
+
+.tg-btn--card {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.tg-btn--cash:active,
+.tg-btn--card:active {
+  filter: brightness(0.92);
+}
+
 /* ---- reduced motion ----------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .tg *,
