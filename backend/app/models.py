@@ -85,6 +85,10 @@ class OrderEvent(Base):
     type: Mapped[str] = mapped_column(String)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    org_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    actor_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    actor_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class TelegramLink(Base):

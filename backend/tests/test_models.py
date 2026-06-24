@@ -9,6 +9,17 @@ async def test_order_has_iiko_sync_error_default_none(session):
     assert o.iiko_sync_error is None
 
 
+async def test_order_event_has_actor_and_org_fields(session):
+    from app.models import Order, OrderEvent
+    o = Order(iiko_order_id="oe1", org_id="org-1", number="1")
+    session.add(o); await session.commit()
+    ev = OrderEvent(order_id=o.id, org_id="org-1", type="item_accept",
+                    actor_name="Коля", actor_code="K1", item_id=7, payload={})
+    session.add(ev); await session.commit()
+    assert ev.org_id == "org-1" and ev.actor_name == "Коля"
+    assert ev.actor_code == "K1" and ev.item_id == 7
+
+
 async def test_order_with_items_persists(session):
     order = Order(iiko_order_id="o1", org_id="org-1", number="101")
     order.items.append(OrderItem(product_id="p1", name="Ролл", station="rolls"))

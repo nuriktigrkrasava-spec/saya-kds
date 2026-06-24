@@ -22,6 +22,10 @@ _ADDED_COLUMNS = [
     ("orders", "comment", "VARCHAR DEFAULT ''"),
     ("order_items", "comment", "VARCHAR DEFAULT ''"),
     ("orders", "iiko_sync_error", "VARCHAR"),
+    ("order_events", "org_id", "VARCHAR"),
+    ("order_events", "actor_code", "VARCHAR"),
+    ("order_events", "actor_name", "VARCHAR"),
+    ("order_events", "item_id", "INTEGER"),
 ]
 
 
