@@ -83,6 +83,18 @@ export const api = {
   assignCourier: (orderId, courier_code, courier_name, by) =>
     post(`/orders/${orderId}/assign-courier`, { courier_code, courier_name, by }),
 
+  // Аналитика — этапы, SLA, журнал, таймлайн заказа.
+  stageStats: (orgId, from, to, slaMinutes = 45) =>
+    get(`/admin/stage-stats?org_id=${orgId}&from=${from}&to=${to}&sla_minutes=${slaMinutes}`),
+  kitchenZones: (orgId, from, to) =>
+    get(`/admin/kitchen-zones?org_id=${orgId}&from=${from}&to=${to}`),
+  journal: (orgId, from, to, params = {}) => {
+    const q = new URLSearchParams({ org_id: orgId, from, to, ...params }).toString();
+    return get(`/admin/journal?${q}`);
+  },
+  orderTimeline: (orgId, orderId) =>
+    get(`/admin/orders/${orderId}/timeline?org_id=${orgId}`),
+
   // Telegram mini-app courier helpers (same-origin in Telegram).
   tgAuth: (initData) => tgPost("/tg/auth", { initData }),
   tgLink: (initData, pin) => tgPost("/tg/link", { initData, pin }),

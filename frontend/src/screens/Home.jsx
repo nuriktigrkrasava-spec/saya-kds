@@ -127,6 +127,9 @@ export default function Home() {
               <Link to="/demand" className="home-link">
                 Карта спроса
               </Link>
+              <Link to="/analytics" className="home-link">
+                Этапы и журнал
+              </Link>
             </nav>
           )}
         </div>
