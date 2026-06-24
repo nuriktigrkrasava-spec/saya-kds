@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
@@ -426,9 +426,8 @@ export default function Analytics() {
                 </thead>
                 <tbody>
                   {(zones?.zones || []).map((z) => (
-                    <>
+                    <React.Fragment key={z.zone}>
                       <tr
-                        key={z.zone}
                         style={{ cursor: z.employees?.length ? "pointer" : "default" }}
                         onClick={() => setExpandedZone(expandedZone === z.zone ? null : z.zone)}
                       >
@@ -449,7 +448,7 @@ export default function Analytics() {
                           <td></td>
                         </tr>
                       ))}
-                    </>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
