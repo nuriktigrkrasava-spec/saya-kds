@@ -64,9 +64,18 @@ async def test_employee_history_groups_and_flags(client):
 async def test_anomalies_lists_only_fast_item(client):
     r = await client.get("/admin/anomalies?org_id=o1")
     assert r.status_code == 200
-    data = r.json()
+    body = r.json()
+    data = body["fast"]
     assert len(data) == 1
     a = data[0]
     assert a["name"] == "Алия"
     assert a["item_name"] == "Калифорния"
     assert a["prep_seconds"] == 20
+
+
+@respx.mock
+async def test_anomalies_reverts_empty_without_revert_events(client):
+    r = await client.get("/admin/anomalies?org_id=o1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reverts"] == []

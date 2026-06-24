@@ -744,19 +744,19 @@ async def admin_employee_history(org_id: str,
 @app.get("/admin/anomalies")
 async def admin_anomalies(org_id: str,
                           session: AsyncSession = Depends(get_session)):
-    """Плоский список подозрительно быстрых позиций филиала за сегодня.
+    """Быстрые аномалии + возвраты (item_revert ≥2) за сегодня.
 
     «Готово» менее чем за минуту после «принял» — сортировка по времени готовки.
     """
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id))).scalars().all()
 
-    anomalies: list[dict] = []
+    fast: list[dict] = []
     for name, order, it in _worked_items_today(orders):
         prep = _prep_seconds(it)
         if prep is None or prep >= _SUSPICIOUS_PREP_SECONDS:
             continue
-        anomalies.append({
+        fast.append({
             "name": name,
             "order_number": order.number,
             "item_name": it.name,
@@ -765,8 +765,83 @@ async def admin_anomalies(org_id: str,
             "ready_at": _iso(it.station_ready_at),
         })
 
-    anomalies.sort(key=lambda a: a["prep_seconds"])
-    return anomalies
+    fast.sort(key=lambda a: a["prep_seconds"])
+
+    # Возвраты: считаем события item_revert по заказам филиала
+    revert_rows = (await session.execute(
+        _select(_OrderEvent.order_id).where(
+            _OrderEvent.org_id == org_id,
+            _OrderEvent.type == "item_revert"))).scalars().all()
+    revert_counts: dict[int, int] = {}
+    for oid in revert_rows:
+        revert_counts[oid] = revert_counts.get(oid, 0) + 1
+    extra = _stages.anomalies(orders, revert_counts)
+    reverts = [
+        {"order_number": a["number"], "count": revert_counts.get(a["order_id"], 0)}
+        for a in extra if a["kind"] == "reverts"
+    ]
+
+    return {"fast": fast, "reverts": reverts}
+
+
+@app.get("/admin/journal")
+async def admin_journal(org_id: str, from_: str | None = Query(None, alias="from"),
+                        to: str | None = None, actor: str | None = None,
+                        type: str | None = None, order_number: str | None = None,
+                        limit: int = 100, offset: int = 0,
+                        session: AsyncSession = Depends(get_session)):
+    """Журнал событий по заказам периода (реальные + синтезированные).
+
+    Исключает iiko_write (технический аудит, не lifecycle).
+    """
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    by_id = {o.id: o for o in orders}
+
+    have_events: set[int] = set()
+    rows: list[dict] = []
+    if by_id:
+        evs = (await session.execute(
+            _select(_OrderEvent).where(
+                _OrderEvent.order_id.in_(list(by_id)),
+                _OrderEvent.type != "iiko_write"))).scalars().all()
+        for e in evs:
+            have_events.add(e.order_id)
+            rows.append({
+                "at": e.at,
+                "order_number": by_id[e.order_id].number,
+                "type": e.type,
+                "actor_name": e.actor_name or "",
+                "item_name": (e.payload or {}).get("name"),
+                "detail": (e.payload or {}).get("station", ""),
+            })
+
+    # Синтез для заказов периода без реальных событий
+    for o in orders:
+        if o.id in have_events:
+            continue
+        for se in _stages.synth_events(o):
+            rows.append({
+                "at": se["at"],
+                "order_number": o.number,
+                "type": se["type"],
+                "actor_name": se["actor_name"],
+                "item_name": se["item_name"],
+                "detail": "",
+            })
+
+    # Фильтры
+    if actor:
+        rows = [r for r in rows if actor.lower() in (r["actor_name"] or "").lower()]
+    if type:
+        rows = [r for r in rows if r["type"] == type]
+    if order_number:
+        rows = [r for r in rows if r["order_number"] == order_number]
+
+    rows.sort(key=lambda r: r["at"], reverse=True)
+    total = len(rows)
+    page = rows[offset:offset + limit]
+    return {"total": total, "rows": [{**r, "at": _iso(r["at"])} for r in page]}
 
 
 @app.get("/rms/branches")

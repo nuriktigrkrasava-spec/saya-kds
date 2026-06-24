@@ -68,3 +68,23 @@ async def test_timeline_synthesizes_when_no_events(client):
     assert keys == ["queue", "cooking", "assembly", "pickup_wait", "delivery", "iiko_close"]
     types = [e["type"] for e in body["events"]]
     assert "item_accept" in types and "delivered" in types  # синтезированы
+
+
+@respx.mock
+async def test_journal_returns_synth_rows(client):
+    r = await client.get("/admin/journal",
+                         params={"org_id": "org-1", "from": "2026-06-20", "to": "2026-06-20"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] >= 1
+    types = {row["type"] for row in body["rows"]}
+    assert "item_ready" in types or "delivered" in types
+
+
+@respx.mock
+async def test_journal_filters_by_type(client):
+    r = await client.get("/admin/journal",
+                         params={"org_id": "org-1", "from": "2026-06-20", "to": "2026-06-20",
+                                 "type": "delivered"})
+    assert r.status_code == 200
+    assert all(row["type"] == "delivered" for row in r.json()["rows"])
