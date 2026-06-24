@@ -367,6 +367,14 @@ async def _order_action_and_broadcast(session: AsyncSession, order_id: int) -> d
     return realtime.order_payload(order)
 
 
+async def _log_iiko_event(session, order_id: int, method: str,
+                          ok: bool, detail: dict) -> None:
+    """Аудит вызова записи в iiko в order_events (материал и для аналитики п.4)."""
+    session.add(_OrderEvent(order_id=order_id, type="iiko_write",
+                            payload={"method": method, "ok": ok, "detail": detail}))
+    await session.commit()
+
+
 @app.post("/orders/{order_id}/assemble")
 async def order_assemble(order_id: int, body: ActionIn,
                          session: AsyncSession = Depends(get_session)):
@@ -394,6 +402,7 @@ async def order_delivered(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
+from app.models import OrderEvent as _OrderEvent
 from app.models import ProductStationMap as _PSM
 from app.schemas import NormalizedOrder as _NormalizedOrder, WebhookItem as _WebhookItem
 
