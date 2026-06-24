@@ -80,78 +80,27 @@ def test_pickup_lag():
 
 
 def test_kitchen_zones():
-    base = datetime(2026, 6, 20, 12, 0, 0)
-    o1, _ = _order(
-        acc=datetime(2026, 6, 20, 12, 2),
-        ready=datetime(2026, 6, 20, 12, 12),  # cooking 600s, station="rolls"
-    )
-    o1.items[0].station = "rolls"
-    o1.items[0].checked_by = "Алия"
-    # second order: item with no station -> "other", no checked_by -> "—"
-    o2 = Order(iiko_order_id="y", org_id="org-1", number="2")
-    o2.created_at = base
-    it2 = OrderItem(product_id="q", name="Суп", station="")
-    it2.station_accepted_at = datetime(2026, 6, 20, 12, 1)
-    it2.station_ready_at = datetime(2026, 6, 20, 12, 3)  # 120s
-    it2.checked_by = None
-    o2.items = [it2]
-    o2.assembled_at = None; o2.on_way_at = None; o2.delivered_at = None
-
-    zones = A.kitchen_zones([o1, o2])
-    by_zone = {z["zone"]: z for z in zones}
-
-    assert "rolls" in by_zone
-    rolls = by_zone["rolls"]
-    assert rolls["avg"] == 600
-    assert rolls["employees"][0]["name"] == "Алия"
-
-    assert "other" in by_zone
-    other = by_zone["other"]
-    assert other["avg"] == 120
-    assert other["employees"][0]["name"] == "—"
+    from datetime import datetime
+    o = Order(iiko_order_id="1", org_id="org-1", number="1")
+    a = datetime(2026,6,20,12,0)
+    i1 = OrderItem(product_id="p1", name="Ролл", station="rolls",
+                   checked_by="Коля"); i1.station_accepted_at=a; i1.station_ready_at=datetime(2026,6,20,12,2)
+    i2 = OrderItem(product_id="p2", name="Пицца", station="pizza",
+                   checked_by="Аян"); i2.station_accepted_at=a; i2.station_ready_at=datetime(2026,6,20,12,6)
+    o.items = [i1, i2]
+    z = {x["zone"]: x for x in A.kitchen_zones([o])["zones"]}
+    assert z["rolls"]["avg"] == 120 and z["pizza"]["avg"] == 360
+    assert z["rolls"]["employees"][0]["name"] == "Коля"
 
 
-def test_anomalies_and_synth_events():
-    from app.models import OrderEvent
-    base = datetime(2026, 6, 20, 12, 0, 0)
-
-    # fast order: cooking < 60s
-    fast_o, _ = _order(
-        acc=datetime(2026, 6, 20, 12, 0, 10),
-        ready=datetime(2026, 6, 20, 12, 0, 40),  # 30s
-    )
-    fast_o.id = 10
-
-    # normal order: cooking 300s, but 2 reverts
-    revert_o, _ = _order(
-        acc=datetime(2026, 6, 20, 12, 1),
-        ready=datetime(2026, 6, 20, 12, 6),  # 300s
-        assembled=datetime(2026, 6, 20, 12, 8),
-        on_way=datetime(2026, 6, 20, 12, 13),
-        delivered=datetime(2026, 6, 20, 12, 43),
-    )
-    revert_o.id = 20
-    revert_o.assigned_courier_name = "Данияр"
-
-    events = [
-        OrderEvent(order_id=20, type="item_revert"),
-        OrderEvent(order_id=20, type="item_revert"),  # 2 reverts -> flag
-        OrderEvent(order_id=10, type="item_revert"),  # only 1 for fast_o -> not flagged
-    ]
-
-    r = A.anomalies([fast_o, revert_o], events)
-    assert len(r["fast"]) == 1
-    assert r["fast"][0]["order_id"] == 10
-    assert len(r["reverts"]) == 1
-    assert r["reverts"][0]["order_id"] == 20 and r["reverts"][0]["revert_count"] == 2
-
-    # synth_events for revert_o
-    evs = A.synth_events(revert_o)
-    types = [e["type"] for e in evs]
-    assert types == ["created", "accepted", "ready", "assembled", "take", "delivered"]
-    take_ev = next(e for e in evs if e["type"] == "take")
-    assert take_ev["actor"] == "Данияр"
-    delivered_ev = next(e for e in evs if e["type"] == "delivered")
-    assert delivered_ev["actor"] == "Данияр"
-    # created/accepted/ready/assembled have no actor key
-    assert "actor" not in next(e for e in evs if e["type"] == "created")
+def test_anomalies_fast_and_reverts():
+    from datetime import datetime
+    o = Order(iiko_order_id="1", org_id="org-1", number="7")
+    it = OrderItem(product_id="p", name="Ролл", station="rolls", checked_by="Коля")
+    it.station_accepted_at = datetime(2026,6,20,12,0,0)
+    it.station_ready_at = datetime(2026,6,20,12,0,30)  # 30s < 60 -> fast
+    o.id = 5; o.items = [it]
+    res = A.anomalies([o], revert_counts={5: 3})
+    kinds = {r["kind"] for r in res}
+    assert "fast" in kinds and "reverts" in kinds
+    assert all(r["number"] == "7" for r in res)

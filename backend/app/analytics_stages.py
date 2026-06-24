@@ -103,85 +103,66 @@ def pickup_lag(orders) -> dict:
     }
 
 
-def kitchen_zones(orders) -> list[dict]:
-    """Сводка по кухонным зонам: avg/median/p95 времени готовки + топ сотрудников."""
-    zone_emp: dict[str, dict[str, list[float]]] = {}
+def kitchen_zones(orders) -> dict:
+    by_zone: dict[str, list[float]] = {}
+    by_zone_emp: dict[str, dict[str, list[float]]] = {}
     for o in orders:
         for it in o.items:
-            zone = it.station or "other"
-            dur = _dur(it.station_accepted_at, it.station_ready_at)
-            if dur is None:
+            s = _dur(it.station_accepted_at, it.station_ready_at)
+            if s is None:
                 continue
+            z = it.station or "other"
+            by_zone.setdefault(z, []).append(s)
             emp = it.checked_by or "—"
-            zone_emp.setdefault(zone, {}).setdefault(emp, []).append(dur)
-
-    result = []
-    for zone, emps in zone_emp.items():
-        all_vals = [v for vs in emps.values() for v in vs]
-        employees = sorted(
-            [{"name": emp, "count": len(vs), "avg": sum(vs) / len(vs)}
-             for emp, vs in emps.items()],
-            key=lambda e: e["avg"], reverse=True,
-        )
-        result.append({
-            "zone": zone,
-            "count": len(all_vals),
-            "avg": (sum(all_vals) / len(all_vals)) if all_vals else None,
-            "median": statistics.median(all_vals) if all_vals else None,
-            "p95": pctl(all_vals, 95),
-            "employees": employees,
-        })
-    return result
+            by_zone_emp.setdefault(z, {}).setdefault(emp, []).append(s)
+    zones = []
+    for z, vals in sorted(by_zone.items()):
+        emps = [{"name": n, "count": len(v), "avg": sum(v) / len(v)}
+                for n, v in sorted(by_zone_emp.get(z, {}).items())]
+        emps.sort(key=lambda e: e["avg"], reverse=True)
+        zones.append({"zone": z, "count": len(vals),
+                      "avg": sum(vals) / len(vals),
+                      "median": statistics.median(vals), "employees": emps})
+    return {"zones": zones}
 
 
-def anomalies(orders, events: list | None = None) -> dict:
-    """Аномалии: быстрые заказы (prep<60s) + заказы с ≥2 откатами позиций."""
-    fast = []
+def anomalies(orders, revert_counts: dict) -> list[dict]:
+    out = []
     for o in orders:
-        acc = _accepted_min(o)
-        ready = _ready_max(o)
-        dur = _dur(acc, ready)
-        if dur is not None and dur < 60:
-            fast.append({"order_id": o.id, "number": o.number, "seconds": dur})
-
-    reverts = []
-    if events:
-        from collections import Counter
-        revert_counts: dict[int, int] = Counter(
-            e.order_id for e in events if e.type == "item_revert"
-        )
-        order_map = {o.id: o for o in orders}
-        for order_id, count in sorted(revert_counts.items()):
-            if count >= 2 and order_id in order_map:
-                o = order_map[order_id]
-                reverts.append({"order_id": o.id, "number": o.number, "revert_count": count})
-
-    return {"fast": fast, "reverts": reverts}
+        for it in o.items:
+            s = _dur(it.station_accepted_at, it.station_ready_at)
+            if s is not None and s < 60:
+                out.append({"order_id": o.id, "number": o.number, "kind": "fast",
+                            "detail": f"{it.name}: {int(s)}с", "actor": it.checked_by or ""})
+        rc = revert_counts.get(o.id, 0)
+        if rc >= 2:
+            out.append({"order_id": o.id, "number": o.number, "kind": "reverts",
+                        "detail": f"возвратов: {rc}", "actor": ""})
+    return out
 
 
 def synth_events(order) -> list[dict]:
-    """Синтез хронологии из таймстампов заказа."""
-    acc = _accepted_min(order)
-    ready = _ready_max(order)
-    courier = order.assigned_courier_name or ""
-
-    candidates = [
-        ("created", order.created_at, False),
-        ("accepted", acc, False),
-        ("ready", ready, False),
-        ("assembled", order.assembled_at, False),
-        ("take", order.on_way_at, True),
-        ("delivered", order.delivered_at, True),
-    ]
-    result = []
-    for type_, at, has_actor in candidates:
-        if at is None:
-            continue
-        ev: dict = {"type": type_, "at": at}
-        if has_actor:
-            ev["actor"] = courier
-        result.append(ev)
-    return sorted(result, key=lambda e: e["at"])
+    ev = []
+    for it in order.items:
+        if it.station_accepted_at:
+            ev.append({"at": it.station_accepted_at, "type": "item_accept",
+                       "item_id": it.id, "item_name": it.name, "actor_name": it.checked_by or ""})
+        if it.station_ready_at:
+            ev.append({"at": it.station_ready_at, "type": "item_ready",
+                       "item_id": it.id, "item_name": it.name, "actor_name": it.checked_by or ""})
+        if it.checked_at:
+            ev.append({"at": it.checked_at, "type": "item_check",
+                       "item_id": it.id, "item_name": it.name, "actor_name": it.checked_by or ""})
+    if order.assembled_at:
+        ev.append({"at": order.assembled_at, "type": "order_assemble",
+                   "item_id": None, "item_name": None, "actor_name": ""})
+    if order.on_way_at:
+        ev.append({"at": order.on_way_at, "type": "take",
+                   "item_id": None, "item_name": None, "actor_name": order.assigned_courier_name or ""})
+    if order.delivered_at:
+        ev.append({"at": order.delivered_at, "type": "delivered",
+                   "item_id": None, "item_name": None, "actor_name": order.assigned_courier_name or ""})
+    return sorted(ev, key=lambda e: e["at"])
 
 
 def stage_aggregates(orders, close_at_by_order: dict | None = None) -> dict:
