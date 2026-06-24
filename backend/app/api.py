@@ -562,6 +562,35 @@ async def admin_kitchen_zones(org_id: str, from_: str | None = Query(None, alias
     return _stages.kitchen_zones(orders)
 
 
+def _close_at(events) -> "datetime | None":
+    for e in events:
+        if e.type == "iiko_write" and (e.payload or {}).get("method") == "close" \
+                and (e.payload or {}).get("ok"):
+            return e.at
+    return None
+
+
+@app.get("/admin/orders/{order_id}/timeline")
+async def admin_order_timeline(order_id: int, org_id: str,
+                               session: AsyncSession = Depends(get_session)):
+    order = await _load_order(session, order_id)
+    events = (await session.execute(
+        _select(_OrderEvent).where(_OrderEvent.order_id == order_id)
+        .order_by(_OrderEvent.at))).scalars().all()
+    stages = _stages.order_stages(order, _close_at(events))
+    # «настоящие» lifecycle-события (исключая iiko_write) или синтез
+    real = [e for e in events if e.type != "iiko_write"]
+    if real:
+        ev_out = [{"at": _iso(e.at), "type": e.type, "actor_name": e.actor_name or "",
+                   "item_id": e.item_id, "payload": e.payload or {}} for e in real]
+    else:
+        ev_out = [{"at": _iso(e["at"]), "type": e["type"], "actor_name": e["actor_name"],
+                   "item_id": e["item_id"], "payload": {"item_name": e["item_name"]}}
+                  for e in _stages.synth_events(order)]
+    return {"order": {"id": order.id, "number": order.number, "org_id": order.org_id},
+            "stages": stages, "events": ev_out}
+
+
 @app.get("/admin/analytics")
 async def admin_analytics(org_id: str, session: AsyncSession = Depends(get_session)):
     """Сводная аналитика по филиалу: заказы, сотрудники, зоны, доставка."""

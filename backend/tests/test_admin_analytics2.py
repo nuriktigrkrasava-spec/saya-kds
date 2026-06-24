@@ -56,3 +56,15 @@ async def test_kitchen_zones_endpoint(client):
     assert r.status_code == 200
     zones = {z["zone"]: z for z in r.json()["zones"]}
     assert zones["rolls"]["avg"] == 180
+
+
+@respx.mock
+async def test_timeline_synthesizes_when_no_events(client):
+    # seed-заказ из фикстуры событий не имеет -> синтез из таймстампов
+    r = await client.get("/admin/orders/1/timeline", params={"org_id": "org-1"})
+    assert r.status_code == 200
+    body = r.json()
+    keys = [s["key"] for s in body["stages"]]
+    assert keys == ["queue", "cooking", "assembly", "pickup_wait", "delivery", "iiko_close"]
+    types = [e["type"] for e in body["events"]]
+    assert "item_accept" in types and "delivered" in types  # синтезированы
