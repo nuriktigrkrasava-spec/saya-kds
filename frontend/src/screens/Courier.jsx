@@ -19,6 +19,7 @@ function route2gisApp(order) {
 function OrderRow({ order, name, taken }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [paymentStep, setPaymentStep] = useState(false);
 
   async function call(fn) {
     setBusy(true);
@@ -30,6 +31,19 @@ function OrderRow({ order, name, taken }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function startDeliver() {
+    setPaymentStep(true);
+  }
+
+  function cancelDeliver() {
+    setPaymentStep(false);
+  }
+
+  function deliver(paymentKind) {
+    setPaymentStep(false);
+    call(() => api.deliverOrder(order.id, name || "—", paymentKind));
   }
 
   const webLink = route2gisWeb(order);
@@ -60,6 +74,34 @@ function OrderRow({ order, name, taken }) {
         >
           Взять
         </button>
+      ) : paymentStep ? (
+        <div className="courier-card__payment">
+          <div className="courier-card__payment-label">Способ оплаты:</div>
+          <div className="courier-card__payment-btns">
+            <button
+              className="btn btn--big btn--payment-cash"
+              onClick={() => deliver("Cash")}
+              disabled={busy}
+            >
+              Наличные
+            </button>
+            <button
+              className="btn btn--big btn--payment-card"
+              onClick={() => deliver("Card")}
+              disabled={busy}
+            >
+              Карта
+            </button>
+          </div>
+          <button
+            className="btn btn--ghost"
+            style={{ marginTop: 8, width: "100%" }}
+            onClick={cancelDeliver}
+            disabled={busy}
+          >
+            Отмена
+          </button>
+        </div>
       ) : (
         <div className="courier-card__actions">
           {webLink && (
@@ -80,7 +122,7 @@ function OrderRow({ order, name, taken }) {
           )}
           <button
             className="btn btn--big btn--delivered"
-            onClick={() => call(() => api.deliverOrder(order.id, name || "—"))}
+            onClick={startDeliver}
             disabled={busy}
           >
             Доставлено

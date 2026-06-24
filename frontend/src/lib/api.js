@@ -74,7 +74,8 @@ export const api = {
   revertItem: (itemId, by) => post(`/items/${itemId}/revert`, { by }),
   assembleOrder: (orderId, by) => post(`/orders/${orderId}/assemble`, { by }),
   takeOrder: (orderId, by) => post(`/orders/${orderId}/take`, { by }),
-  deliverOrder: (orderId, by) => post(`/orders/${orderId}/delivered`, { by }),
+  deliverOrder: (orderId, by, payment_kind) =>
+    post(`/orders/${orderId}/delivered`, payment_kind ? { by, payment_kind } : { by }),
 
   // Assembler assigns a courier (also marks the order assembled).
   branchCouriers: (branchCode) =>

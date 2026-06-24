@@ -178,6 +178,15 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
         </div>
       </div>
 
+      {order.iiko_sync_error && (
+        <div
+          className="iiko-sync-err"
+          title={order.iiko_sync_error}
+        >
+          ⚠ не ушло в iiko
+        </div>
+      )}
+
       {order.comment && <div className="order-note">📝 {order.comment}</div>}
 
       {!order.assembled && timerText && (

@@ -950,6 +950,46 @@ button {
   font-size: 15px;
 }
 
+/* Payment kind selection (courier screen) */
+.courier-card__payment {
+  margin-top: 10px;
+}
+.courier-card__payment-label {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+.courier-card__payment-btns {
+  display: flex;
+  gap: 10px;
+}
+.courier-card__payment-btns .btn {
+  flex: 1;
+}
+.btn--payment-cash {
+  background: #16a34a;
+}
+.btn--payment-card {
+  background: #1d4ed8;
+}
+
+/* iiko sync error badge (assembler / admin) */
+.iiko-sync-err {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  color: #92400e;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 6px;
+  cursor: help;
+}
+
 /* ---------- States ---------- */
 .muted {
   color: var(--muted);
