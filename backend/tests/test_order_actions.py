@@ -164,3 +164,55 @@ async def test_assign_courier_unmatched_sets_sync_error(client):
     async with maker() as s:
         o = (await s.execute(select(Order).where(Order.id == oid))).scalar_one()
         assert o.assigned_courier_name == "Нет В Cloud"
+
+
+@respx.mock
+async def test_delivered_with_payment_closes_in_iiko(client):
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    respx.post(f"{_IIKO}/api/1/payment_types").mock(
+        return_value=httpx.Response(200, json={"paymentTypes": [
+            {"id": "pt-cash", "name": "Наличные", "paymentTypeKind": "Cash"}]}))
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    close = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_kind": "Cash"})
+    assert r.status_code == 200
+    assert r.json()["delivered"] is True
+    assert pay.called and close.called
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_unknown_payment_sets_sync_error(client):
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    respx.post(f"{_IIKO}/api/1/payment_types").mock(
+        return_value=httpx.Response(200, json={"paymentTypes": []}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_kind": "Cash"})
+    assert r.status_code == 200
+    assert r.json()["delivered"] is True
+    assert r.json()["iiko_sync_error"] == "payment_type_not_found"
+
+
+@respx.mock
+async def test_delivered_without_payment_kind_unchanged(client):
+    c, maker = client
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+    r = await c.post(f"/orders/{oid}/delivered", json={"by": "Курьер"})
+    assert r.status_code == 200
+    assert r.json()["delivered"] is True  # без iiko-вызовов
