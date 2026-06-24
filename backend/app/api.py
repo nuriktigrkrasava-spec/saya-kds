@@ -809,6 +809,7 @@ async def admin_journal(org_id: str, from_: str | None = Query(None, alias="from
             have_events.add(e.order_id)
             rows.append({
                 "at": e.at,
+                "order_id": e.order_id,
                 "order_number": by_id[e.order_id].number,
                 "type": e.type,
                 "actor_name": e.actor_name or "",
@@ -823,6 +824,7 @@ async def admin_journal(org_id: str, from_: str | None = Query(None, alias="from
         for se in _stages.synth_events(o):
             rows.append({
                 "at": se["at"],
+                "order_id": o.id,
                 "order_number": o.number,
                 "type": se["type"],
                 "actor_name": se["actor_name"],

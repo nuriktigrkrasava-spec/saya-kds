@@ -79,6 +79,8 @@ async def test_journal_returns_synth_rows(client):
     assert body["total"] >= 1
     types = {row["type"] for row in body["rows"]}
     assert "item_ready" in types or "delivered" in types
+    # Каждая строка должна содержать order_id для drill-down
+    assert all("order_id" in row for row in body["rows"])
 
 
 @respx.mock

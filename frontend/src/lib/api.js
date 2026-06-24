@@ -94,6 +94,8 @@ export const api = {
   },
   orderTimeline: (orgId, orderId) =>
     get(`/admin/orders/${orderId}/timeline?org_id=${orgId}`),
+  anomalies: (orgId) =>
+    get(`/admin/anomalies?org_id=${orgId}`),
 
   // Telegram mini-app courier helpers (same-origin in Telegram).
   tgAuth: (initData) => tgPost("/tg/auth", { initData }),
