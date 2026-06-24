@@ -9,7 +9,7 @@ from app.db import get_session
 from datetime import datetime as _dt
 from sqlalchemy import delete as _sl_delete
 from app import iiko_cloud, ingest, realtime
-from app.models import Order
+from app.models import Order, OrderEvent as _OrderEvent
 from app.models import StopListItem as _StopList
 
 
@@ -402,7 +402,6 @@ async def order_delivered(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
-from app.models import OrderEvent as _OrderEvent
 from app.models import ProductStationMap as _PSM
 from app.schemas import NormalizedOrder as _NormalizedOrder, WebhookItem as _WebhookItem
 
