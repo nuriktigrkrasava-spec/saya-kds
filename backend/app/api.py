@@ -10,6 +10,7 @@ from datetime import datetime as _dt
 from sqlalchemy import delete as _sl_delete
 from app import iiko_cloud, ingest, realtime
 from app import iiko_cloud_write as _iiko_write
+from app import analytics_stages as _stages
 from app.models import Order, OrderEvent as _OrderEvent
 from app.models import StopListItem as _StopList
 
@@ -276,7 +277,7 @@ async def login(body: LoginIn):
     return {"token": token, **emp}
 
 
-from datetime import datetime as _dt
+from datetime import datetime as _dt, timedelta as _td
 from sqlalchemy import select as _select
 from app.models import Order as _Order, OrderItem as _OrderItem
 
@@ -517,6 +518,48 @@ def _prep_seconds(item) -> float | None:
 
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
+
+
+def _parse_period(from_: str | None, to_: str | None):
+    """ISO YYYY-MM-DD -> (dt_from, dt_to_inclusive). Дефолт: последние 7 дней."""
+    today = _dt.utcnow().date()
+    d_to = _dt.fromisoformat(to_).date() if to_ else today
+    d_from = _dt.fromisoformat(from_).date() if from_ else (d_to - _td(days=6))
+    dt_from = _dt(d_from.year, d_from.month, d_from.day)
+    dt_to = _dt(d_to.year, d_to.month, d_to.day) + _td(days=1)  # эксклюзивная верхняя
+    return dt_from, dt_to
+
+
+async def _orders_in_period(session, org_id: str, dt_from, dt_to):
+    rows = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id,
+                              _Order.created_at >= dt_from,
+                              _Order.created_at < dt_to))).scalars().all()
+    return rows
+
+
+@app.get("/admin/stage-stats")
+async def admin_stage_stats(org_id: str, from_: str | None = Query(None, alias="from"),
+                            to: str | None = None, sla_minutes: int = 45,
+                            session: AsyncSession = Depends(get_session)):
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    agg = _stages.stage_aggregates(orders)
+    return {
+        "stage_aggregates": {"stages": agg["stages"]},
+        "bottleneck_distribution": agg["bottleneck_distribution"],
+        "sla": _stages.sla_breaches(orders, sla_minutes * 60),
+        "pickup_lag": _stages.pickup_lag(orders),
+    }
+
+
+@app.get("/admin/kitchen-zones")
+async def admin_kitchen_zones(org_id: str, from_: str | None = Query(None, alias="from"),
+                              to: str | None = None,
+                              session: AsyncSession = Depends(get_session)):
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    return _stages.kitchen_zones(orders)
 
 
 @app.get("/admin/analytics")
