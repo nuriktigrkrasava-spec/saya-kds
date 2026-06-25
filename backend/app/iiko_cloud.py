@@ -144,6 +144,8 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
             comment=(it.get("comment") or "").strip(),
         ))
+    pays = o.get("payments") or []
+    pt = (pays[0].get("paymentType") or {}) if pays else {}
     return NormalizedOrder(
         iiko_order_id=str(wrapper.get("id", "")),
         org_id=organization_id,
@@ -157,6 +159,9 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         total=o.get("sum"),
         service_type=(o.get("orderType") or {}).get("orderServiceType"),
         comment=(o.get("comment") or "").strip(),
+        payment_type_id=(str(pt["id"]) if pt.get("id") else None),
+        payment_type_kind=pt.get("kind"),
+        payment_type_name=(pt.get("name") or None),
         items=items,
     )
 
@@ -208,6 +213,8 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
     customer = (o.get("customer") or {}).get("name", "") or ""
     service_type = (o.get("orderType") or {}).get("orderServiceType") or "DineIn"
 
+    pays = o.get("payments") or []
+    pt = (pays[0].get("paymentType") or {}) if pays else {}
     return NormalizedOrder(
         iiko_order_id=str(iiko_order_id),
         org_id=organization_id,
@@ -221,6 +228,9 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
         total=o.get("sum"),
         service_type=service_type,
         comment=(o.get("comment") or "").strip(),
+        payment_type_id=(str(pt["id"]) if pt.get("id") else None),
+        payment_type_kind=pt.get("kind"),
+        payment_type_name=(pt.get("name") or None),
         items=items,
     )
 

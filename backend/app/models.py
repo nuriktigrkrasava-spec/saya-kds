@@ -46,6 +46,9 @@ class Order(Base):
     assigned_courier_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     assigned_courier_name: Mapped[str | None] = mapped_column(String, nullable=True)
     iiko_sync_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    payment_type_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    payment_type_kind: Mapped[str | None] = mapped_column(String, nullable=True)
+    payment_type_name: Mapped[str | None] = mapped_column(String, nullable=True)
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin")
 

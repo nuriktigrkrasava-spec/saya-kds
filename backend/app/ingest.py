@@ -54,6 +54,9 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     order.total = data.total
     order.service_type = data.service_type
     order.comment = data.comment
+    order.payment_type_id = data.payment_type_id
+    order.payment_type_kind = data.payment_type_kind
+    order.payment_type_name = data.payment_type_name
 
     await session.flush()  # гарантирует order.id
 

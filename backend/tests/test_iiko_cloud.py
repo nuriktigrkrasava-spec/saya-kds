@@ -103,3 +103,20 @@ def test_normalize_full_order_builds_full_address():
     }
     n = c.normalize_full_order(wrapper, "org-1")
     assert n.address == "Кабанбай батыра, 1, кв. 42, подъезд 3, этаж 5 (код 1234)"
+
+
+def test_normalize_extracts_payment_type():
+    wrapper = {"id": "o1", "order": {"number": "5", "sum": 6990, "payments": [
+        {"paymentType": {"id": "pt-1", "name": "Терминал Kaspi", "kind": "Card"}, "sum": 6990}]}}
+    n = c.normalize_full_order(wrapper, "org-1")
+    assert n.payment_type_name == "Терминал Kaspi"
+    assert n.payment_type_id == "pt-1" and n.payment_type_kind == "Card"
+
+
+def test_normalize_payment_type_missing():
+    """Если payments нет или пустой — поля None, не падает."""
+    wrapper = {"id": "o2", "order": {"number": "6", "sum": 1000}}
+    n = c.normalize_full_order(wrapper, "org-1")
+    assert n.payment_type_id is None
+    assert n.payment_type_kind is None
+    assert n.payment_type_name is None

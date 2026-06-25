@@ -26,6 +26,9 @@ _ADDED_COLUMNS = [
     ("order_events", "actor_code", "VARCHAR"),
     ("order_events", "actor_name", "VARCHAR"),
     ("order_events", "item_id", "INTEGER"),
+    ("orders", "payment_type_id", "VARCHAR"),
+    ("orders", "payment_type_kind", "VARCHAR"),
+    ("orders", "payment_type_name", "VARCHAR"),
 ]
 
 

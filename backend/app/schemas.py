@@ -25,4 +25,7 @@ class NormalizedOrder(BaseModel):
     total: float | None = None
     service_type: str | None = None
     comment: str = ""  # комментарий клиента к заказу («без помидор»)
+    payment_type_id: str | None = None
+    payment_type_kind: str | None = None
+    payment_type_name: str | None = None
     items: list[WebhookItem] = Field(default_factory=list)
