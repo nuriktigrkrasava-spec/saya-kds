@@ -172,10 +172,9 @@ async def test_delivered_with_payment_closes_in_iiko(client):
     iiko_cloud_write.reset_caches()
     c, maker = client
     _token()
-    respx.post(f"{_IIKO}/api/1/payment_types").mock(
-        return_value=httpx.Response(200, json={"paymentTypes": [
-            {"id": "pt-cash", "name": "Наличные", "paymentTypeKind": "Cash"}]}))
     pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
         return_value=httpx.Response(200, json={}))
     close = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
         return_value=httpx.Response(200, json={"correlationId": "c1"}))
@@ -183,10 +182,10 @@ async def test_delivered_with_payment_closes_in_iiko(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/delivered",
-                     json={"by": "Курьер", "payment_kind": "Cash"})
+                     json={"by": "Курьер", "payment_type_id": "pt-cash", "payment_kind": "Cash"})
     assert r.status_code == 200
     assert r.json()["delivered"] is True
-    assert pay.called and close.called
+    assert pay.called and st.called and close.called
     assert r.json()["iiko_sync_error"] is None
 
 
@@ -196,16 +195,16 @@ async def test_delivered_unknown_payment_sets_sync_error(client):
     iiko_cloud_write.reset_caches()
     c, maker = client
     _token()
-    respx.post(f"{_IIKO}/api/1/payment_types").mock(
-        return_value=httpx.Response(200, json={"paymentTypes": []}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(500, json={"error": "payment_failed"}))
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/delivered",
-                     json={"by": "Курьер", "payment_kind": "Cash"})
+                     json={"by": "Курьер", "payment_type_id": "pt-cash", "payment_kind": "Cash"})
     assert r.status_code == 200
     assert r.json()["delivered"] is True
-    assert r.json()["iiko_sync_error"] == "payment_type_not_found"
+    assert r.json()["iiko_sync_error"] is not None
 
 
 @respx.mock
@@ -215,7 +214,7 @@ async def test_delivered_without_payment_kind_unchanged(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
     r = await c.post(f"/orders/{oid}/delivered", json={"by": "Курьер"})
     assert r.status_code == 200
-    assert r.json()["delivered"] is True  # без iiko-вызовов
+    assert r.json()["delivered"] is True  # без iiko-вызовов (нет payment_type_id)
 
 
 @respx.mock
@@ -230,8 +229,41 @@ async def test_delivered_iiko_down_still_200(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/delivered",
-                     json={"by": "Курьер", "payment_kind": "Cash"})
+                     json={"by": "Курьер", "payment_type_id": "pt-cash", "payment_kind": "Cash"})
     assert r.status_code == 200
     body = r.json()
     assert body["delivered"] is True
     assert body["iiko_sync_error"] is not None and isinstance(body["iiko_sync_error"], str)
+
+
+@respx.mock
+async def test_delivered_full_close_flow(client):
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(return_value=httpx.Response(200, json={}))
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_type_id": "pt-1", "payment_kind": "Card"})
+    assert r.status_code == 200 and r.json()["delivered"] is True
+    assert pay.called and st.called and cl.called
+    body = st.calls.last.request.read()
+    assert b'"Delivered"' in body
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_status_fail_sets_error_no_close(client):
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(return_value=httpx.Response(500, json={"error":"BOOM"}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+    r = await c.post(f"/orders/{oid}/delivered", json={"by":"Курьер","payment_type_id":"pt-1","payment_kind":"Card"})
+    assert r.status_code == 200 and r.json()["delivered"] is True
+    assert not cl.called  # close не зовём, если Delivered не проставился
+    assert r.json()["iiko_sync_error"]

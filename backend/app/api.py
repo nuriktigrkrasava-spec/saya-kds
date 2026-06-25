@@ -284,7 +284,8 @@ from app.models import Order as _Order, OrderItem as _OrderItem
 
 class ActionIn(BaseModel):
     by: str = ""
-    payment_kind: str | None = None  # "Cash"|"Card" — закрытие заказа в iiko (курьер)
+    payment_type_id: str | None = None  # UUID типа оплаты из iiko — закрытие доставки
+    payment_kind: str | None = None    # "Cash"|"Card" — для тела платежа
 
 
 async def _load_order(session: AsyncSession, order_id: int) -> _Order:
@@ -422,23 +423,21 @@ async def order_take(order_id: int, body: ActionIn,
 @app.post("/orders/{order_id}/delivered")
 async def order_delivered(order_id: int, body: ActionIn,
                           session: AsyncSession = Depends(get_session)):
-    """Курьер доставил заказ."""
+    """Курьер доставил заказ. Поток iiko: set_payments → set_delivery_status(Delivered) → close."""
     order = await _load_order(session, order_id)
     order.delivered_at = _dt.utcnow()
     await _log_action(session, order, "delivered", actor_name=body.by)
-    if body.payment_kind and order.org_id:
-        item = await _iiko_write.payment_item(order.org_id, body.payment_kind, order.total)
-        if item:
-            ok, detail = await _iiko_write.set_payments(
-                order.org_id, order.iiko_order_id, [item])
-            if ok:
-                ok, detail = await _iiko_write.close_order(
-                    order.org_id, order.iiko_order_id)
-        else:
-            ok, detail = False, {"error": "payment_type_not_found"}
-        order.iiko_sync_error = None if ok else (
-            "payment_type_not_found" if detail.get("error") == "payment_type_not_found"
-            else str(detail)[:500])
+    pt_id = body.payment_type_id or order.payment_type_id
+    if pt_id and order.org_id:
+        kind = body.payment_kind or order.payment_type_kind
+        item = _iiko_write.payment_item_by_id(order.org_id, pt_id, kind, order.total)
+        ok, detail = await _iiko_write.set_payments(order.org_id, order.iiko_order_id, [item])
+        if ok:
+            ok, detail = await _iiko_write.set_delivery_status(
+                order.org_id, order.iiko_order_id, "Delivered")
+        if ok:
+            ok, detail = await _iiko_write.close_order(order.org_id, order.iiko_order_id)
+        order.iiko_sync_error = None if ok else str(detail)[:500]
         await session.commit()
         await _log_iiko_event(session, order, "close", ok, detail)
     return await _order_action_and_broadcast(session, order_id)
