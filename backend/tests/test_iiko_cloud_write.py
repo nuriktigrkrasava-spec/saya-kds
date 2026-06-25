@@ -80,21 +80,6 @@ def _paytypes_route():
             {"id": "pt-card", "name": "Карта", "paymentTypeKind": "Card"}]}))
 
 
-@respx.mock
-async def test_payment_item_builds_cash_item():
-    w.reset_caches()
-    _token_route(); _paytypes_route()
-    item = await w.payment_item("org-p", "Cash", 8500)
-    assert item == {"paymentTypeKind": "Cash", "sum": 8500,
-                    "paymentTypeId": "pt-cash", "isProcessedExternally": True}
-
-
-@respx.mock
-async def test_payment_item_none_for_unknown_kind():
-    w.reset_caches()
-    _token_route(); _paytypes_route()
-    assert await w.payment_item("org-p2", "Bonus", 100) is None
-
 
 @respx.mock
 async def test_post_returns_false_when_token_fails():

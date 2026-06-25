@@ -114,35 +114,3 @@ async def cloud_courier_id(org_id: str, courier_name: str) -> str | None:
 
 
 _PAY_TTL = 1800.0  # сек
-
-
-async def _payment_types(org_id: str) -> dict[str, dict]:
-    now = time.monotonic()
-    cached = _PAY_CACHE.get(org_id)
-    if cached and (now - cached[0]) < _PAY_TTL:
-        return cached[1]
-    try:
-        token = await get_token()
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.post(f"{BASE}/api/1/payment_types",
-                             headers={"Authorization": f"Bearer {token}"},
-                             json={"organizationIds": [org_id]})
-        out: dict[str, dict] = {}
-        if r.is_success:
-            for pt in (r.json().get("paymentTypes") or []):
-                kind = pt.get("paymentTypeKind")
-                if kind and kind not in out:
-                    out[kind] = {"id": pt.get("id"), "name": pt.get("name")}
-        if out:  # кэшируем только непустой результат — провал не замораживает TTL
-            _PAY_CACHE[org_id] = (now, out)
-        return out
-    except Exception:  # noqa: BLE001 — сеть / токен
-        return {}
-
-
-async def payment_item(org_id: str, kind: str, total: float | None) -> dict | None:
-    pt = (await _payment_types(org_id)).get(kind)
-    if not pt:
-        return None
-    return {"paymentTypeKind": kind, "sum": total or 0,
-            "paymentTypeId": pt["id"], "isProcessedExternally": True}
