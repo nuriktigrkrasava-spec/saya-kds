@@ -188,6 +188,9 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
       )}
 
       {order.comment && <div className="order-note">📝 {order.comment}</div>}
+      {order.payment_type_name && (
+        <div className="order-pay-badge">💳 Оплата: {order.payment_type_name}</div>
+      )}
 
       {!order.assembled && timerText && (
         <div

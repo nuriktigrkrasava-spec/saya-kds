@@ -494,6 +494,39 @@
   filter: brightness(0.92);
 }
 
+/* Real payment type buttons (dynamic list) */
+.tg-payment-sheet__btns--wrap {
+  flex-wrap: wrap;
+}
+
+.tg-btn--pay-type {
+  background: #1e40af;
+  color: #fff;
+  flex: 1 1 calc(50% - 5px);
+  min-width: 120px;
+}
+
+.tg-btn--pay-type--default {
+  background: #15803d;
+  outline: 3px solid #bbf7d0;
+}
+
+.tg-btn--pay-type:active {
+  filter: brightness(0.92);
+}
+
+/* Payment type badge on courier order card */
+.tg-card__pay-badge {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 4px 10px;
+  width: fit-content;
+}
+
 /* ---- reduced motion ----------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .tg *,

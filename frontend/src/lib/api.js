@@ -74,8 +74,13 @@ export const api = {
   revertItem: (itemId, by) => post(`/items/${itemId}/revert`, { by }),
   assembleOrder: (orderId, by) => post(`/orders/${orderId}/assemble`, { by }),
   takeOrder: (orderId, by) => post(`/orders/${orderId}/take`, { by }),
-  deliverOrder: (orderId, by, payment_kind) =>
-    post(`/orders/${orderId}/delivered`, payment_kind ? { by, payment_kind } : { by }),
+  deliverOrder: (orderId, by, payment_kind, payment_type_id) => {
+    const body = { by };
+    if (payment_type_id != null) body.payment_type_id = payment_type_id;
+    if (payment_kind != null) body.payment_kind = payment_kind;
+    return post(`/orders/${orderId}/delivered`, body);
+  },
+  paymentTypes: (orgId) => get(`/payment-types?org_id=${encodeURIComponent(orgId)}`),
 
   // Assembler assigns a courier (also marks the order assembled).
   branchCouriers: (branchCode) =>

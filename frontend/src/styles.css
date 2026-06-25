@@ -950,6 +950,21 @@ button {
   font-size: 15px;
 }
 
+/* payment type badge on assembler/board order cards */
+.order-pay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
 /* iiko sync error badge (assembler / admin) */
 .iiko-sync-err {
   display: inline-flex;
