@@ -126,3 +126,20 @@ async def test_cloud_courier_id_none_when_token_fails():
                 {"id": "emp-99", "displayName": "Адильхан Курьер"}]}]}))
     result2 = await w.cloud_courier_id("org-fail-unique", "Адильхан Курьер")
     assert result2 == "emp-99"
+
+
+@respx.mock
+async def test_set_delivery_status_ok():
+    _token_route()
+    route = respx.post(f"{BASE}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    ok, _ = await w.set_delivery_status("org-1", "ord-1", "Delivered")
+    assert ok is True
+    body = route.calls.last.request.read()
+    assert b'"deliveryStatus"' in body and b'"Delivered"' in body
+
+
+def test_payment_item_by_id_externally_false():
+    item = w.payment_item_by_id("org-x", "pt-1", "Card", 6990)
+    assert item == {"paymentTypeId": "pt-1", "paymentTypeKind": "Card",
+                    "sum": 6990, "isProcessedExternally": False}

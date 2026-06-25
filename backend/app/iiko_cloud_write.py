@@ -39,6 +39,33 @@ async def close_order(org_id: str, order_id: str) -> tuple[bool, dict]:
                        {"organizationId": org_id, "orderId": order_id})
 
 
+async def set_delivery_status(org_id: str, order_id: str, status: str) -> tuple[bool, dict]:
+    return await _post("deliveries/update_order_delivery_status",
+                       {"organizationId": org_id, "orderId": order_id,
+                        "deliveryStatus": status})
+
+
+async def list_payment_types(org_id: str) -> list[dict]:
+    try:
+        token = await get_token()
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{BASE}/api/1/payment_types",
+                             headers={"Authorization": f"Bearer {token}"},
+                             json={"organizationIds": [org_id]})
+        if not r.is_success:
+            return []
+        return [{"id": p.get("id"), "name": p.get("name"), "kind": p.get("paymentTypeKind")}
+                for p in (r.json().get("paymentTypes") or []) if not p.get("isDeleted")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def payment_item_by_id(org_id: str, payment_type_id: str, kind: str | None,
+                       total: float | None) -> dict:
+    return {"paymentTypeId": payment_type_id, "paymentTypeKind": kind or "Card",
+            "sum": total or 0, "isProcessedExternally": False}
+
+
 _COURIER_TTL = 300.0  # сек
 
 _COURIER_CACHE: dict = {}
