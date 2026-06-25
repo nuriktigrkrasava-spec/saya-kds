@@ -259,6 +259,20 @@ async def test_delivered_full_close_flow(client):
 
 
 @respx.mock
+async def test_payment_types_endpoint(client):
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, _ = client; _token()
+    respx.post(f"{_IIKO}/api/1/payment_types").mock(return_value=httpx.Response(200, json={"paymentTypes":[
+        {"id":"pt-1","name":"Наличные","paymentTypeKind":"Cash","isDeleted":False},
+        {"id":"pt-2","name":"Glovo","paymentTypeKind":"Card","isDeleted":True}]}))
+    r = await c.get("/payment-types?org_id=org-1")
+    assert r.status_code == 200
+    rows = r.json()
+    assert {"id":"pt-1","name":"Наличные","kind":"Cash"} in rows
+    assert all(x["id"] != "pt-2" for x in rows)  # удалённые отфильтрованы
+
+
+@respx.mock
 async def test_delivered_status_fail_sets_error_no_close(client):
     from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
     c, maker = client; _token()

@@ -845,6 +845,11 @@ async def admin_journal(org_id: str, from_: str | None = Query(None, alias="from
     return {"total": total, "rows": [{**r, "at": _iso(r["at"])} for r in page]}
 
 
+@app.get("/payment-types")
+async def payment_types(org_id: str):
+    return await _iiko_write.list_payment_types(org_id)
+
+
 @app.get("/rms/branches")
 async def rms_branches():
     """Филиалы и сотрудники из RMS (живой вызов: логин/логаут на стороне rms)."""
