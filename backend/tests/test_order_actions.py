@@ -197,14 +197,18 @@ async def test_delivered_unknown_payment_sets_sync_error(client):
     _token()
     respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
         return_value=httpx.Response(500, json={"error": "payment_failed"}))
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/delivered",
                      json={"by": "Курьер", "payment_type_id": "pt-cash", "payment_kind": "Cash"})
-    assert r.status_code == 200
-    assert r.json()["delivered"] is True
-    assert r.json()["iiko_sync_error"] is not None
+    assert r.status_code == 200 and r.json()["delivered"] is True
+    assert r.json()["iiko_sync_error"]            # error recorded
+    assert not st.called and not cl.called        # payment failed -> no Delivered, no close
 
 
 @respx.mock
