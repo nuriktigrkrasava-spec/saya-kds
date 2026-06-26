@@ -29,6 +29,8 @@ _ADDED_COLUMNS = [
     ("orders", "payment_type_id", "VARCHAR"),
     ("orders", "payment_type_kind", "VARCHAR"),
     ("orders", "payment_type_name", "VARCHAR"),
+    ("orders", "complete_before", "TIMESTAMP"),
+    ("orders", "preorder_held", "BOOLEAN DEFAULT FALSE"),
 ]
 
 

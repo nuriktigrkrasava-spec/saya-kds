@@ -1,5 +1,6 @@
 from __future__ import annotations
 import httpx
+from datetime import datetime, timedelta
 from app.config import settings
 from app.schemas import NormalizedOrder, WebhookItem
 
@@ -68,6 +69,18 @@ async def fetch_nomenclature(organization_id: str) -> dict:
                               json={"organizationId": organization_id})
         r.raise_for_status()
         return r.json()
+
+
+def _parse_iiko_local_to_utc(s, offset_hours: int) -> datetime | None:
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(str(s).strip(), fmt) - timedelta(hours=offset_hours)
+        except ValueError:
+            continue
+    return None
 
 
 def _format_address(dp: dict) -> str:
@@ -146,6 +159,8 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         ))
     pays = o.get("payments") or []
     pt = (pays[0].get("paymentType") or {}) if pays else {}
+    complete_before = _parse_iiko_local_to_utc(
+        o.get("completeBefore"), settings.iiko_tz_offset_hours)
     return NormalizedOrder(
         iiko_order_id=str(wrapper.get("id", "")),
         org_id=organization_id,
@@ -162,6 +177,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         payment_type_id=(str(pt["id"]) if pt.get("id") else None),
         payment_type_kind=pt.get("kind"),
         payment_type_name=(pt.get("name") or None),
+        complete_before=complete_before,
         items=items,
     )
 
@@ -215,6 +231,8 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
 
     pays = o.get("payments") or []
     pt = (pays[0].get("paymentType") or {}) if pays else {}
+    complete_before = _parse_iiko_local_to_utc(
+        o.get("completeBefore"), settings.iiko_tz_offset_hours)
     return NormalizedOrder(
         iiko_order_id=str(iiko_order_id),
         org_id=organization_id,
@@ -231,6 +249,7 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
         payment_type_id=(str(pt["id"]) if pt.get("id") else None),
         payment_type_kind=pt.get("kind"),
         payment_type_name=(pt.get("name") or None),
+        complete_before=complete_before,
         items=items,
     )
 

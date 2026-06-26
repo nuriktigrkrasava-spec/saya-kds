@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -28,4 +29,5 @@ class NormalizedOrder(BaseModel):
     payment_type_id: str | None = None
     payment_type_kind: str | None = None
     payment_type_name: str | None = None
+    complete_before: datetime | None = None
     items: list[WebhookItem] = Field(default_factory=list)

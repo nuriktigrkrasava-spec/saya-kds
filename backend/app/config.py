@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-change-me"
     database_url: str = "sqlite+aiosqlite:///./kitchen.db"
     telegram_bot_token: str = ""
+    iiko_tz_offset_hours: int = 5
+    preorder_lead_minutes: int = 60
+    preorder_check_seconds: int = 60
 
 
 settings = Settings()

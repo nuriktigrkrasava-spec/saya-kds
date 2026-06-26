@@ -120,3 +120,22 @@ def test_normalize_payment_type_missing():
     assert n.payment_type_id is None
     assert n.payment_type_kind is None
     assert n.payment_type_name is None
+
+
+from datetime import datetime
+
+
+def test_parse_iiko_local_to_utc():
+    from app.iiko_cloud import _parse_iiko_local_to_utc
+    assert _parse_iiko_local_to_utc("2026-06-25 18:01:04.638", 5) == datetime(2026, 6, 25, 13, 1, 4, 638000)
+    assert _parse_iiko_local_to_utc("2026-06-25 18:01:04", 5) == datetime(2026, 6, 25, 13, 1, 4)
+    assert _parse_iiko_local_to_utc("", 5) is None
+    assert _parse_iiko_local_to_utc("garbage", 5) is None
+
+
+def test_normalize_extracts_complete_before_as_utc():
+    from app.iiko_cloud import normalize_full_order
+    wrapper = {"id": "o1", "order": {"number": "5", "sum": 100,
+               "completeBefore": "2026-06-25 18:00:00"}}
+    n = normalize_full_order(wrapper, "org-1")
+    assert n.complete_before == datetime(2026, 6, 25, 13, 0, 0)  # -5h

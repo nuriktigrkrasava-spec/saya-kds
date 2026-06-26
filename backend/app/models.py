@@ -49,6 +49,8 @@ class Order(Base):
     payment_type_id: Mapped[str | None] = mapped_column(String, nullable=True)
     payment_type_kind: Mapped[str | None] = mapped_column(String, nullable=True)
     payment_type_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    complete_before: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    preorder_held: Mapped[bool] = mapped_column(Boolean, default=False)
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin")
 
