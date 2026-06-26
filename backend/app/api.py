@@ -77,7 +77,8 @@ async def list_orders(org_id: str, session: AsyncSession = Depends(get_session))
     rows = (await session.execute(
         select(Order).where(
             Order.org_id == org_id,
-            Order.status.notin_(["Closed", "Deleted", "Cancelled"]))
+            Order.status.notin_(["Closed", "Deleted", "Cancelled"]),
+            Order.preorder_held == False)  # noqa: E712
         .order_by(Order.created_at))).scalars().all()
     return [realtime.order_payload(o) for o in rows]
 
@@ -134,7 +135,8 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
                 _wlog.warning("table order SKIPPED (no items) number=%s", normalized.number)
                 continue
             order = await ingest.ingest_order(session, normalized)
-            await realtime.broadcast_order(order)
+            if not order.preorder_held:
+                await realtime.broadcast_order(order)
             handled += 1
             continue
         if event.get("eventType") != "DeliveryOrderUpdate":
@@ -148,7 +150,8 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
             continue
         normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
         order = await ingest.ingest_order(session, normalized)
-        await realtime.broadcast_order(order)
+        if not order.preorder_held:
+            await realtime.broadcast_order(order)
         handled += 1
     return {"ok": True, "handled": handled}
 

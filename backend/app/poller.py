@@ -40,7 +40,8 @@ async def poll_once(org_id: str) -> None:
             normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
             async with SessionLocal() as session:
                 order = await ingest.ingest_order(session, normalized)
-                await realtime.broadcast_order(order)
+                if not order.preorder_held:
+                    await realtime.broadcast_order(order)
         max_rev = data.get("maxRevision")
         if isinstance(max_rev, int):
             _revisions[org_id] = max(max_rev, current)
