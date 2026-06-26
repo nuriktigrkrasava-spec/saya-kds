@@ -550,7 +550,7 @@ async def admin_stage_stats(org_id: str, from_: str | None = Query(None, alias="
     return {
         "stage_aggregates": {"stages": agg["stages"]},
         "bottleneck_distribution": agg["bottleneck_distribution"],
-        "sla": _stages.sla_breaches(orders, sla_minutes * 60),
+        "sla": _stages.sla_breaches(orders, sla_minutes * 60, tz_offset_hours=settings.iiko_tz_offset_hours),
         "pickup_lag": _stages.pickup_lag(orders),
     }
 
@@ -1566,7 +1566,7 @@ async def admin_forecast(org_id: str, session: AsyncSession = Depends(get_sessio
     counts = [0] * 24
     for o in orders:
         if o.created_at is not None:
-            counts[o.created_at.hour] += 1
+            counts[(o.created_at + _td(hours=settings.iiko_tz_offset_hours)).hour] += 1
     return [{"hour": h, "count": counts[h]} for h in range(24)]
 
 

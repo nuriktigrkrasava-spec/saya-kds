@@ -1,6 +1,6 @@
 from __future__ import annotations
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta
 
 STAGES = [
     ("queue", "Очередь на кухню"),
@@ -63,7 +63,7 @@ def pctl(values: list[float], p: float) -> float | None:
     return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
 
 
-def sla_breaches(orders, threshold_sec: float) -> dict:
+def sla_breaches(orders, threshold_sec: float, tz_offset_hours: int = 0) -> dict:
     total = breached = 0
     by_day: dict[str, dict] = {}
     by_hour: dict[int, dict] = {}
@@ -73,8 +73,9 @@ def sla_breaches(orders, threshold_sec: float) -> dict:
             continue
         total += 1
         is_breach = full > threshold_sec
-        day = o.created_at.strftime("%Y-%m-%d")
-        hour = o.created_at.hour
+        local = o.created_at + timedelta(hours=tz_offset_hours)
+        day = local.strftime("%Y-%m-%d")
+        hour = local.hour
         d = by_day.setdefault(day, {"date": day, "total": 0, "breached": 0})
         h = by_hour.setdefault(hour, {"hour": hour, "total": 0, "breached": 0})
         d["total"] += 1; h["total"] += 1

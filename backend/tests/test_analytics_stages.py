@@ -93,6 +93,21 @@ def test_kitchen_zones():
     assert z["rolls"]["employees"][0]["name"] == "Коля"
 
 
+def test_sla_breaches_local_hour_offset():
+    from datetime import datetime
+    from app import analytics_stages as A
+    from app.models import Order
+    o = Order(iiko_order_id="1", org_id="org-1", number="1")
+    o.created_at = datetime(2026, 6, 26, 6, 0)   # 06:00 UTC == 11:00 local (+5)
+    o.delivered_at = datetime(2026, 6, 26, 7, 0)  # 60м -> breach при пороге 45м
+    o.items = []
+    r = A.sla_breaches([o], threshold_sec=45 * 60, tz_offset_hours=5)
+    hours = {h["hour"]: h for h in r["by_hour"]}
+    assert 11 in hours and 6 not in hours          # локальный час 11, не UTC 6
+    days = {d["date"]: d for d in r["by_day"]}
+    assert "2026-06-26" in days
+
+
 def test_anomalies_fast_and_reverts():
     from datetime import datetime
     o = Order(iiko_order_id="1", org_id="org-1", number="7")
