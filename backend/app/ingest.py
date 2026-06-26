@@ -1,9 +1,15 @@
 from __future__ import annotations
+from datetime import datetime, timedelta
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Order, OrderItem
 from app.schemas import NormalizedOrder
 from app.stations import build_resolver
+from app.config import settings
+
+
+def is_held(complete_before, now: datetime, lead_minutes: int) -> bool:
+    return complete_before is not None and complete_before > now + timedelta(minutes=lead_minutes)
 
 
 def _item_key(product_id: str | None, combo_id: str | None,
@@ -57,6 +63,9 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     order.payment_type_id = data.payment_type_id
     order.payment_type_kind = data.payment_type_kind
     order.payment_type_name = data.payment_type_name
+    order.complete_before = data.complete_before
+    order.preorder_held = is_held(data.complete_before, datetime.utcnow(),
+                                  settings.preorder_lead_minutes)
 
     await session.flush()  # гарантирует order.id
 
