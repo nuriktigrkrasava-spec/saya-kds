@@ -68,3 +68,19 @@ async def test_auto_grid_replaces_only_auto_zones(client, session):
         names = [z["name"] for z in r.json()]
         assert "Ручная" in names
         assert names.count("A1") == 1  # авто-зоны заменились, не задвоились
+
+
+@pytest.mark.asyncio
+async def test_seed_populates_analytics_and_zones(client):
+    async with client as c:
+        await c.post("/debug/seed?org_id=demo")
+        # этапы аналитики больше не нули: доставка и готовка посчитаны
+        r = await c.get("/admin/stage-stats?org_id=demo")
+        stages = {s["key"]: s for s in r.json()["stage_aggregates"]["stages"]}
+        assert stages["delivery"]["count"] > 0   # «0 доставок» закрыт
+        assert stages["cooking"]["count"] > 0
+        assert r.json()["sla"]["total"] > 0
+        # зоны спроса наполнены заказами
+        await c.post("/admin/zones/auto-grid?org_id=demo&n=6")
+        zr = await c.get("/admin/demand-zones?org_id=demo")
+        assert sum(z["count"] for z in zr.json()) >= 6

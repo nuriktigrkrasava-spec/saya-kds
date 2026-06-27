@@ -492,10 +492,68 @@ _SEED_ORDERS = [
 ]
 
 
+# Завершённые «исторические» заказы — отдельно от 3 активных, чтобы аналитика
+# (этапы Очередь→Доставка, SLA, доставка, сотрудники, зоны спроса) сразу была не
+# по нулям. Координаты разнесены по Астане, время — за последние ~2 дня.
+# Поля смещений — минуты от создания заказа. d/h/m складываются в created_ago.
+_SEED_DONE = [
+    {"id": "done-1", "num": "9001", "lat": 51.10, "lon": 71.30,
+     "cook": "Ермек", "courier": "Бауыржан", "ago_min": 90,
+     "accept": 2, "ready": 12, "assembled": 15, "on_way": 19, "delivered": 35,
+     "items": [("Филадельфия", "cat-rolls", 2), ("Том Ям", "cat-hot", 1)]},
+    {"id": "done-2", "num": "9002", "lat": 51.27, "lon": 71.62,
+     "cook": "Сауле", "courier": "Нурлан", "ago_min": 210,
+     "accept": 1, "ready": 19, "assembled": 23, "on_way": 26, "delivered": 52,
+     "items": [("Пепперони", "cat-pizza", 1), ("Калифорния", "cat-rolls", 1)]},
+    {"id": "done-3", "num": "9003", "lat": 51.18, "lon": 71.55,
+     "cook": "Дамир", "courier": "Аскар", "ago_min": 350,
+     "accept": 3, "ready": 10, "assembled": 13, "on_way": 15, "delivered": 28,
+     "items": [("Маргарита", "cat-pizza", 1), ("Дракон ролл", "cat-rolls", 2)]},
+    {"id": "done-4", "num": "9004", "lat": 51.06, "lon": 71.60,
+     "cook": "Ермек", "courier": "Нурлан", "ago_min": 1500,
+     "accept": 2, "ready": 14, "assembled": 17, "on_way": 28, "delivered": 60,
+     "items": [("Том Ям", "cat-hot", 2)]},
+    {"id": "done-5", "num": "9005", "lat": 51.24, "lon": 71.28,
+     "cook": "Сауле", "courier": "Бауыржан", "ago_min": 1650,
+     "accept": 1, "ready": 9, "assembled": 11, "on_way": 13, "delivered": 24,
+     "items": [("Калифорния", "cat-rolls", 3)]},
+    {"id": "done-6", "num": "9006", "lat": 51.15, "lon": 71.40,
+     "cook": "Дамир", "courier": "Аскар", "ago_min": 2880,
+     "accept": 4, "ready": 16, "assembled": 20, "on_way": 22, "delivered": 41,
+     "items": [("Пепперони", "cat-pizza", 1), ("Том Ям", "cat-hot", 1)]},
+]
+
+
+async def _seed_done_order(session, org_id: str, spec: dict, now):
+    """Создаёт один завершённый исторический заказ с полным жизненным циклом."""
+    data = _NormalizedOrder(
+        iiko_order_id=spec["id"], org_id=org_id, number=spec["num"], status="Closed",
+        customer="Демо", address="Астана", lat=spec["lat"], lon=spec["lon"],
+        items=[_WebhookItem(product_id=f'{spec["id"]}-{i}', category_id=cat,
+                            name=name, amount=amt)
+               for i, (name, cat, amt) in enumerate(spec["items"])],
+    )
+    order = await ingest.ingest_order(session, data)
+    base = now - _td(minutes=spec["ago_min"])
+    order.created_at = base
+    for it in order.items:
+        it.station_accepted_at = base + _td(minutes=spec["accept"])
+        it.station_ready_at = base + _td(minutes=spec["ready"])
+        it.checked_by = spec["cook"]
+        it.checked_at = it.station_ready_at
+        it.is_checked = True
+    order.assembled_at = base + _td(minutes=spec["assembled"])
+    order.on_way_at = base + _td(minutes=spec["on_way"])
+    order.delivered_at = base + _td(minutes=spec["delivered"])
+    order.assigned_courier_name = spec["courier"]
+    await session.commit()
+
+
 @app.post("/debug/seed")
 async def debug_seed(org_id: str = "demo",
                      session: AsyncSession = Depends(get_session)):
-    """Локальный просмотр: создаёт демо-маппинг категорий и 3 заказа для org_id."""
+    """Локальный просмотр: демо-маппинг категорий + 3 активных заказа на доске +
+    6 завершённых исторических заказов (наполняют аналитику и карту спроса)."""
     existing = (await session.execute(_select(_PSM))).scalars().all()
     have = {(r.product_id, r.category_id) for r in existing}
     for category_id, station in _SEED_CATEGORIES.items():
@@ -503,12 +561,19 @@ async def debug_seed(org_id: str = "demo",
             session.add(_PSM(product_id=None, category_id=category_id, station=station))
     await session.commit()
 
+    # 3 активных заказа на доске (как раньше) — их и возвращаем.
     payloads = []
     for tmpl in _SEED_ORDERS:
         data = tmpl.model_copy(update={"org_id": org_id})
         order = await ingest.ingest_order(session, data)
         await realtime.broadcast_order(order)
         payloads.append(realtime.order_payload(order))
+
+    # Завершённые исторические — для аналитики/зон (на доску не шлём).
+    now = _dt.utcnow()
+    for spec in _SEED_DONE:
+        await _seed_done_order(session, org_id, spec, now)
+
     return payloads
 
 
@@ -1687,13 +1752,10 @@ from app import geo as _geo
 @app.post("/admin/zones/auto-grid")
 async def auto_grid_zones(org_id: str, n: int = 6,
                           session: AsyncSession = Depends(get_session)):
-    """Авто-делит карту на сетку n×n зон по охвату заказов с координатами.
-    Старые авто-зоны (auto_generated) заменяются; ручные зоны не трогаются."""
-    orders = (await session.execute(
-        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
-    points = [(o.address_lat, o.address_lon) for o in orders
-              if o.address_lat is not None and o.address_lon is not None]
-    bbox = _geo.points_bbox(points)
+    """Авто-делит карту Астаны на сетку n×n зон. Границы — фиксированный bbox
+    города (НЕ по координатам заказов: одна кривая точка растягивала сетку на
+    пол-планеты). Старые авто-зоны заменяются; ручные зоны не трогаются."""
+    bbox = _geo.ASTANA_BBOX
     cells = _geo.build_grid_zones(bbox, n)
 
     # сносим прежнюю авто-сетку этого org, ручные зоны оставляем
