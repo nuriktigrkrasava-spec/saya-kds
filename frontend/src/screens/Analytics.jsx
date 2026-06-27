@@ -294,6 +294,11 @@ export default function Analytics() {
   const applyPreset = (days) => { setPreset(days); setRange(presetRange(days)); };
   const setCustomDate = (field) => (e) => { setPreset(null); setRange((r) => ({ ...r, [field]: e.target.value })); };
 
+  // Тик «Обновить»: меняется по кнопке и входит в зависимости всех загрузчиков,
+  // поэтому повторно перечитывает данные без перезагрузки страницы.
+  const [reloadTick, setReloadTick] = useState(0);
+  const refresh = () => setReloadTick((t) => t + 1);
+
   // сводка за всё время (карточки + сотрудники) — из /admin/analytics
   const [summary, setSummary] = useState(null);
 
@@ -328,7 +333,7 @@ export default function Analytics() {
   useEffect(() => {
     if (!orgId) return;
     api.analytics(orgId).then(setSummary).catch(() => setSummary(null));
-  }, [orgId]);
+  }, [orgId, reloadTick]);
 
   // ── загрузка stageStats ─────────────────────────────────────────────────
   useEffect(() => {
@@ -340,7 +345,7 @@ export default function Analytics() {
       .then(setStats)
       .catch((e) => { setStatsError(e.message || String(e)); setStats(null); })
       .finally(() => setStatsLoading(false));
-  }, [orgId, range.from, range.to]);
+  }, [orgId, range.from, range.to, reloadTick]);
 
   // ── загрузка kitchenZones ───────────────────────────────────────────────
   useEffect(() => {
@@ -351,7 +356,7 @@ export default function Analytics() {
       .then(setZones)
       .catch(() => setZones(null))
       .finally(() => setZonesLoading(false));
-  }, [orgId, range.from, range.to]);
+  }, [orgId, range.from, range.to, reloadTick]);
 
   // ── загрузка anomalies ──────────────────────────────────────────────────
   useEffect(() => {
@@ -362,7 +367,7 @@ export default function Analytics() {
       .then(setAnomalies)
       .catch(() => setAnomalies(null))
       .finally(() => setAnomaliesLoading(false));
-  }, [orgId]);
+  }, [orgId, reloadTick]);
 
   // ── загрузка journal ────────────────────────────────────────────────────
   const loadJournal = useCallback(() => {
@@ -377,7 +382,7 @@ export default function Analytics() {
       .then(setJournal)
       .catch(() => setJournal(null))
       .finally(() => setJournalLoading(false));
-  }, [orgId, range.from, range.to, jType, jActor, jNumber]);
+  }, [orgId, range.from, range.to, jType, jActor, jNumber, reloadTick]);
 
   useEffect(() => { loadJournal(); }, [loadJournal]);
 
@@ -385,7 +390,7 @@ export default function Analytics() {
   useEffect(() => {
     if (!orgId) return;
     api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
-  }, [orgId, range.from, range.to]);
+  }, [orgId, range.from, range.to, reloadTick]);
 
   // ── производные данные ──────────────────────────────────────────────────
   const stageData = useMemo(
@@ -436,7 +441,13 @@ export default function Analytics() {
           ← На главную
         </Link>
 
-        <h1 className="admin__title">Аналитика</h1>
+        <div className="analytics__head">
+          <h1 className="admin__title">Аналитика</h1>
+          <button className="analytics__refresh" onClick={refresh} disabled={statsLoading}>
+            <span className="analytics__refresh-ic">↻</span>
+            {statsLoading ? "Обновляю…" : "Обновить"}
+          </button>
+        </div>
 
         {/* ── Сводные карточки (за всё время) ── */}
         {summary && (
