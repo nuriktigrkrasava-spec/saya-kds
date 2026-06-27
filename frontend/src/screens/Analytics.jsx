@@ -6,7 +6,7 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getOrgId } from "../lib/auth.js";
-import { zoneColor, zoneIcon } from "../lib/zones.js";
+import { zoneColor, zoneIcon, zoneLabel } from "../lib/zones.js";
 import "../admin.css";
 
 function presetRange(days) {
@@ -28,6 +28,16 @@ const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"
 
 // ── Нагрузка по зонам/часам (heatmap) ───────────────────────────────────────
 const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горячее" };
+
+// Этапы «пути заказа» (от кухни до клиента). iiko_close — внутреннее, не показываем.
+const STAGE_META = {
+  queue: { label: "Очередь", color: "#94a3b8" },
+  cooking: { label: "Готовка", color: "#e8552d" },
+  assembly: { label: "Сборка", color: "#0ea5e9" },
+  pickup_wait: { label: "Ожидание", color: "#f59e0b" },
+  delivery: { label: "Доставка", color: "#7c3aed" },
+};
+const JOURNEY_KEYS = ["queue", "cooking", "assembly", "pickup_wait", "delivery"];
 
 function hexToRgb(hex) {
   const h = (hex || "#2563eb").replace("#", "");
@@ -385,16 +395,19 @@ export default function Analytics() {
 
   const pickupLag = stats?.pickup_lag || null;
 
-  const zonesBarData = useMemo(
-    () =>
-      (zones?.zones || []).map((z) => ({
-        zone: z.zone,
-        avg: sec2min(z.avg),
-        median: sec2min(z.median),
-        count: z.count,
-      })),
-    [zones]
-  );
+  // Полоса «путь заказа»: сегменты по среднему времени этапа + узкое место.
+  const journey = useMemo(() => {
+    const byKey = Object.fromEntries(
+      (stats?.stage_aggregates?.stages || []).map((s) => [s.key, s]));
+    const segs = JOURNEY_KEYS
+      .map((k) => ({ key: k, ...STAGE_META[k], avg: byKey[k]?.avg || 0, p95: byKey[k]?.p95 || 0 }))
+      .filter((s) => s.avg > 0);
+    const total = segs.reduce((sum, x) => sum + x.avg, 0);
+    const bd = stats?.bottleneck_distribution || {};
+    let neckKey = null, neckV = 0;
+    for (const k of JOURNEY_KEYS) if ((bd[k] || 0) > neckV) { neckV = bd[k]; neckKey = k; }
+    return { segs, total, neckKey, neckLabel: STAGE_META[neckKey]?.label, neckCount: neckV };
+  }, [stats]);
 
   return (
     <div className="admin">
@@ -439,21 +452,39 @@ export default function Analytics() {
           <Link to="/delivery-zones" className="heatx-link">Настроить зоны города →</Link>
         </div>
 
-        {/* ── Где застревают ── */}
-        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-          <h2 className="admin__section-title">Где застревают (минуты)</h2>
-          {stageData.length === 0 && !statsLoading ? (
+        {/* ── Путь заказа (полоса этапов) ── */}
+        <section className="admin__table-wrap journey-card">
+          <h2 className="admin__section-title">Путь заказа · в среднем</h2>
+          {journey.segs.length === 0 && !statsLoading ? (
             <p className="admin__state">Нет данных за период</p>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={stageData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                <XAxis dataKey="label" tick={{ fontSize: 13 }} />
-                <YAxis unit=" мин" tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v, name) => [`${v} мин`, name]} />
-                <Bar dataKey="avg" name="среднее" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="p95" name="p95" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <>
+              <div className="journey__bar">
+                {journey.segs.map((s) => (
+                  <div key={s.key} className="journey__seg"
+                       style={{ flexGrow: s.avg, background: s.color }}
+                       title={`${s.label}: ${sec2min(s.avg)} мин (p95 ${sec2min(s.p95)})`} />
+                ))}
+                <div className="journey__total">
+                  <span className="journey__total-n">{sec2min(journey.total)}</span>
+                  <span className="journey__total-u">мин до клиента</span>
+                </div>
+              </div>
+              <div className="journey__legend">
+                {journey.segs.map((s) => (
+                  <span key={s.key}
+                        className={"journey__leg" + (s.key === journey.neckKey ? " journey__leg--neck" : "")}>
+                    <span className="journey__dot" style={{ background: s.color }} />
+                    {s.label}<b>{sec2min(s.avg)}м</b>
+                  </span>
+                ))}
+              </div>
+              {journey.neckLabel && (
+                <p className="journey__neck">
+                  Чаще всего тормозит: <b>{journey.neckLabel}</b> · {journey.neckCount} зак.
+                </p>
+              )}
+            </>
           )}
         </section>
 
@@ -486,127 +517,45 @@ export default function Analytics() {
           )}
         </section>
 
-        {/* ── Лаг готов→выехал ── */}
-        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-          <h2 className="admin__section-title">Лаг готов → выехал</h2>
-          {pickupLag ? (
-            <>
-              <div className="admin__cards" style={{ marginBottom: 16 }}>
-                {[
-                  { label: "Среднее", value: `${sec2min(pickupLag.avg)} мин` },
-                  { label: "Медиана", value: `${sec2min(pickupLag.median)} мин` },
-                  { label: "p95", value: `${sec2min(pickupLag.p95)} мин` },
-                ].map((c) => (
-                  <div key={c.label} className="stat-card">
-                    <div className="stat-card__label">{c.label}</div>
-                    <div className="stat-card__value" style={{ fontSize: 26 }}>{c.value}</div>
-                  </div>
-                ))}
-              </div>
-              {pickupLag.worst && pickupLag.worst.length > 0 && (
-                <>
-                  <p style={{ fontWeight: 600, color: "#374151", marginBottom: 6 }}>Антирекорды</p>
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Заказ</th>
-                        <th className="num">Лаг (мин)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pickupLag.worst.map((w, i) => (
-                        <tr key={i}>
-                          <td>#{w.number}</td>
-                          <td className="num">{sec2min(w.seconds)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </>
-              )}
-            </>
-          ) : (
-            !statsLoading && <p className="admin__state">Нет данных за период</p>
-          )}
-        </section>
-
-        {/* ── Бутылочные горла (Pie) ── */}
-        {bottleneckData.length > 0 && (
-          <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-            <h2 className="admin__section-title">Распределение бутылочных горл</h2>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={bottleneckData} dataKey="value" nameKey="name" outerRadius={90} label>
-                  {bottleneckData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </section>
-        )}
-
         {/* ── Кухня по зонам ── */}
-        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-          <h2 className="admin__section-title">Кухня по зонам</h2>
+        <section className="admin__table-wrap zbars-card">
+          <h2 className="admin__section-title">Кухня по зонам · среднее время готовки</h2>
           {zonesLoading && <p className="admin__state">Загрузка…</p>}
-          {!zonesLoading && zonesBarData.length === 0 && (
+          {!zonesLoading && (zones?.zones || []).length === 0 && (
             <p className="admin__state">Нет данных за период</p>
           )}
-          {zonesBarData.length > 0 && (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={zonesBarData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                  <XAxis dataKey="zone" tick={{ fontSize: 13 }} />
-                  <YAxis unit=" мин" tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(v, name) => [`${v} мин`, name]} />
-                  <Bar dataKey="avg" name="среднее" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="median" name="медиана" fill="#16a34a" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-
-              <table className="admin-table" style={{ marginTop: 16 }}>
-                <thead>
-                  <tr>
-                    <th>Зона</th>
-                    <th className="num">Позиций</th>
-                    <th className="num">Среднее (мин)</th>
-                    <th className="num">Медиана (мин)</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(zones?.zones || []).map((z) => (
-                    <React.Fragment key={z.zone}>
-                      <tr
-                        style={{ cursor: z.employees?.length ? "pointer" : "default" }}
-                        onClick={() => setExpandedZone(expandedZone === z.zone ? null : z.zone)}
-                      >
-                        <td style={{ fontWeight: 600 }}>{z.zone}</td>
-                        <td className="num">{z.count}</td>
-                        <td className="num">{sec2min(z.avg)}</td>
-                        <td className="num">{sec2min(z.median)}</td>
-                        <td style={{ color: "#2563eb", fontSize: 13 }}>
-                          {z.employees?.length > 0 ? (expandedZone === z.zone ? "▲" : "▼") : ""}
-                        </td>
-                      </tr>
-                      {expandedZone === z.zone && z.employees && z.employees.map((emp) => (
-                        <tr key={emp.name} style={{ background: "#f9fafb" }}>
-                          <td style={{ paddingLeft: 32, color: "#6b7280" }}>{emp.name}</td>
-                          <td className="num" style={{ color: "#6b7280" }}>{emp.count}</td>
-                          <td className="num" style={{ color: "#6b7280" }}>{sec2min(emp.avg)}</td>
-                          <td className="num"></td>
-                          <td></td>
-                        </tr>
-                      ))}
-                    </React.Fragment>
+          {(() => {
+            const zs = zones?.zones || [];
+            const maxAvg = Math.max(1, ...zs.map((z) => z.avg || 0));
+            return zs.map((z) => {
+              const open = expandedZone === z.zone;
+              const col = zoneColor(z.zone);
+              const hasEmp = z.employees?.length > 0;
+              return (
+                <div key={z.zone} className="zbar">
+                  <button type="button" className="zbar__row"
+                          onClick={() => hasEmp && setExpandedZone(open ? null : z.zone)}>
+                    <span className="zbar__name">
+                      <span className="zbar__ic">{zoneIcon(z.zone)}</span>
+                      {KZONE_LABEL[z.zone] || zoneLabel(z.zone)}
+                    </span>
+                    <span className="zbar__track">
+                      <span className="zbar__fill" style={{ width: `${(z.avg / maxAvg) * 100}%`, background: col }} />
+                    </span>
+                    <span className="zbar__val">{sec2min(z.avg)}<small>мин</small></span>
+                    <span className="zbar__cnt">{z.count} поз.</span>
+                    <span className="zbar__chev">{hasEmp ? (open ? "▲" : "▼") : ""}</span>
+                  </button>
+                  {open && z.employees?.map((emp) => (
+                    <div key={emp.name} className="zbar__emp">
+                      <span>{emp.name}</span>
+                      <span>{sec2min(emp.avg)} мин · {emp.count} поз.</span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </>
-          )}
+                </div>
+              );
+            });
+          })()}
         </section>
 
         {/* ── Аномалии ── */}
@@ -614,63 +563,44 @@ export default function Analytics() {
           <h2 className="admin__section-title">Аномалии (сегодня)</h2>
           {anomaliesLoading && <p className="admin__state">Загрузка…</p>}
           {anomalies && (
-            <>
-              <p style={{ fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-                Слишком быстро (&lt;1 мин)
-              </p>
-              {anomalies.fast?.length === 0 ? (
-                <p style={{ color: "#9ca3af", marginBottom: 16 }}>Нет</p>
-              ) : (
-                <table className="admin-table" style={{ marginBottom: 20 }}>
-                  <thead>
-                    <tr>
-                      <th>Заказ</th>
-                      <th>Сотрудник</th>
-                      <th>Позиция</th>
-                      <th className="num">Сек</th>
-                      <th>Принял</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {anomalies.fast?.map((a, i) => (
-                      <tr key={i} style={{ background: "#fef2f2" }}>
-                        <td>#{a.order_number}</td>
-                        <td>{a.name}</td>
-                        <td>{a.item_name}</td>
-                        <td className="num" style={{ color: "#dc2626", fontWeight: 700 }}>{a.prep_seconds}</td>
-                        <td style={{ fontSize: 12, color: "#9ca3af" }}>
-                          {a.accepted_at ? new Date(a.accepted_at).toLocaleTimeString("ru-RU") : ""}
-                        </td>
-                      </tr>
+            <div className="anom-grid">
+              <div className={"anom" + (anomalies.fast?.length ? " anom--bad" : " anom--ok")}>
+                <div className="anom__head">
+                  <span className="anom__title">Слишком быстро <small>&lt; 1 мин</small></span>
+                  <span className="anom__badge">{anomalies.fast?.length || 0}</span>
+                </div>
+                {anomalies.fast?.length === 0 ? (
+                  <p className="anom__ok">Всё чисто</p>
+                ) : (
+                  <ul className="anom__list">
+                    {anomalies.fast.map((a, i) => (
+                      <li key={i}>
+                        <span>#{a.order_number} · {a.item_name}</span>
+                        <span className="anom__num">{a.prep_seconds}с · {a.name}</span>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              )}
-
-              <p style={{ fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-                Частые возвраты (≥2)
-              </p>
-              {anomalies.reverts?.length === 0 ? (
-                <p style={{ color: "#9ca3af" }}>Нет</p>
-              ) : (
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Заказ</th>
-                      <th className="num">Возвратов</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {anomalies.reverts?.map((r, i) => (
-                      <tr key={i}>
-                        <td>#{r.order_number}</td>
-                        <td className="num" style={{ color: "#f59e0b", fontWeight: 700 }}>{r.count}</td>
-                      </tr>
+                  </ul>
+                )}
+              </div>
+              <div className={"anom" + (anomalies.reverts?.length ? " anom--bad" : " anom--ok")}>
+                <div className="anom__head">
+                  <span className="anom__title">Частые возвраты <small>≥ 2</small></span>
+                  <span className="anom__badge">{anomalies.reverts?.length || 0}</span>
+                </div>
+                {anomalies.reverts?.length === 0 ? (
+                  <p className="anom__ok">Всё чисто</p>
+                ) : (
+                  <ul className="anom__list">
+                    {anomalies.reverts.map((r, i) => (
+                      <li key={i}>
+                        <span>#{r.order_number}</span>
+                        <span className="anom__num">{r.count} возвр.</span>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </>
+                  </ul>
+                )}
+              </div>
+            </div>
           )}
         </section>
 
