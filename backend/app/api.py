@@ -574,6 +574,20 @@ async def admin_zone_load(org_id: str, from_: str | None = Query(None, alias="fr
     return _stages.zone_load(orders, tz_offset_hours=settings.iiko_tz_offset_hours)
 
 
+@app.get("/admin/courier-zone-load")
+async def admin_courier_zone_load(org_id: str, from_: str | None = Query(None, alias="from"),
+                                  to: str | None = None,
+                                  session: AsyncSession = Depends(get_session)):
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    zrows = (await session.execute(
+        _select(_DeliveryZone).where(_DeliveryZone.org_id == org_id))).scalars().all()
+    zones = [{"id": z.id, "name": z.name, "color": z.color, "polygon": z.polygon or []}
+             for z in zrows]
+    return _stages.courier_zone_load(orders, zones,
+                                     tz_offset_hours=settings.iiko_tz_offset_hours)
+
+
 def _close_at(events) -> "datetime | None":
     for e in events:
         if e.type == "iiko_write" and (e.payload or {}).get("method") == "close" \

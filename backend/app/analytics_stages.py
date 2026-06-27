@@ -2,6 +2,8 @@ from __future__ import annotations
 import statistics
 from datetime import datetime, timedelta
 
+from app.geo import assign_zone
+
 STAGES = [
     ("queue", "Очередь на кухню"),
     ("cooking", "Готовка"),
@@ -224,4 +226,42 @@ def zone_load(orders, tz_offset_hours: int = 0,
         "hours": list(range(24)),
         "cells": {z: {h: _fin(c) for h, c in hrs.items()} for z, hrs in cells.items()},
         "totals_by_zone": {z: _fin(t) for z, t in totals.items()},
+    }
+
+
+def courier_zone_load(orders, zones: list[dict], tz_offset_hours: int = 0) -> dict:
+    """Нагрузка курьеров по районам города и часам. Заказ привязывается к зоне по
+    координатам доставки (address_lat/lon). Час — по on_way_at (момент выезда) в
+    локальном времени. avg_sec — среднее время доставки (on_way_at -> delivered_at).
+    Заказы без on_way_at пропускаем. Без координат/совпадения — псевдо-зона «Без зоны».
+    """
+    keys = [str(z["id"]) for z in zones] + ["none"]
+    cells: dict[str, dict[int, dict]] = {k: {} for k in keys}
+    totals: dict[str, dict] = {k: {"count": 0, "sum": 0.0, "timed": 0} for k in keys}
+    for o in orders:
+        if o.on_way_at is None:
+            continue
+        zid = assign_zone(o.address_lat, o.address_lon, zones)
+        key = str(zid) if zid is not None else "none"
+        hour = (o.on_way_at + timedelta(hours=tz_offset_hours)).hour
+        dur = _dur(o.on_way_at, o.delivered_at)
+        cell = cells[key].setdefault(hour, {"count": 0, "sum": 0.0, "timed": 0})
+        cell["count"] += 1
+        totals[key]["count"] += 1
+        if dur is not None:
+            cell["sum"] += dur; cell["timed"] += 1
+            totals[key]["sum"] += dur; totals[key]["timed"] += 1
+
+    def _fin(d: dict) -> dict:
+        return {"count": d["count"],
+                "avg_sec": (d["sum"] / d["timed"]) if d["timed"] else None}
+
+    zones_out = [{"id": z["id"], "name": z["name"], "color": z.get("color", "#2563eb")}
+                 for z in zones]
+    zones_out.append({"id": None, "name": "Без зоны", "color": "#94a3b8"})
+    return {
+        "zones": zones_out,
+        "hours": list(range(24)),
+        "cells": {k: {h: _fin(c) for h, c in hrs.items()} for k, hrs in cells.items()},
+        "totals_by_zone": {k: _fin(t) for k, t in totals.items()},
     }
