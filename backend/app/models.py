@@ -138,5 +138,7 @@ class DeliveryZone(Base):
     name: Mapped[str] = mapped_column(String, default="")
     polygon: Mapped[list] = mapped_column(JSON, default=list)  # [[lat, lon], ...]
     color: Mapped[str] = mapped_column(String, default="#2563eb")
+    # Сгенерирована авто-сеткой (можно пересоздать), либо нарисована вручную.
+    auto_generated: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

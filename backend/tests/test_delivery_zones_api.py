@@ -33,3 +33,38 @@ async def test_delivery_zone_crud(client):
         assert r.json() == {"ok": True}
         r = await c.get("/admin/delivery-zones?org_id=demo")
         assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_auto_grid_creates_zones_and_demand_counts(client, session):
+    from app.models import Order
+    # два заказа с координатами в разных углах
+    session.add(Order(iiko_order_id="g1", org_id="demo", number="1",
+                      address_lat=51.05, address_lon=71.25))
+    session.add(Order(iiko_order_id="g2", org_id="demo", number="2",
+                      address_lat=51.28, address_lon=71.65))
+    await session.commit()
+    async with client as c:
+        r = await c.post("/admin/zones/auto-grid?org_id=demo&n=4")
+        assert r.status_code == 200
+        assert r.json()["zones"] == 16
+
+        # demand-zones возвращает зоны со счётчиком; сумма count == 2 заказа
+        r = await c.get("/admin/demand-zones?org_id=demo")
+        zones = r.json()
+        assert len(zones) == 16
+        assert sum(z["count"] for z in zones) == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_grid_replaces_only_auto_zones(client, session):
+    async with client as c:
+        # ручная зона остаётся
+        await c.post("/admin/delivery-zones",
+                     json={"org_id": "demo", "name": "Ручная", "polygon": [[51.1, 71.4]]})
+        await c.post("/admin/zones/auto-grid?org_id=demo&n=2")
+        await c.post("/admin/zones/auto-grid?org_id=demo&n=2")  # повтор не плодит
+        r = await c.get("/admin/delivery-zones?org_id=demo")
+        names = [z["name"] for z in r.json()]
+        assert "Ручная" in names
+        assert names.count("A1") == 1  # авто-зоны заменились, не задвоились

@@ -321,9 +321,8 @@ export default function Analytics() {
   // drill-down timeline
   const [timelineOrderId, setTimelineOrderId] = useState(null);
 
-  // zonal load heatmaps
+  // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
-  const [courierLoadData, setCourierLoadData] = useState(null);
 
   // ── загрузка сводки (всё время) ─────────────────────────────────────────
   useEffect(() => {
@@ -386,7 +385,6 @@ export default function Analytics() {
   useEffect(() => {
     if (!orgId) return;
     api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
-    api.courierZoneLoad(orgId, range.from, range.to).then(setCourierLoadData).catch(() => setCourierLoadData(null));
   }, [orgId, range.from, range.to]);
 
   // ── производные данные ──────────────────────────────────────────────────
@@ -487,14 +485,8 @@ export default function Analytics() {
           rowLabel={(z) => KZONE_LABEL[z] || z}
           rowColor={(z) => zoneColor(z)}
           rowIcon={(z) => zoneIcon(z)} />
-        <HoursHeatTable
-          title="Курьер · нагрузка по районам"
-          data={courierLoadData}
-          rowLabel={(z) => z.name}
-          rowColor={(z) => z.color || "#2563eb"}
-          rowIcon={() => "📍"} />
         <div className="heatx-actions">
-          <Link to="/delivery-zones" className="heatx-link">Настроить зоны города →</Link>
+          <Link to="/demand" className="heatx-link">Спрос по зонам · карта →</Link>
         </div>
 
         {/* ── Путь заказа (полоса этапов) ── */}

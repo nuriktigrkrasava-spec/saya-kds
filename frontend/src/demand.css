@@ -31,6 +31,18 @@
   border-radius: 999px;
   padding: 2px 12px;
 }
+.demand__regrid {
+  margin-left: auto;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.demand__regrid:hover { background: #1d4ed8; }
+.demand__regrid:disabled { opacity: .6; cursor: default; }
 .demand__muted {
   color: #64748b;
   padding: 8px 20px;

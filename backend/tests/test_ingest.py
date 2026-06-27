@@ -57,3 +57,36 @@ async def test_ingest_is_idempotent_on_same_iiko_id(session):
     got = (await session.execute(select(Order))).scalar_one()
     assert got.number == "999"   # обновился
     assert items == 2            # позиции пересозданы, а не удвоены
+
+
+# ── Наполнение тайм-штампов из iiko (этапы аналитики) ───────────────────────
+async def test_ingest_fills_lifecycle_timestamps_from_iiko(session):
+    """on_way_at/delivered_at/assembled_at заполняются из iiko, если пусты."""
+    data = _order(number="201")
+    data.when_cooking_completed = datetime(2026, 6, 27, 10, 0, 0)
+    data.when_sended = datetime(2026, 6, 27, 10, 5, 0)
+    data.when_delivered = datetime(2026, 6, 27, 10, 30, 0)
+    order = await ingest.ingest_order(session, data)
+    assert order.assembled_at == datetime(2026, 6, 27, 10, 0, 0)
+    assert order.on_way_at == datetime(2026, 6, 27, 10, 5, 0)
+    assert order.delivered_at == datetime(2026, 6, 27, 10, 30, 0)
+
+
+async def test_ingest_does_not_overwrite_existing_taps(session):
+    """Ручной прогресс в KDS приоритетен: iiko не перетирает уже проставленное."""
+    tap = datetime(2026, 6, 27, 9, 0, 0)
+    order = await ingest.ingest_order(session, _order(number="202"))
+    order.delivered_at = tap
+    await session.commit()
+    # повторный ingest того же заказа с другим временем из iiko
+    data = _order(number="202")
+    data.when_delivered = datetime(2026, 6, 27, 12, 0, 0)
+    order = await ingest.ingest_order(session, data)
+    assert order.delivered_at == tap  # не перезаписано
+
+
+async def test_ingest_uses_when_created_on_insert(session):
+    data = _order(number="203")
+    data.when_created = datetime(2026, 6, 27, 8, 0, 0)
+    order = await ingest.ingest_order(session, data)
+    assert order.created_at == datetime(2026, 6, 27, 8, 0, 0)

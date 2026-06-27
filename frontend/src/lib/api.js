@@ -125,6 +125,10 @@ export const api = {
     get(`/admin/courier-zone-load?org_id=${orgId}&from=${from}&to=${to}`),
   deliveryZones: (orgId) =>
     get(`/admin/delivery-zones?org_id=${encodeURIComponent(orgId)}`),
+  demandZones: (orgId) =>
+    get(`/admin/demand-zones?org_id=${encodeURIComponent(orgId)}`),
+  autoGridZones: (orgId, n = 6) =>
+    post(`/admin/zones/auto-grid?org_id=${encodeURIComponent(orgId)}&n=${n}`),
   createDeliveryZone: (body) => post(`/admin/delivery-zones`, body),
   updateDeliveryZone: (id, body) => put(`/admin/delivery-zones/${id}`, body),
   deleteDeliveryZone: (id) => del(`/admin/delivery-zones/${id}`),

@@ -1679,3 +1679,47 @@ async def delete_delivery_zone(zone_id: int, session: AsyncSession = Depends(get
     await session.execute(_sl_delete(_DeliveryZone).where(_DeliveryZone.id == zone_id))
     await session.commit()
     return {"ok": True}
+
+
+from app import geo as _geo
+
+
+@app.post("/admin/zones/auto-grid")
+async def auto_grid_zones(org_id: str, n: int = 6,
+                          session: AsyncSession = Depends(get_session)):
+    """Авто-делит карту на сетку n×n зон по охвату заказов с координатами.
+    Старые авто-зоны (auto_generated) заменяются; ручные зоны не трогаются."""
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+    points = [(o.address_lat, o.address_lon) for o in orders
+              if o.address_lat is not None and o.address_lon is not None]
+    bbox = _geo.points_bbox(points)
+    cells = _geo.build_grid_zones(bbox, n)
+
+    # сносим прежнюю авто-сетку этого org, ручные зоны оставляем
+    await session.execute(_sl_delete(_DeliveryZone).where(
+        _DeliveryZone.org_id == org_id, _DeliveryZone.auto_generated == True))  # noqa: E712
+    for c in cells:
+        session.add(_DeliveryZone(org_id=org_id, name=c["name"],
+                                  polygon=c["polygon"], color="#94a3b8",
+                                  auto_generated=True))
+    await session.commit()
+    return {"ok": True, "n": n, "zones": len(cells), "bbox": list(bbox)}
+
+
+@app.get("/admin/demand-zones")
+async def demand_zones(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Зоны + плотность заказов (count) для «Карты спроса». Цвет считает фронт."""
+    zrows = (await session.execute(
+        _select(_DeliveryZone).where(_DeliveryZone.org_id == org_id)
+        .order_by(_DeliveryZone.id))).scalars().all()
+    zones = [{"id": z.id, "name": z.name, "polygon": z.polygon or []} for z in zrows]
+
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+    counts: dict[int, int] = {z["id"]: 0 for z in zones}
+    for o in orders:
+        zid = _geo.assign_zone(o.address_lat, o.address_lon, zones)
+        if zid is not None:
+            counts[zid] = counts.get(zid, 0) + 1
+    return [{**z, "count": counts.get(z["id"], 0)} for z in zones]

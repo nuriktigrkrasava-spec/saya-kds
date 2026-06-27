@@ -67,6 +67,18 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     order.preorder_held = is_held(data.complete_before, datetime.utcnow(),
                                   settings.preorder_lead_minutes)
 
+    # Тайм-штампы жизненного цикла из iiko. Заполняем ТОЛЬКО пустые поля, чтобы
+    # ручной прогресс в KDS (нажатия «Забрал»/«Доставлен») имел приоритет, а iiko
+    # лишь добивал то, что курьер не отметил — иначе этапы аналитики были бы по нулям.
+    if existing is None and data.when_created is not None:
+        order.created_at = data.when_created
+    if order.assembled_at is None and data.when_cooking_completed is not None:
+        order.assembled_at = data.when_cooking_completed
+    if order.on_way_at is None and data.when_sended is not None:
+        order.on_way_at = data.when_sended
+    if order.delivered_at is None and data.when_delivered is not None:
+        order.delivered_at = data.when_delivered
+
     await session.flush()  # гарантирует order.id
 
     for it in data.items:

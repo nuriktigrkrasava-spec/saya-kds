@@ -30,4 +30,11 @@ class NormalizedOrder(BaseModel):
     payment_type_kind: str | None = None
     payment_type_name: str | None = None
     complete_before: datetime | None = None
+    # Тайм-штампы жизненного цикла из iiko (UTC). Нужны, чтобы этапы аналитики
+    # (Очередь/Сборка/Ожидание/Доставка) заполнялись, даже если курьер не тапает
+    # кнопки в KDS. Заполняются в ingest по правилу «только если поле пусто».
+    when_created: datetime | None = None        # -> created_at (только при вставке)
+    when_cooking_completed: datetime | None = None  # -> assembled_at (fallback)
+    when_sended: datetime | None = None         # -> on_way_at (fallback)
+    when_delivered: datetime | None = None      # -> delivered_at (fallback)
     items: list[WebhookItem] = Field(default_factory=list)

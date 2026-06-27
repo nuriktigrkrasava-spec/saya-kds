@@ -139,3 +139,27 @@ def test_normalize_extracts_complete_before_as_utc():
                "completeBefore": "2026-06-25 18:00:00"}}
     n = normalize_full_order(wrapper, "org-1")
     assert n.complete_before == datetime(2026, 6, 25, 13, 0, 0)  # -5h
+
+
+def test_normalize_reads_lifecycle_timestamps():
+    """whenSended/whenDelivered/whenCooking из iiko парсятся (iiko-local -> UTC)."""
+    wrapper = {
+        "id": "o9",
+        "order": {
+            "number": "909", "status": "Delivered",
+            "whenCreated": "2026-06-27 08:00:00.000",
+            "whenCookingCompleted": "2026-06-27 08:20:00.000",
+            "whenSended": "2026-06-27 08:25:00.000",
+            "whenDelivered": "2026-06-27 08:50:00.000",
+            "deliveryPoint": {"coordinates": {"latitude": 51.1, "longitude": 71.4}},
+            "items": [{"type": "Product", "amount": 1,
+                       "product": {"id": "p1", "name": "X", "category": {"id": "c1"}}}],
+        },
+    }
+    n = c.normalize_full_order(wrapper, "org-1")
+    # поля непустые и упорядочены по времени (created < cooking < sended < delivered)
+    assert n.when_created is not None
+    assert n.when_cooking_completed is not None
+    assert n.when_sended is not None
+    assert n.when_delivered is not None
+    assert n.when_created < n.when_cooking_completed < n.when_sended < n.when_delivered

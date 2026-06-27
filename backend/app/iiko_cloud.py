@@ -83,6 +83,18 @@ def _parse_iiko_local_to_utc(s, offset_hours: int) -> datetime | None:
     return None
 
 
+def _lifecycle_ts(o: dict, *keys: str) -> datetime | None:
+    """Первый непустой тайм-штамп из набора кандидатов-ключей, iiko-local -> UTC.
+
+    Имена полей жизненного цикла различаются между версиями Transport API, поэтому
+    перебираем кандидаты и берём первый, который распарсился."""
+    for k in keys:
+        ts = _parse_iiko_local_to_utc(o.get(k), settings.iiko_tz_offset_hours)
+        if ts is not None:
+            return ts
+    return None
+
+
 def _format_address(dp: dict) -> str:
     """Собирает читаемый адрес доставки из deliveryPoint.
 
@@ -161,6 +173,19 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
     pt = (pays[0].get("paymentType") or {}) if pays else {}
     complete_before = _parse_iiko_local_to_utc(
         o.get("completeBefore"), settings.iiko_tz_offset_hours)
+    # Тайм-штампы жизненного цикла. Имена полей зависят от версии Transport API,
+    # поэтому читаем защитно (несколько кандидатов) и логируем сырые значения,
+    # чтобы свериться на реальном заказе.
+    when_created = _lifecycle_ts(o, "whenCreated", "createdAt")
+    when_cooking = _lifecycle_ts(o, "whenCookingCompleted", "cookingCompleteTime")
+    when_sended = _lifecycle_ts(o, "whenSended", "whenSent", "whenSendCompleted")
+    when_delivered = _lifecycle_ts(o, "whenDelivered", "actualDeliveryTime",
+                                   "whenReceivedByClient")
+    logging.getLogger("saya.ingest").info(
+        "delivery lifecycle: number=%s status=%s whenCreated=%r whenCookingCompleted=%r "
+        "whenSended=%r whenDelivered=%r",
+        o.get("number"), o.get("status"), o.get("whenCreated"),
+        o.get("whenCookingCompleted"), o.get("whenSended"), o.get("whenDelivered"))
     return NormalizedOrder(
         iiko_order_id=str(wrapper.get("id", "")),
         org_id=organization_id,
@@ -178,6 +203,10 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         payment_type_kind=pt.get("kind"),
         payment_type_name=(pt.get("name") or None),
         complete_before=complete_before,
+        when_created=when_created,
+        when_cooking_completed=when_cooking,
+        when_sended=when_sended,
+        when_delivered=when_delivered,
         items=items,
     )
 
