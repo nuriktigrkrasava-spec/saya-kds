@@ -14,6 +14,7 @@ import Track from "./screens/Track.jsx";
 import EmployeeHistory from "./screens/EmployeeHistory.jsx";
 import Dashboard from "./screens/Dashboard.jsx";
 import Analytics from "./screens/Analytics.jsx";
+import DeliveryZones from "./screens/DeliveryZones.jsx";
 import { isAuthed, isManager } from "./lib/auth.js";
 
 function RequireAuth({ children }) {
@@ -40,6 +41,7 @@ export default function App() {
       <Route path="/assembler" element={<RequireAuth><Assembler /></RequireAuth>} />
       <Route path="/dashboard" element={<RequireManager><Dashboard /></RequireManager>} />
       <Route path="/analytics" element={<RequireManager><Analytics /></RequireManager>} />
+      <Route path="/delivery-zones" element={<RequireManager><DeliveryZones /></RequireManager>} />
       <Route path="/admin" element={<RequireManager><Admin /></RequireManager>} />
       <Route path="/branches" element={<RequireManager><Branches /></RequireManager>} />
       <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
