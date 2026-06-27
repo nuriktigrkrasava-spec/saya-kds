@@ -39,13 +39,12 @@ const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горя
 
 // Этапы «пути заказа» (от кухни до клиента). iiko_close — внутреннее, не показываем.
 const STAGE_META = {
-  queue: { label: "Очередь", color: "#94a3b8" },
   cooking: { label: "Готовка", color: "#e8552d" },
   assembly: { label: "Сборка", color: "#0ea5e9" },
   pickup_wait: { label: "Ожидание", color: "#f59e0b" },
   delivery: { label: "Доставка", color: "#7c3aed" },
 };
-const JOURNEY_KEYS = ["queue", "cooking", "assembly", "pickup_wait", "delivery"];
+const JOURNEY_KEYS = ["cooking", "assembly", "pickup_wait", "delivery"];
 
 function hexToRgb(hex) {
   const h = (hex || "#2563eb").replace("#", "");
