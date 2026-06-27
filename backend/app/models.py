@@ -129,3 +129,14 @@ class StopListItem(Base):
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     balance: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DeliveryZone(Base):
+    __tablename__ = "delivery_zones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String, default="")
+    polygon: Mapped[list] = mapped_column(JSON, default=list)  # [[lat, lon], ...]
+    color: Mapped[str] = mapped_column(String, default="#2563eb")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

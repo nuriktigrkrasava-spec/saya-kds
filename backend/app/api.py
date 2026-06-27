@@ -283,6 +283,7 @@ async def login(body: LoginIn):
 from datetime import datetime as _dt, timedelta as _td
 from sqlalchemy import select as _select
 from app.models import Order as _Order, OrderItem as _OrderItem
+from app.models import DeliveryZone as _DeliveryZone
 
 
 class ActionIn(BaseModel):
@@ -1618,3 +1619,49 @@ async def admin_report_csv(org_id: str, session: AsyncSession = Depends(get_sess
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="report.csv"'},
     )
+
+
+def _zone_out(z: "_DeliveryZone") -> dict:
+    return {"id": z.id, "name": z.name, "polygon": z.polygon or [], "color": z.color}
+
+
+@app.get("/admin/delivery-zones")
+async def list_delivery_zones(org_id: str, session: AsyncSession = Depends(get_session)):
+    rows = (await session.execute(
+        _select(_DeliveryZone).where(_DeliveryZone.org_id == org_id)
+        .order_by(_DeliveryZone.id))).scalars().all()
+    return [_zone_out(z) for z in rows]
+
+
+@app.post("/admin/delivery-zones")
+async def create_delivery_zone(body: dict, session: AsyncSession = Depends(get_session)):
+    z = _DeliveryZone(
+        org_id=body.get("org_id", ""), name=body.get("name", ""),
+        polygon=body.get("polygon") or [], color=body.get("color") or "#2563eb")
+    session.add(z)
+    await session.commit()
+    await session.refresh(z)
+    return _zone_out(z)
+
+
+@app.put("/admin/delivery-zones/{zone_id}")
+async def update_delivery_zone(zone_id: int, body: dict,
+                               session: AsyncSession = Depends(get_session)):
+    z = (await session.execute(
+        _select(_DeliveryZone).where(_DeliveryZone.id == zone_id))).scalar_one_or_none()
+    if z is None:
+        raise HTTPException(status_code=404, detail="zone not found")
+    if "name" in body: z.name = body["name"]
+    if "polygon" in body: z.polygon = body["polygon"] or []
+    if "color" in body: z.color = body["color"]
+    z.updated_at = _dt.utcnow()
+    await session.commit()
+    await session.refresh(z)
+    return _zone_out(z)
+
+
+@app.delete("/admin/delivery-zones/{zone_id}")
+async def delete_delivery_zone(zone_id: int, session: AsyncSession = Depends(get_session)):
+    await session.execute(_sl_delete(_DeliveryZone).where(_DeliveryZone.id == zone_id))
+    await session.commit()
+    return {"ok": True}
