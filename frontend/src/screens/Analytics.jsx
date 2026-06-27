@@ -486,7 +486,7 @@ export default function Analytics() {
           rowColor={(z) => zoneColor(z)}
           rowIcon={(z) => zoneIcon(z)} />
         <div className="heatx-actions">
-          <Link to="/demand" className="heatx-link">Спрос по зонам · карта →</Link>
+          <Link to="/demand" className="heatx-link">Карта спроса →</Link>
         </div>
 
         {/* ── Путь заказа (полоса этапов) ── */}
