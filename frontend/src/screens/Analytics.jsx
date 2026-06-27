@@ -22,6 +22,56 @@ function sec2min(s) {
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"];
 
+// ── Нагрузка по зонам/часам (heatmap) ───────────────────────────────────────
+const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горячее" };
+
+function loadCellStyle(count, max) {
+  if (!count) return {};
+  const r = max > 0 ? count / max : 0;
+  const bg = r >= 0.66 ? "#fee2e2" : r >= 0.33 ? "#fef3c7" : "#dcfce7";
+  return { background: bg };
+}
+
+function HoursHeatTable({ title, data, rowLabel }) {
+  if (!data) return null;
+  const { zones, hours, cells, totals_by_zone } = data;
+  const keyOf = (z) => (typeof z === "string" ? z : z.id == null ? "none" : String(z.id));
+  const max = Math.max(1, ...zones.flatMap((z) =>
+    hours.map((h) => cells[keyOf(z)]?.[h]?.count || 0)));
+  return (
+    <section className="card">
+      <h2>{title}</h2>
+      <div style={{ overflowX: "auto" }}>
+        <table className="heat">
+          <thead>
+            <tr><th>Зона</th>{hours.map((h) => <th key={h}>{h}</th>)}<th>Итого</th></tr>
+          </thead>
+          <tbody>
+            {zones.map((z) => {
+              const k = keyOf(z);
+              const tot = totals_by_zone[k] || { count: 0, avg_sec: null };
+              return (
+                <tr key={k}>
+                  <td>{rowLabel(z)}</td>
+                  {hours.map((h) => {
+                    const c = cells[k]?.[h];
+                    return (
+                      <td key={h} style={loadCellStyle(c?.count, max)} title={c ? `${c.count} · ${sec2min(c.avg_sec)} мин` : ""}>
+                        {c ? <span>{c.count}<br/><small>{sec2min(c.avg_sec)}м</small></span> : ""}
+                      </td>
+                    );
+                  })}
+                  <td><b>{tot.count}</b><br/><small>{sec2min(tot.avg_sec)}м</small></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 const EVENT_TYPE_LABELS = {
   item_accept: "Принял",
   item_ready: "Готово",
@@ -169,6 +219,10 @@ export default function Analytics() {
   // drill-down timeline
   const [timelineOrderId, setTimelineOrderId] = useState(null);
 
+  // zonal load heatmaps
+  const [zoneLoadData, setZoneLoadData] = useState(null);
+  const [courierLoadData, setCourierLoadData] = useState(null);
+
   // ── загрузка stageStats ─────────────────────────────────────────────────
   useEffect(() => {
     if (!orgId) return;
@@ -219,6 +273,13 @@ export default function Analytics() {
   }, [orgId, range.from, range.to, jType, jActor, jNumber]);
 
   useEffect(() => { loadJournal(); }, [loadJournal]);
+
+  // ── загрузка нагрузки по зонам/районам ──────────────────────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
+    api.courierZoneLoad(orgId, range.from, range.to).then(setCourierLoadData).catch(() => setCourierLoadData(null));
+  }, [orgId, range.from, range.to]);
 
   // ── производные данные ──────────────────────────────────────────────────
   const stageData = useMemo(
@@ -285,6 +346,19 @@ export default function Analytics() {
 
         {statsLoading && <p className="admin__state">Загрузка…</p>}
         {statsError && <p className="admin__state admin__state--err">Ошибка: {statsError}</p>}
+
+        {/* ── Нагрузка по зонам/районам (heatmap) ── */}
+        <HoursHeatTable
+          title="Нагрузка по зонам кухни (объём · ср. время готовки)"
+          data={zoneLoadData}
+          rowLabel={(z) => KZONE_LABEL[z] || z} />
+        <div style={{ marginBottom: 12 }}>
+          <Link to="/delivery-zones">⚙ Настроить зоны города</Link>
+        </div>
+        <HoursHeatTable
+          title="Курьер: нагрузка по районам (объём · ср. время доставки)"
+          data={courierLoadData}
+          rowLabel={(z) => z.name} />
 
         {/* ── Где застревают ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>

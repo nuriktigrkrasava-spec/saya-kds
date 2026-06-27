@@ -130,3 +130,8 @@
   color: #9ca3af;
   padding: 20px 16px;
 }
+
+.heat { border-collapse: collapse; font-size: 12px; }
+.heat th, .heat td { border: 1px solid #e2e8f0; padding: 2px 4px; text-align: center; min-width: 28px; }
+.heat td small { color: #64748b; font-size: 10px; }
+.heat th:first-child, .heat td:first-child { text-align: left; white-space: nowrap; font-weight: 600; }
