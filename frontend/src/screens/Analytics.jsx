@@ -6,13 +6,17 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getOrgId } from "../lib/auth.js";
+import { zoneColor, zoneIcon } from "../lib/zones.js";
 import "../admin.css";
 
 function presetRange(days) {
   const to = new Date();
   const from = new Date();
   from.setDate(to.getDate() - (days - 1));
-  const iso = (d) => d.toISOString().slice(0, 10);
+  // Локальная дата (Y-M-D по местному времени, НЕ UTC): «Сегодня» должно означать
+  // текущий местный день, а не UTC-день — иначе граница съезжает на смещение часового пояса.
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return { from: iso(from), to: iso(to) };
 }
 
@@ -25,43 +29,115 @@ const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"
 // ── Нагрузка по зонам/часам (heatmap) ───────────────────────────────────────
 const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горячее" };
 
-function loadCellStyle(count, max) {
-  if (!count) return {};
-  const r = max > 0 ? count / max : 0;
-  const bg = r >= 0.66 ? "#fee2e2" : r >= 0.33 ? "#fef3c7" : "#dcfce7";
-  return { background: bg };
+function hexToRgb(hex) {
+  const h = (hex || "#2563eb").replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-function HoursHeatTable({ title, data, rowLabel }) {
+// Фон ячейки = цвет зоны с альфой, растущей по нагрузке; текст белеет на насыщенном.
+function heatStyle(count, max, hex) {
+  if (!count) return { background: "rgba(15,23,42,0.025)" };
+  const t = Math.sqrt(count / max); // sqrt вытягивает слабую нагрузку из невидимости
+  const a = 0.12 + t * 0.82;
+  const { r, g, b } = hexToRgb(hex);
+  return { background: `rgba(${r},${g},${b},${a.toFixed(3)})`, color: a > 0.58 ? "#fff" : "#0f172a" };
+}
+
+// Окно часов: от первого до последнего часа С ДАННЫМИ. Пустые будущие и ночные
+// часы не рисуем — поэтому в отчёте за сегодня не видно ещё не наступивших часов.
+function activeHourWindow(zones, cells, keyOf) {
+  let lo = null, hi = null;
+  for (const z of zones) {
+    const row = cells[keyOf(z)] || {};
+    for (const h of Object.keys(row)) {
+      if (!row[h]?.count) continue;
+      const n = Number(h);
+      lo = lo == null ? n : Math.min(lo, n);
+      hi = hi == null ? n : Math.max(hi, n);
+    }
+  }
+  if (lo == null) return [];
+  return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+}
+
+const keyOfZone = (z) => (typeof z === "string" ? z : z.id == null ? "none" : String(z.id));
+
+function HoursHeatTable({ title, data, rowLabel, rowColor, rowIcon }) {
   if (!data) return null;
-  const { zones, hours, cells, totals_by_zone } = data;
-  const keyOf = (z) => (typeof z === "string" ? z : z.id == null ? "none" : String(z.id));
+  const { zones, cells, totals_by_zone } = data;
+  const hours = activeHourWindow(zones, cells, keyOfZone);
+  const nowHour = new Date().getHours();
+
+  if (!hours.length) {
+    return (
+      <section className="card heatx-card">
+        <div className="heatx-head"><h2>{title}</h2></div>
+        <p className="heatx-empty">Пока нет данных за выбранный период.</p>
+      </section>
+    );
+  }
+
   const max = Math.max(1, ...zones.flatMap((z) =>
-    hours.map((h) => cells[keyOf(z)]?.[h]?.count || 0)));
+    hours.map((h) => cells[keyOfZone(z)]?.[h]?.count || 0)));
+
   return (
-    <section className="card">
-      <h2>{title}</h2>
-      <div style={{ overflowX: "auto" }}>
-        <table className="heat">
+    <section className="card heatx-card">
+      <div className="heatx-head">
+        <h2>{title}</h2>
+        <span className="heatx-legend">объём&nbsp;·&nbsp;ср.&nbsp;мин</span>
+      </div>
+      <div className="heatx-scroll">
+        <table className="heatx">
           <thead>
-            <tr><th>Зона</th>{hours.map((h) => <th key={h}>{h}</th>)}<th>Итого</th></tr>
+            <tr>
+              <th className="heatx__corner" />
+              {hours.map((h) => (
+                <th key={h} className={"heatx__h" + (h === nowHour ? " heatx__h--now" : "")}>
+                  {String(h).padStart(2, "0")}
+                </th>
+              ))}
+              <th className="heatx__sum-h">Σ</th>
+            </tr>
           </thead>
           <tbody>
             {zones.map((z) => {
-              const k = keyOf(z);
+              const k = keyOfZone(z);
               const tot = totals_by_zone[k] || { count: 0, avg_sec: null };
+              const color = rowColor(z);
+              const row = cells[k] || {};
+              let peak = -1, peakV = 0;
+              for (const h of hours) {
+                const c = row[h]?.count || 0;
+                if (c > peakV) { peakV = c; peak = h; }
+              }
               return (
                 <tr key={k}>
-                  <td>{rowLabel(z)}</td>
+                  <th className="heatx__zone" scope="row">
+                    <span className="heatx__zone-in">
+                      <span className="heatx__dot" style={{ background: color }} />
+                      {rowIcon ? <span className="heatx__icon">{rowIcon(z)}</span> : null}
+                      <span className="heatx__name">{rowLabel(z)}</span>
+                    </span>
+                  </th>
                   {hours.map((h) => {
-                    const c = cells[k]?.[h];
+                    const c = row[h];
+                    const cls = "heatx__cell" + (h === peak && peakV > 0 ? " heatx__cell--peak" : "");
+                    const hh = String(h).padStart(2, "0");
                     return (
-                      <td key={h} style={loadCellStyle(c?.count, max)} title={c ? `${c.count} · ${sec2min(c.avg_sec)} мин` : ""}>
-                        {c ? <span>{c.count}<br/><small>{sec2min(c.avg_sec)}м</small></span> : ""}
+                      <td key={h} className={cls} style={heatStyle(c?.count, max, color)}
+                          title={c ? `${hh}:00 — ${c.count} шт · ${sec2min(c.avg_sec)} мин` : `${hh}:00 — нет`}>
+                        {c ? (
+                          <><span className="heatx__n">{c.count}</span><span className="heatx__m">{sec2min(c.avg_sec)}</span></>
+                        ) : null}
                       </td>
                     );
                   })}
-                  <td><b>{tot.count}</b><br/><small>{sec2min(tot.avg_sec)}м</small></td>
+                  <td className="heatx__sum">
+                    <span className="heatx__n">{tot.count}</span>
+                    <span className="heatx__m">{sec2min(tot.avg_sec)}м</span>
+                  </td>
                 </tr>
               );
             })}
@@ -349,16 +425,20 @@ export default function Analytics() {
 
         {/* ── Нагрузка по зонам/районам (heatmap) ── */}
         <HoursHeatTable
-          title="Нагрузка по зонам кухни (объём · ср. время готовки)"
+          title="Кухня · нагрузка по часам"
           data={zoneLoadData}
-          rowLabel={(z) => KZONE_LABEL[z] || z} />
-        <div style={{ marginBottom: 12 }}>
-          <Link to="/delivery-zones">⚙ Настроить зоны города</Link>
-        </div>
+          rowLabel={(z) => KZONE_LABEL[z] || z}
+          rowColor={(z) => zoneColor(z)}
+          rowIcon={(z) => zoneIcon(z)} />
         <HoursHeatTable
-          title="Курьер: нагрузка по районам (объём · ср. время доставки)"
+          title="Курьер · нагрузка по районам"
           data={courierLoadData}
-          rowLabel={(z) => z.name} />
+          rowLabel={(z) => z.name}
+          rowColor={(z) => z.color || "#2563eb"}
+          rowIcon={() => "📍"} />
+        <div className="heatx-actions">
+          <Link to="/delivery-zones" className="heatx-link">Настроить зоны города →</Link>
+        </div>
 
         {/* ── Где застревают ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
