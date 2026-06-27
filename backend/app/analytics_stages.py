@@ -187,3 +187,41 @@ def stage_aggregates(orders, close_at_by_order: dict | None = None) -> dict:
             "p95": pctl(vals, 95),
         })
     return {"stages": out_stages, "bottleneck_distribution": bottleneck}
+
+
+def zone_load(orders, tz_offset_hours: int = 0,
+              zones: tuple[str, ...] = ("pizza", "rolls", "hot")) -> dict:
+    """Нагрузка кухни по часам: для каждой зоны и локального часа — число готовых
+    блюд (count) и среднее время готовки (avg_sec). Час берётся по station_ready_at
+    (момент завершения готовки), переведённому в локальное время (UTC+offset).
+    Зона блюда — kitchen_zone (fallback на station). other и блюда без ready пропускаем.
+    """
+    cells: dict[str, dict[int, dict]] = {z: {} for z in zones}
+    totals: dict[str, dict] = {z: {"count": 0, "sum": 0.0, "timed": 0} for z in zones}
+    for o in orders:
+        for it in o.items:
+            z = it.kitchen_zone or it.station or "other"
+            if z not in cells:
+                continue
+            ready = it.station_ready_at
+            if ready is None:
+                continue
+            hour = (ready + timedelta(hours=tz_offset_hours)).hour
+            dur = _dur(it.station_accepted_at, it.station_ready_at)
+            cell = cells[z].setdefault(hour, {"count": 0, "sum": 0.0, "timed": 0})
+            cell["count"] += 1
+            totals[z]["count"] += 1
+            if dur is not None:
+                cell["sum"] += dur; cell["timed"] += 1
+                totals[z]["sum"] += dur; totals[z]["timed"] += 1
+
+    def _fin(d: dict) -> dict:
+        return {"count": d["count"],
+                "avg_sec": (d["sum"] / d["timed"]) if d["timed"] else None}
+
+    return {
+        "zones": list(zones),
+        "hours": list(range(24)),
+        "cells": {z: {h: _fin(c) for h, c in hrs.items()} for z, hrs in cells.items()},
+        "totals_by_zone": {z: _fin(t) for z, t in totals.items()},
+    }

@@ -564,6 +564,15 @@ async def admin_kitchen_zones(org_id: str, from_: str | None = Query(None, alias
     return _stages.kitchen_zones(orders)
 
 
+@app.get("/admin/zone-load")
+async def admin_zone_load(org_id: str, from_: str | None = Query(None, alias="from"),
+                          to: str | None = None,
+                          session: AsyncSession = Depends(get_session)):
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    return _stages.zone_load(orders, tz_offset_hours=settings.iiko_tz_offset_hours)
+
+
 def _close_at(events) -> "datetime | None":
     for e in events:
         if e.type == "iiko_write" and (e.payload or {}).get("method") == "close" \
