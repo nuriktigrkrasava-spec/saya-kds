@@ -395,18 +395,23 @@ export default function Analytics() {
 
   const pickupLag = stats?.pickup_lag || null;
 
-  // Полоса «путь заказа»: сегменты по среднему времени этапа + узкое место.
+  // Полоса «путь заказа»: ВСЕ этапы (от кухни до клиента); этап без данных
+  // показываем бледным «—», чтобы доставка/ожидание были видны, даже если в
+  // выбранном периоде по ним ещё нет завершённых заказов.
   const journey = useMemo(() => {
     const byKey = Object.fromEntries(
       (stats?.stage_aggregates?.stages || []).map((s) => [s.key, s]));
-    const segs = JOURNEY_KEYS
-      .map((k) => ({ key: k, ...STAGE_META[k], avg: byKey[k]?.avg || 0, p95: byKey[k]?.p95 || 0 }))
-      .filter((s) => s.avg > 0);
+    const segs = JOURNEY_KEYS.map((k) => ({
+      key: k, ...STAGE_META[k],
+      avg: byKey[k]?.avg || 0, p95: byKey[k]?.p95 || 0,
+      has: (byKey[k]?.avg || 0) > 0,
+    }));
     const total = segs.reduce((sum, x) => sum + x.avg, 0);
     const bd = stats?.bottleneck_distribution || {};
     let neckKey = null, neckV = 0;
     for (const k of JOURNEY_KEYS) if ((bd[k] || 0) > neckV) { neckV = bd[k]; neckKey = k; }
-    return { segs, total, neckKey, neckLabel: STAGE_META[neckKey]?.label, neckCount: neckV };
+    return { segs, total, hasAny: segs.some((s) => s.has),
+             neckKey, neckLabel: STAGE_META[neckKey]?.label, neckCount: neckV };
   }, [stats]);
 
   return (
@@ -455,15 +460,17 @@ export default function Analytics() {
         {/* ── Путь заказа (полоса этапов) ── */}
         <section className="admin__table-wrap journey-card">
           <h2 className="admin__section-title">Путь заказа · в среднем</h2>
-          {journey.segs.length === 0 && !statsLoading ? (
+          {!journey.hasAny && !statsLoading ? (
             <p className="admin__state">Нет данных за период</p>
           ) : (
             <>
               <div className="journey__bar">
                 {journey.segs.map((s) => (
-                  <div key={s.key} className="journey__seg"
-                       style={{ flexGrow: s.avg, background: s.color }}
-                       title={`${s.label}: ${sec2min(s.avg)} мин (p95 ${sec2min(s.p95)})`} />
+                  <div key={s.key}
+                       className={"journey__seg" + (s.has ? "" : " journey__seg--empty")}
+                       style={{ flexGrow: s.has ? s.avg : 0.18, background: s.has ? s.color : undefined }}
+                       title={s.has ? `${s.label}: ${sec2min(s.avg)} мин (p95 ${sec2min(s.p95)})`
+                                    : `${s.label}: нет данных за период`} />
                 ))}
                 <div className="journey__total">
                   <span className="journey__total-n">{sec2min(journey.total)}</span>
@@ -473,9 +480,10 @@ export default function Analytics() {
               <div className="journey__legend">
                 {journey.segs.map((s) => (
                   <span key={s.key}
-                        className={"journey__leg" + (s.key === journey.neckKey ? " journey__leg--neck" : "")}>
-                    <span className="journey__dot" style={{ background: s.color }} />
-                    {s.label}<b>{sec2min(s.avg)}м</b>
+                        className={"journey__leg" + (s.key === journey.neckKey ? " journey__leg--neck" : "")
+                          + (s.has ? "" : " journey__leg--empty")}>
+                    <span className="journey__dot" style={{ background: s.has ? s.color : "#cbd5e1" }} />
+                    {s.label}<b>{s.has ? `${sec2min(s.avg)}м` : "—"}</b>
                   </span>
                 ))}
               </div>
