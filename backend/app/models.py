@@ -64,6 +64,7 @@ class OrderItem(Base):
     name: Mapped[str] = mapped_column(String, default="")
     amount: Mapped[float] = mapped_column(Float, default=1)
     station: Mapped[str] = mapped_column(String, default="other")
+    kitchen_zone: Mapped[str | None] = mapped_column(String, nullable=True)
     comment: Mapped[str] = mapped_column(String, default="")
     combo_id: Mapped[str | None] = mapped_column(String, nullable=True)
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False)

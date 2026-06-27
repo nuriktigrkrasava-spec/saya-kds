@@ -78,6 +78,7 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
             amount=it.amount,
             combo_id=it.combo_id,
             station=resolve(it),
+            kitchen_zone=resolve.raw(it),
             comment=it.comment,
             is_checked=carry.get("is_checked", False),
             station_accepted_at=carry.get("station_accepted_at"),

@@ -94,23 +94,32 @@ def is_promo_group(group_path: str | None) -> bool:
     return any(k in (group_path or "").lower() for k in _PROMO_GROUP_KEYS)
 
 
+def classify_product_raw(name: str, group_path: str | None = None,
+                         group_root: str | None = None) -> str:
+    """До-merge зона блюда (rolls|pizza|hot|other): имя → группа меню → промо-откат.
+
+    Не применяет merge_zone (hot остаётся hot) — нужно для зональной аналитики.
+    """
+    by_name = classify_name(name)
+    if by_name != "other":
+        return by_name
+    by_group = classify_by_group(group_path, group_root)
+    if by_group:
+        return by_group
+    if is_promo_group(group_path):
+        return "rolls"
+    return "other"
+
+
 def classify_product(name: str, group_path: str | None = None,
                      group_root: str | None = None) -> str:
-    """Зона блюда: явный сигнал по ИМЕНИ → группа меню → для комбо/промо откат на роллы.
+    """Зона блюда после merge (hot -> pizza) — для маршрутизации на станцию кухни.
 
     Имя проверяем первым: «Сет Фаворит» в группе «Архив блюд» должен попасть в
     роллы, а не в other (архив). Группа решает только когда имя ничего не дало
     (напр. «Пепперони» без слова «пицца» — по группе «Пиццы»).
     """
-    by_name = classify_name(name)
-    if by_name != "other":
-        return merge_zone(by_name)
-    by_group = classify_by_group(group_path, group_root)
-    if by_group:
-        return merge_zone(by_group)
-    if is_promo_group(group_path):
-        return "rolls"
-    return "other"
+    return merge_zone(classify_product_raw(name, group_path, group_root))
 
 
 async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
@@ -130,7 +139,9 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
     for p in rms.products_cached():
         nm = norm_name(p.get("name"))
         if nm:
-            auto_by_name[nm] = classify_product(
+            # До-merge зона: resolve() домержит сам (merge идемпотентен),
+            # а resolve.raw отдаст настоящую зону (hot != pizza) для аналитики.
+            auto_by_name[nm] = classify_product_raw(
                 p.get("name", ""), p.get("group_path"), p.get("group_root"))
 
     def _raw(item: WebhookItem) -> str:
@@ -151,11 +162,13 @@ async def build_resolver(session: AsyncSession) -> Callable[[WebhookItem], str]:
         # Группа меню по имени — точнее, чем грубый classify_name.
         if nm in auto_by_name:
             return auto_by_name[nm]
-        # Имя блюда + откат на группу/промо.
-        return classify_product(item.name, group_path=None, group_root=None)
+        # Имя блюда + откат на группу/промо (до-merge; resolve домержит сам).
+        return classify_product_raw(item.name, group_path=None, group_root=None)
 
-    # Любой источник зоны проходит через merge (hot -> pizza).
+    # Любой источник зоны проходит через merge (hot -> pizza) для поведения кухни.
     def resolve(item: WebhookItem) -> str:
         return merge_zone(_raw(item))
 
+    # До-merge зона — источник для зональной аналитики (горячее != пицца).
+    resolve.raw = _raw  # type: ignore[attr-defined]
     return resolve
