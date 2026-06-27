@@ -36,6 +36,23 @@ export async function post(path, body) {
   return handle(res);
 }
 
+export async function put(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  return handle(res);
+}
+
+export async function del(path) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  return handle(res);
+}
+
 // In the Telegram mini-app the SAME origin serves both API and app, so use
 // same-origin relative fetches when running inside Telegram, else fall back to
 // the dev BASE.
@@ -101,6 +118,15 @@ export const api = {
     get(`/admin/orders/${orderId}/timeline?org_id=${orgId}`),
   anomalies: (orgId) =>
     get(`/admin/anomalies?org_id=${orgId}`),
+  zoneLoad: (orgId, from, to) =>
+    get(`/admin/zone-load?org_id=${orgId}&from=${from}&to=${to}`),
+  courierZoneLoad: (orgId, from, to) =>
+    get(`/admin/courier-zone-load?org_id=${orgId}&from=${from}&to=${to}`),
+  deliveryZones: (orgId) =>
+    get(`/admin/delivery-zones?org_id=${encodeURIComponent(orgId)}`),
+  createDeliveryZone: (body) => post(`/admin/delivery-zones`, body),
+  updateDeliveryZone: (id, body) => put(`/admin/delivery-zones/${id}`, body),
+  deleteDeliveryZone: (id) => del(`/admin/delivery-zones/${id}`),
 
   // Telegram mini-app courier helpers (same-origin in Telegram).
   tgAuth: (initData) => tgPost("/tg/auth", { initData }),
