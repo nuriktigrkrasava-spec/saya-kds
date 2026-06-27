@@ -270,6 +270,11 @@ function TimelineModal({ orgId, orderId, onClose }) {
 export default function Analytics() {
   const orgId = getOrgId();
   const [range, setRange] = useState(presetRange(7));
+  // Какой пресет периода активен (1|7|30), либо null если выбран свой диапазон —
+  // нужно, чтобы подсветить нажатую кнопку.
+  const [preset, setPreset] = useState(7);
+  const applyPreset = (days) => { setPreset(days); setRange(presetRange(days)); };
+  const setCustomDate = (field) => (e) => { setPreset(null); setRange((r) => ({ ...r, [field]: e.target.value })); };
 
   // stageStats (уже был)
   const [stats, setStats] = useState(null);
@@ -401,23 +406,17 @@ export default function Analytics() {
         <h1 className="admin__title">Аналитика</h1>
 
         {/* ── Пикер периода ── */}
-        <div className="analytics__presets" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
-          <button className="btn btn--sm" onClick={() => setRange(presetRange(1))}>Сегодня</button>
-          <button className="btn btn--sm" onClick={() => setRange(presetRange(7))}>7 дней</button>
-          <button className="btn btn--sm" onClick={() => setRange(presetRange(30))}>30 дней</button>
-          <input
-            type="date"
-            value={range.from}
-            onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
-            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #d1d5db" }}
-          />
-          <span style={{ alignSelf: "center", color: "#6b7280" }}>—</span>
-          <input
-            type="date"
-            value={range.to}
-            onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
-            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #d1d5db" }}
-          />
+        <div className="analytics__presets">
+          <button className={"seg-btn" + (preset === 1 ? " seg-btn--on" : "")}
+                  aria-pressed={preset === 1} onClick={() => applyPreset(1)}>Сегодня</button>
+          <button className={"seg-btn" + (preset === 7 ? " seg-btn--on" : "")}
+                  aria-pressed={preset === 7} onClick={() => applyPreset(7)}>7 дней</button>
+          <button className={"seg-btn" + (preset === 30 ? " seg-btn--on" : "")}
+                  aria-pressed={preset === 30} onClick={() => applyPreset(30)}>30 дней</button>
+          <span className="analytics__presets-sep" />
+          <input type="date" className="analytics__date" value={range.from} onChange={setCustomDate("from")} />
+          <span className="analytics__dash">—</span>
+          <input type="date" className="analytics__date" value={range.to} onChange={setCustomDate("to")} />
         </div>
 
         {statsLoading && <p className="admin__state">Загрузка…</p>}
