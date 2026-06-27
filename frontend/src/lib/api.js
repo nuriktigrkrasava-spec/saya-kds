@@ -106,6 +106,7 @@ export const api = {
     post(`/orders/${orderId}/assign-courier`, { courier_code, courier_name, by }),
 
   // Аналитика — этапы, SLA, журнал, таймлайн заказа.
+  analytics: (orgId) => get(`/admin/analytics?org_id=${encodeURIComponent(orgId)}`),
   stageStats: (orgId, from, to, slaMinutes = 45) =>
     get(`/admin/stage-stats?org_id=${orgId}&from=${from}&to=${to}&sla_minutes=${slaMinutes}`),
   kitchenZones: (orgId, from, to) =>

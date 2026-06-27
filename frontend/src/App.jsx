@@ -4,7 +4,6 @@ import KitchenRolls from "./screens/KitchenRolls.jsx";
 import KitchenPizza from "./screens/KitchenPizza.jsx";
 import Assembler from "./screens/Assembler.jsx";
 import TgCourier from "./screens/TgCourier.jsx";
-import Admin from "./screens/Admin.jsx";
 import Branches from "./screens/Branches.jsx";
 import StationMap from "./screens/StationMap.jsx";
 import CourierMap from "./screens/CourierMap.jsx";
@@ -42,7 +41,7 @@ export default function App() {
       <Route path="/dashboard" element={<RequireManager><Dashboard /></RequireManager>} />
       <Route path="/analytics" element={<RequireManager><Analytics /></RequireManager>} />
       <Route path="/delivery-zones" element={<RequireManager><DeliveryZones /></RequireManager>} />
-      <Route path="/admin" element={<RequireManager><Admin /></RequireManager>} />
+      <Route path="/admin" element={<Navigate to="/analytics" replace />} />
       <Route path="/branches" element={<RequireManager><Branches /></RequireManager>} />
       <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
       <Route path="/history" element={<RequireManager><EmployeeHistory /></RequireManager>} />

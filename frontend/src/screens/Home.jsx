@@ -109,7 +109,7 @@ export default function Home() {
               <Link to="/dashboard" className="home-link">
                 Сводка (сейчас)
               </Link>
-              <Link to="/admin" className="home-link">
+              <Link to="/analytics" className="home-link">
                 Аналитика
               </Link>
               <Link to="/stations" className="home-link">
@@ -126,9 +126,6 @@ export default function Home() {
               </Link>
               <Link to="/demand" className="home-link">
                 Карта спроса
-              </Link>
-              <Link to="/analytics" className="home-link">
-                Этапы и журнал
               </Link>
             </nav>
           )}

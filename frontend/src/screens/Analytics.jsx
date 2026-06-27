@@ -24,6 +24,14 @@ function sec2min(s) {
   return s != null ? Math.round(s / 60) : "—";
 }
 
+function fmtSeconds(seconds) {
+  if (seconds == null) return "—";
+  const total = Math.max(0, Math.round(seconds));
+  const mm = Math.floor(total / 60);
+  const ss = total % 60;
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"];
 
 // ── Нагрузка по зонам/часам (heatmap) ───────────────────────────────────────
@@ -286,6 +294,9 @@ export default function Analytics() {
   const applyPreset = (days) => { setPreset(days); setRange(presetRange(days)); };
   const setCustomDate = (field) => (e) => { setPreset(null); setRange((r) => ({ ...r, [field]: e.target.value })); };
 
+  // сводка за всё время (карточки + сотрудники) — из /admin/analytics
+  const [summary, setSummary] = useState(null);
+
   // stageStats (уже был)
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -313,6 +324,12 @@ export default function Analytics() {
   // zonal load heatmaps
   const [zoneLoadData, setZoneLoadData] = useState(null);
   const [courierLoadData, setCourierLoadData] = useState(null);
+
+  // ── загрузка сводки (всё время) ─────────────────────────────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    api.analytics(orgId).then(setSummary).catch(() => setSummary(null));
+  }, [orgId]);
 
   // ── загрузка stageStats ─────────────────────────────────────────────────
   useEffect(() => {
@@ -423,6 +440,29 @@ export default function Analytics() {
 
         <h1 className="admin__title">Аналитика</h1>
 
+        {/* ── Сводные карточки (за всё время) ── */}
+        {summary && (
+          <div className="admin__cards">
+            <div className="stat-card">
+              <span className="stat-card__label">Всего заказов</span>
+              <span className="stat-card__value">{summary.totals.orders}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-card__label">Доставлено</span>
+              <span className="stat-card__value">{summary.totals.delivered}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-card__label">В работе</span>
+              <span className="stat-card__value">{summary.totals.in_progress}</span>
+            </div>
+            <div className="stat-card stat-card--accent">
+              <span className="stat-card__label">Среднее время доставки</span>
+              <span className="stat-card__value">{fmtSeconds(summary.delivery.avg_delivery_seconds)}</span>
+              <span className="stat-card__sub">{summary.delivery.delivered_count} доставок · за всё время</span>
+            </div>
+          </div>
+        )}
+
         {/* ── Пикер периода ── */}
         <div className="analytics__presets">
           <button className={"seg-btn" + (preset === 1 ? " seg-btn--on" : "")}
@@ -465,13 +505,22 @@ export default function Analytics() {
           ) : (
             <>
               <div className="journey__bar">
-                {journey.segs.map((s) => (
-                  <div key={s.key}
-                       className={"journey__seg" + (s.has ? "" : " journey__seg--empty")}
-                       style={{ flexGrow: s.has ? s.avg : 0.18, background: s.has ? s.color : undefined }}
-                       title={s.has ? `${s.label}: ${sec2min(s.avg)} мин (p95 ${sec2min(s.p95)})`
-                                    : `${s.label}: нет данных за период`} />
-                ))}
+                {journey.segs.map((s) => {
+                  const { r, g, b } = hexToRgb(s.color);
+                  return (
+                    <div key={s.key}
+                         className={"journey__seg" + (s.has ? "" : " journey__seg--empty")}
+                         style={s.has
+                           ? { flexGrow: s.avg, background: s.color }
+                           : { flexGrow: 0, "--seg": `${r},${g},${b}` }}
+                         title={s.has ? `${s.label}: ${sec2min(s.avg)} мин (p95 ${sec2min(s.p95)})`
+                                      : `${s.label}: нет данных за период`}>
+                      {!s.has && (
+                        <span className="journey__seg-dash">{s.label}<b>—</b></span>
+                      )}
+                    </div>
+                  );
+                })}
                 <div className="journey__total">
                   <span className="journey__total-n">{sec2min(journey.total)}</span>
                   <span className="journey__total-u">мин до клиента</span>
@@ -610,6 +659,34 @@ export default function Analytics() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* ── Сотрудники (за всё время) ── */}
+        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
+          <h2 className="admin__section-title">
+            Сотрудники <small className="admin__hint">за всё время</small>
+          </h2>
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Имя</th>
+                <th className="num">Готово позиций</th>
+                <th className="num">Ср. время готовки</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(summary?.employees || []).length === 0 && (
+                <tr><td colSpan={3} className="admin-table__empty">Нет данных</td></tr>
+              )}
+              {(summary?.employees || []).map((e) => (
+                <tr key={e.name}>
+                  <td>{e.name}</td>
+                  <td className="num">{e.items_done}</td>
+                  <td className="num">{fmtSeconds(e.avg_prep_seconds)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
 
         {/* ── Журнал событий ── */}

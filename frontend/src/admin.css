@@ -162,11 +162,25 @@
   position: relative; display: flex; gap: 3px; height: 56px;
   border-radius: 12px; overflow: hidden; margin: 6px 0 14px;
 }
-.journey__seg { min-width: 8px; transition: filter .12s ease; }
-.journey__seg:hover { filter: brightness(1.08); }
-.journey__seg--empty {
-  background: repeating-linear-gradient(45deg, #eef2f6, #eef2f6 5px, #e2e8f0 5px, #e2e8f0 10px);
+.journey__seg {
+  min-width: 8px; transition: filter .12s ease;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
 }
+.journey__seg:hover { filter: brightness(1.08); }
+/* пустой этап — аккуратная плитка-плейсхолдер в цвете своего этапа, не «дырка» */
+.journey__seg--empty {
+  flex: 0 0 auto; min-width: 72px;
+  background: rgba(var(--seg, 148,163,184), .10);
+  border: 1px dashed rgba(var(--seg, 148,163,184), .42);
+  border-radius: 8px;
+}
+.journey__seg-dash {
+  display: inline-flex; gap: 5px; align-items: baseline;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  color: rgba(var(--seg, 148,163,184), .92); padding: 0 8px;
+}
+.journey__seg-dash b { font-weight: 800; }
 .journey__leg--empty { color: #94a3b8; }
 .journey__leg--empty b { color: #94a3b8; font-weight: 500; }
 .journey__total {
