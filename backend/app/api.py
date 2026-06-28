@@ -682,6 +682,39 @@ async def admin_order_timeline(order_id: int, org_id: str,
             "stages": stages, "events": ev_out}
 
 
+def _summary_metrics(orders) -> dict:
+    """Метрики для карточек по набору заказов периода: сколько заказов, сколько
+    доставлено, среднее время доставки (on_way -> delivered) в секундах."""
+    delivered = sum(1 for o in orders if o.delivered_at is not None)
+    secs = [(o.delivered_at - o.on_way_at).total_seconds()
+            for o in orders if o.on_way_at is not None and o.delivered_at is not None]
+    return {"orders": len(orders), "delivered": delivered,
+            "avg_delivery_seconds": _mean(secs)}
+
+
+@app.get("/admin/summary")
+async def admin_summary(org_id: str, from_: str | None = Query(None, alias="from"),
+                        to: str | None = None,
+                        session: AsyncSession = Depends(get_session)):
+    """Карточки за ВЫБРАННЫЙ период + сравнение с предыдущим равным периодом
+    (чтобы видеть рост/падение). in_progress — живой счётчик незакрытых заказов
+    (это «сейчас», от периода не зависит). Период по created_at, как в остальной
+    аналитике."""
+    dt_from, dt_to = _parse_period(from_, to)
+    span = dt_to - dt_from
+    cur_orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    prev_orders = await _orders_in_period(session, org_id, dt_from - span, dt_from)
+    all_orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+    in_progress = sum(1 for o in all_orders if o.delivered_at is None)
+    return {
+        "period": {"from": _iso(dt_from), "to": _iso(dt_to)},
+        "current": _summary_metrics(cur_orders),
+        "previous": _summary_metrics(prev_orders),
+        "in_progress": in_progress,
+    }
+
+
 @app.get("/admin/analytics")
 async def admin_analytics(org_id: str, session: AsyncSession = Depends(get_session)):
     """Сводная аналитика по филиалу: заказы, сотрудники, зоны, доставка."""

@@ -107,6 +107,8 @@ export const api = {
 
   // Аналитика — этапы, SLA, журнал, таймлайн заказа.
   analytics: (orgId) => get(`/admin/analytics?org_id=${encodeURIComponent(orgId)}`),
+  summary: (orgId, from, to) =>
+    get(`/admin/summary?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
   stageStats: (orgId, from, to, slaMinutes = 45) =>
     get(`/admin/stage-stats?org_id=${orgId}&from=${from}&to=${to}&sla_minutes=${slaMinutes}`),
   kitchenZones: (orgId, from, to) =>

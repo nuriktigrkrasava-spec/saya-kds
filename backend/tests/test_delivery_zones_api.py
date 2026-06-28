@@ -141,3 +141,25 @@ async def test_delete_order_by_number(client, session):
         # больше не отдаётся
         r = await c.get("/orders?org_id=demo")
         assert all(x["number"] != "150" for x in r.json())
+
+
+@pytest.mark.asyncio
+async def test_summary_period_vs_previous(client, session):
+    from datetime import datetime, timedelta
+    from app.models import Order
+    now = datetime.utcnow()
+    # 2 заказа в текущем дне, 1 в предыдущем (по created_at)
+    session.add(Order(iiko_order_id="s1", org_id="demo", number="1",
+                      created_at=now, on_way_at=now, delivered_at=now + timedelta(minutes=20)))
+    session.add(Order(iiko_order_id="s2", org_id="demo", number="2", created_at=now))
+    session.add(Order(iiko_order_id="s3", org_id="demo", number="3",
+                      created_at=now - timedelta(days=1)))
+    await session.commit()
+    today = now.strftime("%Y-%m-%d")
+    async with client as c:
+        r = await c.get(f"/admin/summary?org_id=demo&from={today}&to={today}")
+        d = r.json()
+        assert d["current"]["orders"] == 2          # сегодня
+        assert d["current"]["delivered"] == 1
+        assert d["previous"]["orders"] == 1          # вчера (предыдущий равный период)
+        assert d["in_progress"] == 2                 # незакрытых всего (s2, s3)

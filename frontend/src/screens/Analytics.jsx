@@ -34,6 +34,28 @@ function fmtSeconds(seconds) {
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"];
 
+// Сравнение текущего значения с предыдущим периодом. lowerIsBetter — для времени
+// доставки (меньше = лучше), тогда снижение красим зелёным. Возвращает null, если
+// сравнивать не с чем (нет прошлого периода).
+function calcDelta(cur, prev, lowerIsBetter = false) {
+  if (cur == null || prev == null || prev === 0) return null;
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  if (pct === 0) return { pct: 0, up: null, good: null };
+  const up = pct > 0;
+  return { pct: Math.abs(pct), up, good: lowerIsBetter ? !up : up };
+}
+
+function Delta({ d }) {
+  if (!d) return <span className="stat-card__delta stat-card__delta--none">нет прошлого периода</span>;
+  if (d.up === null) return <span className="stat-card__delta">без изменений</span>;
+  const cls = d.good ? " stat-card__delta--up" : " stat-card__delta--down";
+  return (
+    <span className={"stat-card__delta" + cls}>
+      {d.up ? "↑" : "↓"} {d.pct}% <small>к пред. периоду</small>
+    </span>
+  );
+}
+
 // ── Нагрузка по зонам/часам (heatmap) ───────────────────────────────────────
 const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горячее" };
 
@@ -298,8 +320,10 @@ export default function Analytics() {
   const [reloadTick, setReloadTick] = useState(0);
   const refresh = () => setReloadTick((t) => t + 1);
 
-  // сводка за всё время (карточки + сотрудники) — из /admin/analytics
+  // сводка за всё время (таблица сотрудников) — из /admin/analytics
   const [summary, setSummary] = useState(null);
+  // карточки за выбранный период + сравнение с предыдущим — из /admin/summary
+  const [periodSummary, setPeriodSummary] = useState(null);
 
   // stageStats (уже был)
   const [stats, setStats] = useState(null);
@@ -328,11 +352,18 @@ export default function Analytics() {
   // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
 
-  // ── загрузка сводки (всё время) ─────────────────────────────────────────
+  // ── загрузка сводки (всё время — для таблицы сотрудников) ────────────────
   useEffect(() => {
     if (!orgId) return;
     api.analytics(orgId).then(setSummary).catch(() => setSummary(null));
   }, [orgId, reloadTick]);
+
+  // ── загрузка карточек за период + сравнение с предыдущим ─────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    api.summary(orgId, range.from, range.to)
+      .then(setPeriodSummary).catch(() => setPeriodSummary(null));
+  }, [orgId, range.from, range.to, reloadTick]);
 
   // ── загрузка stageStats ─────────────────────────────────────────────────
   useEffect(() => {
@@ -448,25 +479,29 @@ export default function Analytics() {
           </button>
         </div>
 
-        {/* ── Сводные карточки (за всё время) ── */}
-        {summary && (
+        {/* ── Сводные карточки (за выбранный период + сравнение) ── */}
+        {periodSummary && (
           <div className="admin__cards">
             <div className="stat-card">
-              <span className="stat-card__label">Всего заказов</span>
-              <span className="stat-card__value">{summary.totals.orders}</span>
+              <span className="stat-card__label">Заказов за период</span>
+              <span className="stat-card__value">{periodSummary.current.orders}</span>
+              <Delta d={calcDelta(periodSummary.current.orders, periodSummary.previous.orders)} />
             </div>
             <div className="stat-card">
-              <span className="stat-card__label">Доставлено</span>
-              <span className="stat-card__value">{summary.totals.delivered}</span>
+              <span className="stat-card__label">Доставлено за период</span>
+              <span className="stat-card__value">{periodSummary.current.delivered}</span>
+              <Delta d={calcDelta(periodSummary.current.delivered, periodSummary.previous.delivered)} />
             </div>
             <div className="stat-card">
-              <span className="stat-card__label">В работе</span>
-              <span className="stat-card__value">{summary.totals.in_progress}</span>
+              <span className="stat-card__label">В работе <small>сейчас</small></span>
+              <span className="stat-card__value">{periodSummary.in_progress}</span>
+              <span className="stat-card__delta stat-card__delta--none">текущий остаток</span>
             </div>
             <div className="stat-card stat-card--accent">
               <span className="stat-card__label">Среднее время доставки</span>
-              <span className="stat-card__value">{fmtSeconds(summary.delivery.avg_delivery_seconds)}</span>
-              <span className="stat-card__sub">{summary.delivery.delivered_count} доставок · за всё время</span>
+              <span className="stat-card__value">{fmtSeconds(periodSummary.current.avg_delivery_seconds)}</span>
+              <Delta d={calcDelta(periodSummary.current.avg_delivery_seconds,
+                                  periodSummary.previous.avg_delivery_seconds, true)} />
             </div>
           </div>
         )}
