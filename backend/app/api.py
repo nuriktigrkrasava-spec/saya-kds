@@ -1827,3 +1827,21 @@ async def admin_analytics_export(org_id: str,
         "anomalies": await admin_anomalies(org_id, session),
         "journal": await admin_journal(org_id, from_, to, None, None, None, 1000, 0, session),
     }
+
+
+@app.delete("/admin/orders/by-number/{number}")
+async def admin_delete_order_by_number(number: str, org_id: str,
+                                       session: AsyncSession = Depends(get_session)):
+    """Удаляет заказ (вместе с позициями и событиями) ТОЛЬКО из нашей базы — чистка
+    зависших заказов, которые курьер не закрыл. iiko НЕ трогаем. Сверяем org_id."""
+    order = (await session.execute(
+        _select(_Order).where(_Order.number == number,
+                              _Order.org_id == org_id))).scalars().first()
+    if order is None:
+        raise HTTPException(status_code=404, detail=f"order #{number} not found for org")
+    oid = order.id
+    await session.execute(_sl_delete(_OrderEvent).where(_OrderEvent.order_id == oid))
+    await session.execute(_sl_delete(_OrderItem).where(_OrderItem.order_id == oid))
+    await session.execute(_sl_delete(_Order).where(_Order.id == oid))
+    await session.commit()
+    return {"ok": True, "deleted_number": number, "deleted_id": oid}

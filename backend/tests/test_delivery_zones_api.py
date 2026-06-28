@@ -121,3 +121,23 @@ async def test_analytics_export_returns_full_bundle(client, monkeypatch):
             assert k in data, f"missing {k}"
         stages = {s["key"]: s for s in data["stage_stats"]["stage_aggregates"]["stages"]}
         assert stages["delivery"]["count"] > 0   # доставка из seed видна
+
+
+@pytest.mark.asyncio
+async def test_delete_order_by_number(client, session):
+    from app.models import Order, OrderItem
+    o = Order(iiko_order_id="del-1", org_id="demo", number="150")
+    session.add(o)
+    await session.commit()
+    session.add(OrderItem(order_id=o.id, product_id="p", name="X"))
+    await session.commit()
+    async with client as c:
+        # чужой org не удалит
+        r = await c.delete("/admin/orders/by-number/150?org_id=other")
+        assert r.status_code == 404
+        # свой org удаляет
+        r = await c.delete("/admin/orders/by-number/150?org_id=demo")
+        assert r.status_code == 200 and r.json()["deleted_number"] == "150"
+        # больше не отдаётся
+        r = await c.get("/orders?org_id=demo")
+        assert all(x["number"] != "150" for x in r.json())
