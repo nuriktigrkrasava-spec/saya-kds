@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     iiko_tz_offset_hours: int = 5
     preorder_lead_minutes: int = 60
     preorder_check_seconds: int = 60
+    # Ключ для межсервисного доступа к выгрузке аналитики (/admin/analytics/export).
+    # Пусто -> эндпоинт выгрузки выключен (fail-closed).
+    analytics_api_key: str = ""
 
 
 settings = Settings()

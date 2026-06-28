@@ -39,6 +39,10 @@ services:
         sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      # Ключ для выгрузки аналитики во внешний сервис (/admin/analytics/export).
+      # Придумай длинную строку и вставь её и здесь (в дашборде), и в своём сервисе.
+      - key: ANALYTICS_API_KEY
+        sync: false
       # --- База данных ---
       # Вставляется вручную в форме postgresql+asyncpg://... (см. DEPLOY.md).
       # Render-овская fromDatabase даёт схему postgres://, которая НЕ подходит

@@ -84,3 +84,40 @@ async def test_seed_populates_analytics_and_zones(client):
         await c.post("/admin/zones/auto-grid?org_id=demo&n=6")
         zr = await c.get("/admin/demand-zones?org_id=demo")
         assert sum(z["count"] for z in zr.json()) >= 6
+
+
+@pytest.mark.asyncio
+async def test_analytics_export_disabled_without_key(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "analytics_api_key", "")  # ключ не задан -> выключено
+    async with client as c:
+        r = await c.get("/admin/analytics/export?org_id=demo")
+        assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_analytics_export_rejects_bad_key(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "analytics_api_key", "secret")
+    async with client as c:
+        assert (await c.get("/admin/analytics/export?org_id=demo")).status_code == 401
+        r = await c.get("/admin/analytics/export?org_id=demo",
+                        headers={"X-API-Key": "wrong"})
+        assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_analytics_export_returns_full_bundle(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "analytics_api_key", "secret")
+    async with client as c:
+        await c.post("/debug/seed?org_id=demo")
+        r = await c.get("/admin/analytics/export?org_id=demo",
+                        headers={"X-API-Key": "secret"})
+        assert r.status_code == 200
+        data = r.json()
+        for k in ("analytics", "stage_stats", "kitchen_zones", "zone_load",
+                  "demand", "anomalies", "journal"):
+            assert k in data, f"missing {k}"
+        stages = {s["key"]: s for s in data["stage_stats"]["stage_aggregates"]["stages"]}
+        assert stages["delivery"]["count"] > 0   # доставка из seed видна

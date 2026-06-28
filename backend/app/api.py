@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import FastAPI, Depends, Query, HTTPException, Request
+from fastapi import FastAPI, Depends, Query, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -1785,3 +1785,45 @@ async def demand_zones(org_id: str, session: AsyncSession = Depends(get_session)
         if zid is not None:
             counts[zid] = counts.get(zid, 0) + 1
     return [{**z, "count": counts.get(z["id"], 0)} for z in zones]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Единая выгрузка аналитики для внешнего сервиса. Защита — заголовок X-API-Key.
+# ──────────────────────────────────────────────────────────────────────────
+def require_analytics_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Пропускает только при совпадении X-API-Key с settings.analytics_api_key.
+    Если ключ не задан в окружении — выгрузка выключена (fail-closed)."""
+    key = settings.analytics_api_key
+    if not key:
+        raise HTTPException(status_code=503,
+                            detail="analytics export disabled: set ANALYTICS_API_KEY")
+    if x_api_key != key:
+        raise HTTPException(status_code=401, detail="invalid or missing X-API-Key")
+    return True
+
+
+@app.get("/admin/analytics/export")
+async def admin_analytics_export(org_id: str,
+                                 from_: str | None = Query(None, alias="from"),
+                                 to: str | None = None,
+                                 sla_minutes: int = 45,
+                                 _auth: bool = Depends(require_analytics_key),
+                                 session: AsyncSession = Depends(get_session)):
+    """Вся аналитика филиала одним JSON (для внешнего сервиса). Защищено X-API-Key.
+
+    Период (from/to, YYYY-MM-DD) влияет на stage_stats/kitchen_zones/zone_load/
+    journal; analytics/anomalies/demand — за всё время / сегодня (как в исходных
+    эндпоинтах). Переиспользует те же функции, что и отдельные эндпоинты.
+    """
+    dt_from, dt_to = _parse_period(from_, to)
+    return {
+        "org_id": org_id,
+        "period": {"from": _iso(dt_from), "to": _iso(dt_to)},
+        "analytics": await admin_analytics(org_id, session),
+        "stage_stats": await admin_stage_stats(org_id, from_, to, sla_minutes, session),
+        "kitchen_zones": await admin_kitchen_zones(org_id, from_, to, session),
+        "zone_load": await admin_zone_load(org_id, from_, to, session),
+        "demand": await admin_demand(org_id, session),
+        "anomalies": await admin_anomalies(org_id, session),
+        "journal": await admin_journal(org_id, from_, to, None, None, None, 1000, 0, session),
+    }
