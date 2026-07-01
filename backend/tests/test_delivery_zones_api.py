@@ -25,11 +25,11 @@ async def test_delivery_zone_crud(client):
         r = await c.get("/admin/delivery-zones?org_id=demo")
         assert len(r.json()) == 1
 
-        r = await c.put(f"/admin/delivery-zones/{zid}",
+        r = await c.put(f"/admin/delivery-zones/{zid}?org_id=demo",
                         json={"name": "Левый берег", "polygon": poly, "color": "#0f0"})
         assert r.json()["name"] == "Левый берег"
 
-        r = await c.delete(f"/admin/delivery-zones/{zid}")
+        r = await c.delete(f"/admin/delivery-zones/{zid}?org_id=demo")
         assert r.json() == {"ok": True}
         r = await c.get("/admin/delivery-zones?org_id=demo")
         assert r.json() == []
@@ -147,19 +147,94 @@ async def test_delete_order_by_number(client, session):
 async def test_summary_period_vs_previous(client, session):
     from datetime import datetime, timedelta
     from app.models import Order
-    now = datetime.utcnow()
-    # 2 заказа в текущем дне, 1 в предыдущем (по created_at)
+    from app.config import settings
+    # Якорим на ЛОКАЛЬНЫЙ полдень — детерминированно внутри суток при любом TZ.
+    off = timedelta(hours=settings.iiko_tz_offset_hours)
+    local_today = (datetime.utcnow() + off).date()
+    noon = datetime(local_today.year, local_today.month, local_today.day, 12) - off
+    # 2 заказа в текущем локальном дне, 1 в предыдущем (по created_at)
     session.add(Order(iiko_order_id="s1", org_id="demo", number="1",
-                      created_at=now, on_way_at=now, delivered_at=now + timedelta(minutes=20)))
-    session.add(Order(iiko_order_id="s2", org_id="demo", number="2", created_at=now))
+                      created_at=noon, on_way_at=noon, delivered_at=noon + timedelta(minutes=20)))
+    session.add(Order(iiko_order_id="s2", org_id="demo", number="2", created_at=noon))
     session.add(Order(iiko_order_id="s3", org_id="demo", number="3",
-                      created_at=now - timedelta(days=1)))
+                      created_at=noon - timedelta(days=1)))
     await session.commit()
-    today = now.strftime("%Y-%m-%d")
+    today = local_today.strftime("%Y-%m-%d")
     async with client as c:
         r = await c.get(f"/admin/summary?org_id=demo&from={today}&to={today}")
         d = r.json()
         assert d["current"]["orders"] == 2          # сегодня
         assert d["current"]["delivered"] == 1
         assert d["previous"]["orders"] == 1          # вчера (предыдущий равный период)
-        assert d["in_progress"] == 2                 # незакрытых всего (s2, s3)
+        # Сходящаяся когорта: in_progress = заказы периода, не доставленные (s2).
+        assert d["in_progress"] == 1
+        assert d["current"]["orders"] == d["current"]["delivered"] + d["in_progress"]
+
+
+@pytest.mark.asyncio
+async def test_analytics_respects_period(client, session):
+    """Сводка /admin/analytics обязана учитывать period (from/to) — иначе таблица
+    сотрудников/зон под общим пикером дат не стыкуется с карточками за период."""
+    from datetime import datetime, timedelta
+    from app.models import Order, OrderItem
+    from app.config import settings
+    off = timedelta(hours=settings.iiko_tz_offset_hours)
+    local_today = (datetime.utcnow() + off).date()
+    noon = datetime(local_today.year, local_today.month, local_today.day, 12) - off
+    old = noon - timedelta(days=10)
+    today_o = Order(iiko_order_id="p1", org_id="demo", number="10", created_at=noon)
+    today_o.items = [OrderItem(name="Ролл", station="rolls", checked_by="Аня",
+                               station_accepted_at=noon,
+                               station_ready_at=noon + timedelta(minutes=5))]
+    old_o = Order(iiko_order_id="p2", org_id="demo", number="11", created_at=old)
+    old_o.items = [OrderItem(name="Пицца", station="pizza", checked_by="Боб",
+                             station_accepted_at=old,
+                             station_ready_at=old + timedelta(minutes=5))]
+    session.add_all([today_o, old_o])
+    await session.commit()
+    today = local_today.strftime("%Y-%m-%d")
+    async with client as c:
+        r = await c.get(f"/admin/analytics?org_id=demo&from={today}&to={today}")
+        d = r.json()
+        assert d["totals"]["orders"] == 1            # только сегодняшний, не 10-дневной давности
+        names = {e["name"] for e in d["employees"]}
+        assert names == {"Аня"}                      # Боб (10 дней назад) вне периода
+
+
+@pytest.mark.asyncio
+async def test_dashboard_counts_by_local_day(client, session):
+    """Дашборд считает «доставлено сегодня» по ЛОКАЛЬНОМУ дню. Заказ, доставленный
+    в 02:00 локального сегодня (= вчера по UTC при оффсете +5), должен попасть в
+    сегодня. Со старой UTC-логикой он бы выпал."""
+    from datetime import datetime, timedelta
+    from app.models import Order
+    from app.config import settings
+    off = timedelta(hours=settings.iiko_tz_offset_hours)
+    local_today = (datetime.utcnow() + off).date()
+    # 02:00 локального сегодня, переведённое в UTC (при оффсете>=3 это вчерашняя UTC-дата)
+    local_early = datetime(local_today.year, local_today.month, local_today.day, 2) - off
+    session.add(Order(iiko_order_id="d1", org_id="demo", number="20",
+                      created_at=local_early, on_way_at=local_early,
+                      delivered_at=local_early + timedelta(minutes=10)))
+    await session.commit()
+    async with client as c:
+        r = await c.get("/admin/dashboard?org_id=demo")
+        assert r.json()["delivered_today"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_couriers_scoped_to_branch(client, session, monkeypatch):
+    """«На смене» считает только курьеров нашего филиала (branch_code), а не всех."""
+    from datetime import datetime
+    from app.models import CourierLocation
+    from app.config import settings
+    monkeypatch.setattr(settings, "branch_code", "ALIYEV")
+    now = datetime.utcnow()
+    session.add(CourierLocation(courier_code="c-our", branch_code="ALIYEV",
+                                lat=51.1, lon=71.4, updated_at=now))
+    session.add(CourierLocation(courier_code="c-other", branch_code="OTHER",
+                                lat=51.2, lon=71.5, updated_at=now))
+    await session.commit()
+    async with client as c:
+        r = await c.get("/admin/dashboard?org_id=demo")
+        assert r.json()["on_shift_couriers"] == 1   # только курьер филиала ALIYEV

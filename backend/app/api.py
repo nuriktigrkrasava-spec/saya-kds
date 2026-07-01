@@ -589,21 +589,66 @@ def _mean(values: list[float]) -> float | None:
 
 
 def _parse_period(from_: str | None, to_: str | None):
-    """ISO YYYY-MM-DD -> (dt_from, dt_to_inclusive). Дефолт: последние 7 дней."""
-    today = _dt.utcnow().date()
+    """ISO YYYY-MM-DD -> (dt_from, dt_to) в UTC, но ГРАНИЦЫ суток — по ЛОКАЛЬНОМУ
+    дню (iiko_tz_offset_hours), как и почасовые тепловые карты/SLA. created_at
+    хранится в UTC, поэтому локальную полночь переводим в UTC вычитанием оффсета.
+    Раньше границы были по UTC-дате и расходились с локальным почасовым биннингом.
+    Дефолт: последние 7 локальных дней."""
+    off = _td(hours=settings.iiko_tz_offset_hours)
+    today = (_dt.utcnow() + off).date()
     d_to = _dt.fromisoformat(to_).date() if to_ else today
     d_from = _dt.fromisoformat(from_).date() if from_ else (d_to - _td(days=6))
-    dt_from = _dt(d_from.year, d_from.month, d_from.day)
-    dt_to = _dt(d_to.year, d_to.month, d_to.day) + _td(days=1)  # эксклюзивная верхняя
+    # локальная полночь d_from .. (d_to+1), переведённая в UTC
+    dt_from = _dt(d_from.year, d_from.month, d_from.day) - off
+    dt_to = _dt(d_to.year, d_to.month, d_to.day) + _td(days=1) - off  # эксклюзивная верхняя
     return dt_from, dt_to
 
 
 async def _orders_in_period(session, org_id: str, dt_from, dt_to):
+    """Когорта аналитики: заказы филиала, созданные в периоде. Отменённые и
+    удалённые в iiko — не заказы, в цифры не входят."""
     rows = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id,
+                              _Order.status.notin_(["Cancelled", "Deleted"]),
                               _Order.created_at >= dt_from,
                               _Order.created_at < dt_to))).scalars().all()
     return rows
+
+
+def _is_done(order) -> bool:
+    """Заказ завершён: курьер отметил «Доставлен» (delivered_at) ЛИБО заказ закрыт
+    в iiko (самовывоз / курьер забыл нажать). Иначе Closed-заказы вечно висели бы
+    «в работе»."""
+    return order.delivered_at is not None or order.status == "Closed"
+
+
+def _local_today():
+    """Сегодняшняя дата в ЛОКАЛЬНОМ времени филиала (iiko_tz_offset_hours)."""
+    return (_dt.utcnow() + _td(hours=settings.iiko_tz_offset_hours)).date()
+
+
+def _local_date(dt):
+    """Локальная дата UTC-таймстемпа (created_at/ready_at и пр. хранятся в UTC)."""
+    return (dt + _td(hours=settings.iiko_tz_offset_hours)).date()
+
+
+async def _org_branch_codes(session, org_id: str) -> set[str] | None:
+    """Branch-коды (RMS) филиала org_id — для фильтрации данных без org_id
+    (курьерские локации). Приоритет: явная настройка settings.branch_code; иначе
+    коды из telegram_links этого org (линк хранит и org_id, и branch_code); иначе
+    единственный код в courier_locations (однофилиальный случай). None = определить
+    не удалось — не фильтруем, чтобы не спрятать данные."""
+    if settings.branch_code:
+        return {settings.branch_code}
+    from app.models import TelegramLink as _TL
+    codes = {c for c in (await session.execute(
+        _select(_TL.branch_code).where(_TL.org_id == org_id)
+        .distinct())).scalars().all() if c}
+    if codes:
+        return codes
+    single = [c for c in (await session.execute(
+        _select(_CourierLocation.branch_code).distinct())).scalars().all() if c]
+    return {single[0]} if len(single) == 1 else None
 
 
 @app.get("/admin/stage-stats")
@@ -665,6 +710,8 @@ def _close_at(events) -> "datetime | None":
 async def admin_order_timeline(order_id: int, org_id: str,
                                session: AsyncSession = Depends(get_session)):
     order = await _load_order(session, order_id)
+    if order.org_id != org_id:  # изоляция: чужой филиал заказ не видит
+        raise HTTPException(status_code=404, detail="order not found")
     events = (await session.execute(
         _select(_OrderEvent).where(_OrderEvent.order_id == order_id)
         .order_by(_OrderEvent.at))).scalars().all()
@@ -683,13 +730,16 @@ async def admin_order_timeline(order_id: int, org_id: str,
 
 
 def _summary_metrics(orders) -> dict:
-    """Метрики для карточек по набору заказов периода: сколько заказов, сколько
-    доставлено, среднее время доставки (on_way -> delivered) в секундах."""
-    delivered = sum(1 for o in orders if o.delivered_at is not None)
+    """Метрики для карточек по набору заказов периода. delivered = завершённые
+    (_is_done). Среднее время доставки — только заказы с обеими отметками
+    («Забрал» on_way_at и «Доставлен» delivered_at); avg_delivery_orders говорит,
+    по скольким заказам оно посчитано (остальные выпали — не молчим об этом)."""
+    delivered = sum(1 for o in orders if _is_done(o))
     secs = [(o.delivered_at - o.on_way_at).total_seconds()
             for o in orders if o.on_way_at is not None and o.delivered_at is not None]
     return {"orders": len(orders), "delivered": delivered,
-            "avg_delivery_seconds": _mean(secs)}
+            "avg_delivery_seconds": _mean(secs),
+            "avg_delivery_orders": len(secs)}
 
 
 @app.get("/admin/summary")
@@ -697,16 +747,15 @@ async def admin_summary(org_id: str, from_: str | None = Query(None, alias="from
                         to: str | None = None,
                         session: AsyncSession = Depends(get_session)):
     """Карточки за ВЫБРАННЫЙ период + сравнение с предыдущим равным периодом
-    (чтобы видеть рост/падение). in_progress — живой счётчик незакрытых заказов
-    (это «сейчас», от периода не зависит). Период по created_at, как в остальной
-    аналитике."""
+    (чтобы видеть рост/падение). Сходящаяся когорта «создано за период»:
+    Заказов = Доставлено + in_progress (точно сходится). in_progress — заказы
+    периода, ещё не доставленные (не живой остаток за всё время). Период по
+    created_at с границами по локальному дню (см. _parse_period)."""
     dt_from, dt_to = _parse_period(from_, to)
     span = dt_to - dt_from
     cur_orders = await _orders_in_period(session, org_id, dt_from, dt_to)
     prev_orders = await _orders_in_period(session, org_id, dt_from - span, dt_from)
-    all_orders = (await session.execute(
-        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
-    in_progress = sum(1 for o in all_orders if o.delivered_at is None)
+    in_progress = sum(1 for o in cur_orders if not _is_done(o))
     return {
         "period": {"from": _iso(dt_from), "to": _iso(dt_to)},
         "current": _summary_metrics(cur_orders),
@@ -716,13 +765,17 @@ async def admin_summary(org_id: str, from_: str | None = Query(None, alias="from
 
 
 @app.get("/admin/analytics")
-async def admin_analytics(org_id: str, session: AsyncSession = Depends(get_session)):
-    """Сводная аналитика по филиалу: заказы, сотрудники, зоны, доставка."""
-    orders = (await session.execute(
-        _select(_Order).where(_Order.org_id == org_id))).scalars().all()
+async def admin_analytics(org_id: str, from_: str | None = Query(None, alias="from"),
+                          to: str | None = None,
+                          session: AsyncSession = Depends(get_session)):
+    """Сводная аналитика по филиалу ЗА ВЫБРАННЫЙ ПЕРИОД (по created_at, как и
+    карточки/этапы/зоны): заказы, сотрудники, зоны, доставка. Раньше блок считался
+    за всё время и не двигался при смене дат — цифры не стыковались с карточками."""
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
 
     total_orders = len(orders)
-    delivered_orders = sum(1 for o in orders if o.delivered_at is not None)
+    delivered_orders = sum(1 for o in orders if _is_done(o))
     in_progress = total_orders - delivered_orders
 
     # Сотрудники: группируем позиции по checked_by.
@@ -802,17 +855,17 @@ _SUSPICIOUS_PREP_SECONDS = 60  # порог: меньше минуты = под�
 
 
 def _worked_items_today(orders: list[_Order]) -> list[tuple[str, _Order, "_OrderItem"]]:
-    """Позиции, принятые сегодня (по серверной UTC-дате), с непустым исполнителем.
+    """Позиции, принятые сегодня (по ЛОКАЛЬНОМУ дню филиала), с непустым исполнителем.
 
     Возвращает кортежи (имя_исполнителя, заказ, позиция).
     """
-    today = _dt.utcnow().date()
+    today = _local_today()
     out: list[tuple[str, _Order, _OrderItem]] = []
     for o in orders:
         for it in o.items:
             if it.station_accepted_at is None:
                 continue
-            if it.station_accepted_at.date() != today:
+            if _local_date(it.station_accepted_at) != today:
                 continue
             name = (it.checked_by or "").strip()
             if not name:
@@ -1583,7 +1636,7 @@ from fastapi.responses import Response as _Response
 @app.get("/admin/dashboard")
 async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_session)):
     """Live-снимок «что сейчас»: активные заказы, готовка/доставка, зоны, курьеры."""
-    today = _dt.utcnow().date()
+    today = _local_today()
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id))).scalars().all()
 
@@ -1593,7 +1646,7 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
     # Доставлено сегодня.
     delivered_today = sum(
         1 for o in orders
-        if o.delivered_at is not None and o.delivered_at.date() == today)
+        if o.delivered_at is not None and _local_date(o.delivered_at) == today)
 
     # Среднее время готовки сегодня (по принятым сегодня позициям).
     prep_secs: list[float] = []
@@ -1601,7 +1654,7 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
         for it in o.items:
             if it.station_accepted_at is None:
                 continue
-            if it.station_accepted_at.date() != today:
+            if _local_date(it.station_accepted_at) != today:
                 continue
             prep = _prep_seconds(it)
             if prep is not None:
@@ -1613,7 +1666,7 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
         (o.delivered_at - o.on_way_at).total_seconds()
         for o in orders
         if o.on_way_at is not None and o.delivered_at is not None
-        and o.delivered_at.date() == today
+        and _local_date(o.delivered_at) == today
     ]
     avg_delivery = _mean(delivery_secs)
 
@@ -1627,8 +1680,14 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
             by_zone[zone] += 1
 
     # Курьеры на смене: уникальные courier_code со свежей геопозицией (<30 мин).
+    # Только филиал org_id (через его branch-коды) — CourierLocation без org_id,
+    # иначе считались бы курьеры всех филиалов.
     now = _dt.utcnow()
-    locs = (await session.execute(_select(_CourierLocation))).scalars().all()
+    loc_q = _select(_CourierLocation)
+    bcs = await _org_branch_codes(session, org_id)
+    if bcs:
+        loc_q = loc_q.where(_CourierLocation.branch_code.in_(bcs))
+    locs = (await session.execute(loc_q)).scalars().all()
     on_shift = {
         loc.courier_code for loc in locs
         if loc.updated_at is not None
@@ -1648,7 +1707,7 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
 @app.get("/admin/leaderboard")
 async def admin_leaderboard(org_id: str, session: AsyncSession = Depends(get_session)):
     """Рейтинг поваров за сегодня: группируем готовые сегодня позиции по checked_by."""
-    today = _dt.utcnow().date()
+    today = _local_today()
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id))).scalars().all()
 
@@ -1658,7 +1717,7 @@ async def admin_leaderboard(org_id: str, session: AsyncSession = Depends(get_ses
         for it in o.items:
             if it.station_ready_at is None:
                 continue
-            if it.station_ready_at.date() != today:
+            if _local_date(it.station_ready_at) != today:
                 continue
             name = (it.checked_by or "").strip()
             if not name:
@@ -1698,7 +1757,7 @@ async def admin_report_csv(org_id: str, session: AsyncSession = Depends(get_sess
 
     UTF-8 BOM в начале, чтобы Excel корректно открывал кириллицу.
     """
-    today = _dt.utcnow().date()
+    today = _local_today()
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id))).scalars().all()
 
@@ -1710,7 +1769,7 @@ async def admin_report_csv(org_id: str, session: AsyncSession = Depends(get_sess
     ])
     for o in orders:
         for it in o.items:
-            if it.station_accepted_at is None or it.station_accepted_at.date() != today:
+            if it.station_accepted_at is None or _local_date(it.station_accepted_at) != today:
                 continue
             prep = _prep_seconds(it)
             writer.writerow([
@@ -1757,10 +1816,11 @@ async def create_delivery_zone(body: dict, session: AsyncSession = Depends(get_s
 
 
 @app.put("/admin/delivery-zones/{zone_id}")
-async def update_delivery_zone(zone_id: int, body: dict,
+async def update_delivery_zone(zone_id: int, body: dict, org_id: str,
                                session: AsyncSession = Depends(get_session)):
     z = (await session.execute(
-        _select(_DeliveryZone).where(_DeliveryZone.id == zone_id))).scalar_one_or_none()
+        _select(_DeliveryZone).where(_DeliveryZone.id == zone_id,
+                                     _DeliveryZone.org_id == org_id))).scalar_one_or_none()
     if z is None:
         raise HTTPException(status_code=404, detail="zone not found")
     if "name" in body: z.name = body["name"]
@@ -1773,7 +1833,13 @@ async def update_delivery_zone(zone_id: int, body: dict,
 
 
 @app.delete("/admin/delivery-zones/{zone_id}")
-async def delete_delivery_zone(zone_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_delivery_zone(zone_id: int, org_id: str,
+                               session: AsyncSession = Depends(get_session)):
+    z = (await session.execute(
+        _select(_DeliveryZone).where(_DeliveryZone.id == zone_id,
+                                     _DeliveryZone.org_id == org_id))).scalar_one_or_none()
+    if z is None:  # чужой филиал (или нет зоны) — не удаляем
+        raise HTTPException(status_code=404, detail="zone not found")
     await session.execute(_sl_delete(_DeliveryZone).where(_DeliveryZone.id == zone_id))
     await session.commit()
     return {"ok": True}
@@ -1844,15 +1910,15 @@ async def admin_analytics_export(org_id: str,
                                  session: AsyncSession = Depends(get_session)):
     """Вся аналитика филиала одним JSON (для внешнего сервиса). Защищено X-API-Key.
 
-    Период (from/to, YYYY-MM-DD) влияет на stage_stats/kitchen_zones/zone_load/
-    journal; analytics/anomalies/demand — за всё время / сегодня (как в исходных
-    эндпоинтах). Переиспользует те же функции, что и отдельные эндпоинты.
+    Период (from/to, YYYY-MM-DD) влияет на analytics/stage_stats/kitchen_zones/
+    zone_load/journal; anomalies/demand — за сегодня (как в исходных эндпоинтах).
+    Переиспользует те же функции, что и отдельные эндпоинты.
     """
     dt_from, dt_to = _parse_period(from_, to)
     return {
         "org_id": org_id,
         "period": {"from": _iso(dt_from), "to": _iso(dt_to)},
-        "analytics": await admin_analytics(org_id, session),
+        "analytics": await admin_analytics(org_id, from_, to, session),
         "stage_stats": await admin_stage_stats(org_id, from_, to, sla_minutes, session),
         "kitchen_zones": await admin_kitchen_zones(org_id, from_, to, session),
         "zone_load": await admin_zone_load(org_id, from_, to, session),

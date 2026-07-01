@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./kitchen.db"
     telegram_bot_token: str = ""
     iiko_tz_offset_hours: int = 5
+    # Код единственного филиала (RMS branch_code). Привязывает данные без org_id —
+    # сейчас это курьеры на дашборде. Пусто -> авто: если в базе ровно один филиал.
+    branch_code: str = ""
     preorder_lead_minutes: int = 60
     preorder_check_seconds: int = 60
     # Ключ для межсервисного доступа к выгрузке аналитики (/admin/analytics/export).

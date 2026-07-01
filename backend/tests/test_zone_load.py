@@ -22,7 +22,7 @@ def test_zone_load_buckets_by_local_hour_with_avg():
     orders = [_Ord([_It("hot", "pizza", acc, ready)])]
     out = zone_load(orders, tz_offset_hours=5)
 
-    assert out["zones"] == ["pizza", "rolls", "hot"]
+    assert out["zones"] == ["pizza", "rolls", "hot", "other"]
     assert out["hours"] == list(range(24))
     assert out["cells"]["hot"][12] == {"count": 1, "avg_sec": 600.0}
     assert out["totals_by_zone"]["hot"] == {"count": 1, "avg_sec": 600.0}
@@ -39,12 +39,12 @@ def test_zone_load_falls_back_to_station_when_kitchen_zone_null():
     assert out["cells"]["pizza"][12]["count"] == 1
 
 
-def test_zone_load_skips_unready_and_other():
+def test_zone_load_skips_unready_but_counts_other():
     acc = datetime(2026, 6, 27, 6, 50)
     orders = [
-        _Ord([_It("hot", "pizza", acc, None)]),       # не готово — пропуск
-        _Ord([_It("other", "other", acc, acc)]),       # other не в зонах — пропуск
+        _Ord([_It("hot", "pizza", acc, None)]),        # не готово — пропуск
+        _Ord([_It("other", "other", acc, acc)]),       # other теперь считается
     ]
     out = zone_load(orders, tz_offset_hours=5)
     assert out["totals_by_zone"]["hot"]["count"] == 0
-    assert "other" not in out["cells"]
+    assert out["totals_by_zone"]["other"]["count"] == 1

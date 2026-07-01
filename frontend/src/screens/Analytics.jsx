@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { getOrgId } from "../lib/auth.js";
+import { getOrgId, getSession } from "../lib/auth.js";
 import { zoneColor, zoneIcon, zoneLabel } from "../lib/zones.js";
 import "../admin.css";
 
@@ -38,11 +38,26 @@ const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"
 // доставки (меньше = лучше), тогда снижение красим зелёным. Возвращает null, если
 // сравнивать не с чем (нет прошлого периода).
 function calcDelta(cur, prev, lowerIsBetter = false) {
-  if (cur == null || prev == null || prev === 0) return null;
+  if (cur == null || prev == null) return null;          // реально нет данных за пред. период
+  if (prev === 0) {
+    if (cur === 0) return { pct: 0, up: null, good: null };       // было 0 → осталось 0
+    return { pct: null, up: true, good: !lowerIsBetter };         // было 0 → появилось (рост без %)
+  }
   const pct = Math.round(((cur - prev) / prev) * 100);
   if (pct === 0) return { pct: 0, up: null, good: null };
   const up = pct > 0;
   return { pct: Math.abs(pct), up, good: lowerIsBetter ? !up : up };
+}
+
+// Подпись-источник под показателем: откуда взята цифра (какая отметка/поле iiko
+// и по какой формуле посчитано). Требование заказчика: каждый показатель
+// подписан прямо в админке.
+function Src({ children }) {
+  return (
+    <p style={{ fontSize: 11.5, lineHeight: 1.35, color: "#94a3b8", margin: "6px 0 0" }}>
+      ⓘ {children}
+    </p>
+  );
 }
 
 function Delta({ d }) {
@@ -51,13 +66,13 @@ function Delta({ d }) {
   const cls = d.good ? " stat-card__delta--up" : " stat-card__delta--down";
   return (
     <span className={"stat-card__delta" + cls}>
-      {d.up ? "↑" : "↓"} {d.pct}% <small>к пред. периоду</small>
+      {d.up ? "↑" : "↓"} {d.pct == null ? "новое" : `${d.pct}%`} <small>к пред. периоду</small>
     </span>
   );
 }
 
 // ── Нагрузка по зонам/часам (heatmap) ───────────────────────────────────────
-const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горячее" };
+const KZONE_LABEL = { pizza: "Пицца", rolls: "Япония", hot: "Горячее", other: "Другое" };
 
 // Этапы «пути заказа» (от кухни до клиента). iiko_close — внутреннее, не показываем.
 const STAGE_META = {
@@ -103,7 +118,7 @@ function activeHourWindow(zones, cells, keyOf) {
 
 const keyOfZone = (z) => (typeof z === "string" ? z : z.id == null ? "none" : String(z.id));
 
-function HoursHeatTable({ title, data, rowLabel, rowColor, rowIcon }) {
+function HoursHeatTable({ title, data, rowLabel, rowColor, rowIcon, note }) {
   if (!data) return null;
   const { zones, cells, totals_by_zone } = data;
   const hours = activeHourWindow(zones, cells, keyOfZone);
@@ -183,6 +198,7 @@ function HoursHeatTable({ title, data, rowLabel, rowColor, rowIcon }) {
           </tbody>
         </table>
       </div>
+      {note && <Src>{note}</Src>}
     </section>
   );
 }
@@ -307,6 +323,7 @@ function TimelineModal({ orgId, orderId, onClose }) {
 
 // ── Основной экран ───────────────────────────────────────────────────────────
 export default function Analytics() {
+  const session = getSession();
   const orgId = getOrgId();
   const [range, setRange] = useState(presetRange(7));
   // Какой пресет периода активен (1|7|30), либо null если выбран свой диапазон —
@@ -320,7 +337,7 @@ export default function Analytics() {
   const [reloadTick, setReloadTick] = useState(0);
   const refresh = () => setReloadTick((t) => t + 1);
 
-  // сводка за всё время (таблица сотрудников) — из /admin/analytics
+  // сводка ЗА ПЕРИОД (таблица сотрудников/зон) — из /admin/analytics
   const [summary, setSummary] = useState(null);
   // карточки за выбранный период + сравнение с предыдущим — из /admin/summary
   const [periodSummary, setPeriodSummary] = useState(null);
@@ -352,11 +369,11 @@ export default function Analytics() {
   // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
 
-  // ── загрузка сводки (всё время — для таблицы сотрудников) ────────────────
+  // ── загрузка сводки за период (таблица сотрудников/зон) ───────────────────
   useEffect(() => {
     if (!orgId) return;
-    api.analytics(orgId).then(setSummary).catch(() => setSummary(null));
-  }, [orgId, reloadTick]);
+    api.analytics(orgId, range.from, range.to).then(setSummary).catch(() => setSummary(null));
+  }, [orgId, range.from, range.to, reloadTick]);
 
   // ── загрузка карточек за период + сравнение с предыдущим ─────────────────
   useEffect(() => {
@@ -471,8 +488,24 @@ export default function Analytics() {
           ← На главную
         </Link>
 
+        {/* Изоляция филиалов: без входа orgId падает на "demo" — честно предупреждаем,
+            что это НЕ данные филиала, чтобы демо-цифры не приняли за реальные. */}
+        {!session?.org_id && (
+          <p className="admin__state admin__state--err">
+            ⚠ Вы не вошли — показаны демо-данные (org «demo»), а не данные вашего
+            филиала. <Link to="/login">Войти по PIN</Link>
+          </p>
+        )}
+
         <div className="analytics__head">
-          <h1 className="admin__title">Аналитика</h1>
+          <h1 className="admin__title">
+            Аналитика
+            {session?.branch_name && (
+              <small className="admin__hint" style={{ marginLeft: 10 }}>
+                филиал: {session.branch_name}
+              </small>
+            )}
+          </h1>
           <button className="analytics__refresh" onClick={refresh} disabled={statsLoading}>
             <span className="analytics__refresh-ic">↻</span>
             {statsLoading ? "Обновляю…" : "Обновить"}
@@ -486,22 +519,34 @@ export default function Analytics() {
               <span className="stat-card__label">Заказов за период</span>
               <span className="stat-card__value">{periodSummary.current.orders}</span>
               <Delta d={calcDelta(periodSummary.current.orders, periodSummary.previous.orders)} />
+              <Src>Заказы филиала, созданные за период (время создания из iiko);
+                отменённые и удалённые не считаются.</Src>
             </div>
             <div className="stat-card">
               <span className="stat-card__label">Доставлено за период</span>
               <span className="stat-card__value">{periodSummary.current.delivered}</span>
               <Delta d={calcDelta(periodSummary.current.delivered, periodSummary.previous.delivered)} />
+              <Src>Отметка курьера «Доставлен» либо заказ закрыт в iiko
+                (самовывоз / курьер не отметил).</Src>
             </div>
             <div className="stat-card">
-              <span className="stat-card__label">В работе <small>сейчас</small></span>
+              <span className="stat-card__label">В работе <small>за период</small></span>
               <span className="stat-card__value">{periodSummary.in_progress}</span>
-              <span className="stat-card__delta stat-card__delta--none">текущий остаток</span>
+              <Delta d={calcDelta(periodSummary.in_progress,
+                                  periodSummary.previous.orders - periodSummary.previous.delivered,
+                                  true)} />
+              <Src>Создан за период и ещё не завершён.
+                Заказов = Доставлено + В работе.</Src>
             </div>
             <div className="stat-card stat-card--accent">
               <span className="stat-card__label">Среднее время доставки</span>
               <span className="stat-card__value">{fmtSeconds(periodSummary.current.avg_delivery_seconds)}</span>
               <Delta d={calcDelta(periodSummary.current.avg_delivery_seconds,
                                   periodSummary.previous.avg_delivery_seconds, true)} />
+              <Src>«Забрал» → «Доставлен» курьера; посчитано по{" "}
+                {periodSummary.current.avg_delivery_orders ?? 0} из{" "}
+                {periodSummary.current.delivered} доставленных (без обеих отметок
+                заказ в среднее не входит).</Src>
             </div>
           </div>
         )}
@@ -529,7 +574,9 @@ export default function Analytics() {
           data={zoneLoadData}
           rowLabel={(z) => KZONE_LABEL[z] || z}
           rowColor={(z) => zoneColor(z)}
-          rowIcon={(z) => zoneIcon(z)} />
+          rowIcon={(z) => zoneIcon(z)}
+          note={'Позиции заказов периода: час — по нажатию «Готово» на станции, ' +
+                'ср. мин = «Принял» → «Готово». Позиции без «Готово» не входят.'} />
         <div className="heatx-actions">
           <Link to="/demand" className="heatx-link">Карта спроса →</Link>
         </div>
@@ -580,6 +627,10 @@ export default function Analytics() {
               )}
             </>
           )}
+          <Src>Средние по заказам периода: Готовка = первый «Принял» → последний
+            «Готово» на кухне; Сборка = → «Собрал» сборщика; Ожидание = → «Забрал»
+            курьера; Доставка = → «Доставлен». Отметки KDS, пропуски добиваются
+            временами из iiko.</Src>
         </section>
 
         {/* ── SLA-просрочки ── */}
@@ -609,6 +660,8 @@ export default function Analytics() {
           ) : (
             !statsLoading && <p className="admin__state">Нет данных за период</p>
           )}
+          <Src>Просрочка = от создания заказа до «Доставлен» прошло больше 45 мин.
+            Недоставленный заказ, висящий дольше 45 мин, тоже считается просрочкой.</Src>
         </section>
 
         {/* ── Кухня по зонам ── */}
@@ -650,6 +703,9 @@ export default function Analytics() {
               );
             });
           })()}
+          <Src>Позиции заказов периода с обеими отметками станции: время готовки =
+            «Принял» → «Готово». Клик по зоне — разбивка по сотрудникам
+            (кто нажимал на станции).</Src>
         </section>
 
         {/* ── Аномалии ── */}
@@ -696,12 +752,15 @@ export default function Analytics() {
               </div>
             </div>
           )}
+          <Src>За сегодня (локальный день филиала): «слишком быстро» = «Готово»
+            раньше чем через минуту после «Принял»; возвраты = события возврата
+            позиции на станцию (≥ 2 на заказ).</Src>
         </section>
 
-        {/* ── Сотрудники (за всё время) ── */}
+        {/* ── Сотрудники (за выбранный период) ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
           <h2 className="admin__section-title">
-            Сотрудники <small className="admin__hint">за всё время</small>
+            Сотрудники <small className="admin__hint">за период</small>
           </h2>
           <table className="admin-table">
             <thead>
@@ -724,11 +783,16 @@ export default function Analytics() {
               ))}
             </tbody>
           </table>
+          <Src>Позиции заказов периода, сгруппированные по исполнителю (кто нажимал
+            «Принял»/«Готово» на станции). Ср. время готовки = «Принял» → «Готово».</Src>
         </section>
 
         {/* ── Журнал событий ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
           <h2 className="admin__section-title">Журнал событий</h2>
+          <Src>Все нажатия по заказам периода («Принял», «Готово», «Собрал»,
+            «Забрал», «Доставлен»…). Если по заказу нажатий не было, строки
+            восстановлены из его таймстемпов. Клик по строке — таймлайн заказа.</Src>
 
           {/* Фильтры */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>

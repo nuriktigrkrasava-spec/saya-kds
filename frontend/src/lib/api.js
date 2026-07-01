@@ -106,7 +106,8 @@ export const api = {
     post(`/orders/${orderId}/assign-courier`, { courier_code, courier_name, by }),
 
   // Аналитика — этапы, SLA, журнал, таймлайн заказа.
-  analytics: (orgId) => get(`/admin/analytics?org_id=${encodeURIComponent(orgId)}`),
+  analytics: (orgId, from, to) =>
+    get(`/admin/analytics?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
   summary: (orgId, from, to) =>
     get(`/admin/summary?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
   stageStats: (orgId, from, to, slaMinutes = 45) =>
@@ -132,8 +133,11 @@ export const api = {
   autoGridZones: (orgId, n = 6) =>
     post(`/admin/zones/auto-grid?org_id=${encodeURIComponent(orgId)}&n=${n}`),
   createDeliveryZone: (body) => post(`/admin/delivery-zones`, body),
-  updateDeliveryZone: (id, body) => put(`/admin/delivery-zones/${id}`, body),
-  deleteDeliveryZone: (id) => del(`/admin/delivery-zones/${id}`),
+  // org_id обязателен: бэкенд не даёт править/удалять зоны чужого филиала.
+  updateDeliveryZone: (id, orgId, body) =>
+    put(`/admin/delivery-zones/${id}?org_id=${encodeURIComponent(orgId)}`, body),
+  deleteDeliveryZone: (id, orgId) =>
+    del(`/admin/delivery-zones/${id}?org_id=${encodeURIComponent(orgId)}`),
 
   // Telegram mini-app courier helpers (same-origin in Telegram).
   tgAuth: (initData) => tgPost("/tg/auth", { initData }),

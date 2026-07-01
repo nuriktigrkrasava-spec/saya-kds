@@ -65,14 +65,24 @@ def pctl(values: list[float], p: float) -> float | None:
     return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
 
 
-def sla_breaches(orders, threshold_sec: float, tz_offset_hours: int = 0) -> dict:
+def sla_breaches(orders, threshold_sec: float, tz_offset_hours: int = 0,
+                 now: datetime | None = None) -> dict:
+    """SLA created_at -> delivered_at. Зависший заказ (не доставлен, не закрыт в
+    iiko, возраст уже больше порога) — тоже просрочка: иначе самые проблемные
+    заказы вообще не попадали бы в процент."""
+    now = now or datetime.utcnow()
     total = breached = 0
     by_day: dict[str, dict] = {}
     by_hour: dict[int, dict] = {}
     for o in orders:
         full = _dur(o.created_at, o.delivered_at)
         if full is None:
-            continue
+            stuck = (o.delivered_at is None and o.status != "Closed"
+                     and o.created_at is not None
+                     and (now - o.created_at).total_seconds() > threshold_sec)
+            if not stuck:
+                continue
+            full = (now - o.created_at).total_seconds()
         total += 1
         is_breach = full > threshold_sec
         local = o.created_at + timedelta(hours=tz_offset_hours)
@@ -192,11 +202,12 @@ def stage_aggregates(orders, close_at_by_order: dict | None = None) -> dict:
 
 
 def zone_load(orders, tz_offset_hours: int = 0,
-              zones: tuple[str, ...] = ("pizza", "rolls", "hot")) -> dict:
+              zones: tuple[str, ...] = ("pizza", "rolls", "hot", "other")) -> dict:
     """Нагрузка кухни по часам: для каждой зоны и локального часа — число готовых
     блюд (count) и среднее время готовки (avg_sec). Час берётся по station_ready_at
     (момент завершения готовки), переведённому в локальное время (UTC+offset).
-    Зона блюда — kitchen_zone (fallback на station). other и блюда без ready пропускаем.
+    Зона блюда — kitchen_zone (fallback на station); незнакомая зона попадает в
+    other, а не выбрасывается молча. Пропускаем только блюда без ready.
     """
     cells: dict[str, dict[int, dict]] = {z: {} for z in zones}
     totals: dict[str, dict] = {z: {"count": 0, "sum": 0.0, "timed": 0} for z in zones}
@@ -204,7 +215,9 @@ def zone_load(orders, tz_offset_hours: int = 0,
         for it in o.items:
             z = it.kitchen_zone or it.station or "other"
             if z not in cells:
-                continue
+                z = it.station if it.station in cells else "other"
+                if z not in cells:  # вызвали с кастомным списком зон без other
+                    continue
             ready = it.station_ready_at
             if ready is None:
                 continue

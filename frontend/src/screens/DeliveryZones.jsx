@@ -86,7 +86,7 @@ export default function DeliveryZones() {
 
   async function remove(id) {
     if (!window.confirm("Удалить зону?")) return;
-    await api.deleteDeliveryZone(id);
+    await api.deleteDeliveryZone(id, getOrgId());
     await reload();
   }
 
