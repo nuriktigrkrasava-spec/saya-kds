@@ -735,8 +735,7 @@ def _summary_metrics(orders) -> dict:
     («Забрал» on_way_at и «Доставлен» delivered_at); avg_delivery_orders говорит,
     по скольким заказам оно посчитано (остальные выпали — не молчим об этом)."""
     delivered = sum(1 for o in orders if _is_done(o))
-    secs = [(o.delivered_at - o.on_way_at).total_seconds()
-            for o in orders if o.on_way_at is not None and o.delivered_at is not None]
+    secs = [s for o in orders if (s := _stages.delivery_seconds(o)) is not None]
     return {"orders": len(orders), "delivered": delivered,
             "avg_delivery_seconds": _mean(secs),
             "avg_delivery_orders": len(secs)}
@@ -824,11 +823,9 @@ async def admin_analytics(org_id: str, from_: str | None = Query(None, alias="fr
         for station in sorted(st_total.keys())
     ]
 
-    # Доставка: по заказам, где есть и on_way_at, и delivered_at.
+    # Доставка: только реальные измерения (обе отметки, без артефакта закрытия).
     delivery_secs = [
-        (o.delivered_at - o.on_way_at).total_seconds()
-        for o in orders
-        if o.on_way_at is not None and o.delivered_at is not None
+        s for o in orders if (s := _stages.delivery_seconds(o)) is not None
     ]
 
     return {
@@ -1661,12 +1658,11 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
                 prep_secs.append(prep)
     avg_prep = _mean(prep_secs)
 
-    # Среднее время доставки сегодня (по доставленным сегодня заказам).
+    # Среднее время доставки сегодня (по доставленным сегодня, без артефактов закрытия).
     delivery_secs = [
-        (o.delivered_at - o.on_way_at).total_seconds()
-        for o in orders
-        if o.on_way_at is not None and o.delivered_at is not None
-        and _local_date(o.delivered_at) == today
+        s for o in orders
+        if o.delivered_at is not None and _local_date(o.delivered_at) == today
+        and (s := _stages.delivery_seconds(o)) is not None
     ]
     avg_delivery = _mean(delivery_secs)
 

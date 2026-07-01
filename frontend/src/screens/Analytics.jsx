@@ -545,8 +545,9 @@ export default function Analytics() {
                                   periodSummary.previous.avg_delivery_seconds, true)} />
               <Src>«Забрал» → «Доставлен» курьера; посчитано по{" "}
                 {periodSummary.current.avg_delivery_orders ?? 0} из{" "}
-                {periodSummary.current.delivered} доставленных (без обеих отметок
-                заказ в среднее не входит).</Src>
+                {periodSummary.current.delivered} доставленных. Не входят заказы
+                без обеих отметок и «доставки за 0 сек» (обе отметки проставлены
+                закрытием заказа в iiko).</Src>
             </div>
           </div>
         )}

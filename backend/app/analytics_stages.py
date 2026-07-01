@@ -21,6 +21,21 @@ def _dur(a: datetime | None, b: datetime | None) -> float | None:
     return max(0.0, (b - a).total_seconds())
 
 
+# iiko проставляет whenSended и whenDelivered ОДНИМ моментом при закрытии заказа,
+# если курьер не отмечал статусы (видно на проде: оба поля совпадают до мс).
+# «Доставка» быстрее минуты — этот артефакт, а не измерение: в средние не берём.
+MIN_REAL_DELIVERY_SEC = 60
+
+
+def delivery_seconds(order) -> float | None:
+    """Измеренное время доставки on_way_at -> delivered_at; None, если отметок
+    нет или длительность — артефакт закрытия (< MIN_REAL_DELIVERY_SEC)."""
+    s = _dur(order.on_way_at, order.delivered_at)
+    if s is None or s < MIN_REAL_DELIVERY_SEC:
+        return None
+    return s
+
+
 def _accepted_min(order) -> datetime | None:
     vals = [i.station_accepted_at for i in order.items if i.station_accepted_at]
     return min(vals) if vals else None
@@ -38,7 +53,7 @@ def order_stages(order, close_at: datetime | None = None) -> list[dict]:
         "cooking": _dur(acc, ready),
         "assembly": _dur(ready, order.assembled_at),
         "pickup_wait": _dur(order.assembled_at, order.on_way_at),
-        "delivery": _dur(order.on_way_at, order.delivered_at),
+        "delivery": delivery_seconds(order),
         "iiko_close": _dur(order.delivered_at, close_at),
     }
     # бутылочное горло — первый максимум среди не-None
@@ -257,7 +272,7 @@ def courier_zone_load(orders, zones: list[dict], tz_offset_hours: int = 0) -> di
         zid = assign_zone(o.address_lat, o.address_lon, zones)
         key = str(zid) if zid is not None else "none"
         hour = (o.on_way_at + timedelta(hours=tz_offset_hours)).hour
-        dur = _dur(o.on_way_at, o.delivered_at)
+        dur = delivery_seconds(o)
         cell = cells[key].setdefault(hour, {"count": 0, "sum": 0.0, "timed": 0})
         cell["count"] += 1
         totals[key]["count"] += 1

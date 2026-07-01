@@ -116,3 +116,43 @@ def test_zone_load_includes_other():
     out = zone_load([_Ord()], tz_offset_hours=5)
     assert "other" in out["zones"]
     assert out["totals_by_zone"]["other"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_zero_second_delivery_excluded_from_avg(client, session):
+    """iiko проставляет whenSended и whenDelivered одним моментом при закрытии,
+    если курьер не отмечал статусы. «Доставка за 0 секунд» — артефакт, а не
+    рекорд: в среднее время доставки не входит."""
+    from app.models import Order
+    local_today, noon = _local_noon()
+    t = noon
+    session.add(Order(iiko_order_id="z1", org_id="demo", number="1", created_at=noon,
+                      on_way_at=t, delivered_at=t))                    # 0 сек — артефакт
+    session.add(Order(iiko_order_id="z2", org_id="demo", number="2", created_at=noon,
+                      on_way_at=t, delivered_at=t + timedelta(minutes=10)))
+    await session.commit()
+    today = local_today.strftime("%Y-%m-%d")
+    async with client as c:
+        r = await c.get(f"/admin/summary?org_id=demo&from={today}&to={today}")
+        cur = r.json()["current"]
+        assert cur["delivered"] == 2               # оба доставлены
+        assert cur["avg_delivery_orders"] == 1     # но измерен только настоящий
+        assert cur["avg_delivery_seconds"] == 600
+
+
+def test_stage_delivery_ignores_subminute_artifact():
+    from app.analytics_stages import order_stages
+
+    class _O:
+        items = []
+        def __init__(self, on_way, delivered):
+            self.created_at = on_way - timedelta(minutes=30)
+            self.assembled_at = on_way - timedelta(minutes=5)
+            self.on_way_at = on_way
+            self.delivered_at = delivered
+
+    t = datetime(2026, 6, 27, 7, 0)
+    fake = {s["key"]: s["seconds"] for s in order_stages(_O(t, t))}
+    real = {s["key"]: s["seconds"] for s in order_stages(_O(t, t + timedelta(minutes=9)))}
+    assert fake["delivery"] is None    # 0 сек — не измерение
+    assert real["delivery"] == 540
