@@ -526,7 +526,7 @@ button {
   border-bottom: 1px solid var(--line);
 }
 .order-num {
-  font-size: 26px;
+  font-size: 32px;
   font-weight: 820;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -600,13 +600,14 @@ button {
 }
 .kitem__name {
   flex: 1;
-  font-size: 19px;
+  font-size: 22px;
   font-weight: 650;
   letter-spacing: -0.005em;
 }
+/* Количество ×N — критично для кухни, читаем издалека, не приглушаем. */
 .kitem__amount {
-  color: var(--ink-soft);
-  font-weight: 800;
+  color: var(--ink);
+  font-weight: 900;
 }
 /* Пометка-комментарий клиента: пожелание к блюду («без лука»). */
 .kitem__note {
