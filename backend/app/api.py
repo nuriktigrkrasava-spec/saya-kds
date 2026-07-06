@@ -250,7 +250,12 @@ async def debug_by_table(org_id: str, key: str = Query(default="")):
     Read-only, защищён тем же секретом, что /debug/orgs."""
     if settings.webhook_secret and key != settings.webhook_secret:
         raise HTTPException(status_code=403, detail="bad key")
-    orders = await iiko_cloud.fetch_table_orders(org_id)
+    import httpx as _httpx
+    try:
+        orders = await iiko_cloud.fetch_table_orders(org_id)
+    except _httpx.HTTPStatusError as e:
+        return {"error": True, "iiko_status": e.response.status_code,
+                "iiko_body": e.response.text[:500]}
     out = []
     for w in orders:
         o = w.get("order") or {}
