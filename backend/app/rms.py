@@ -62,6 +62,7 @@ def _parse_employees_full(xml: str) -> list[dict]:
         dep_raw = (emp.findtext("departmentCodes") or "").strip()
         dep_codes = [c.strip() for c in dep_raw.split(",") if c.strip()]
         out.append({
+            "id": (emp.findtext("id") or "").strip(),
             "name": (emp.findtext("name") or "").strip(),
             "code": (emp.findtext("code") or "").strip(),
             "role": (emp.findtext("mainRoleCode") or "").strip(),
@@ -317,3 +318,95 @@ async def branches_with_employees() -> list[dict]:
         })
 
     return branches
+
+
+# ── Вход по открытой явке (курьерский TG-апп) ────────────────────────────────
+
+# Роли, которым НЕ показываем вход по явке: кассиры, повара/сушисты, пиццеристы.
+# Источник кодов: docs/PHOTO-2026-06-17-13-42-13.jpg (скрин заказчика).
+EXCLUDED_LOGIN_ROLES = {"CS1", "CO1", "СуШеф", "СУШ", "СЭКСПО12", "СЭКСПО13",
+                        "ПИЦЦ", "ПЭКСПО13"}
+
+
+def _parse_attendances(xml: str) -> list[dict]:
+    root = ET.fromstring(xml)
+    out: list[dict] = []
+    for a in root.iter("attendance"):
+        out.append({
+            "employee_id": (a.findtext("employeeId") or "").strip(),
+            "date_from": (a.findtext("dateFrom") or "").strip(),
+            "date_to": (a.findtext("dateTo") or "").strip(),
+        })
+    return out
+
+
+def _attendance_today_str() -> str:
+    """Сегодня (локальный день филиала, iiko_tz_offset_hours) как YYYY-MM-DD."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc) + timedelta(hours=settings.iiko_tz_offset_hours)
+    return now.strftime("%Y-%m-%d")
+
+
+_SHIFT_CACHE: list[dict] | None = None
+_SHIFT_CACHE_TS: float = 0.0
+_SHIFT_CACHE_TTL: float = 60.0
+
+
+def reset_attendance_cache() -> None:
+    global _SHIFT_CACHE, _SHIFT_CACHE_TS
+    _SHIFT_CACHE, _SHIFT_CACHE_TS = None, 0.0
+
+
+async def shift_employees_today() -> list[dict]:
+    """Сотрудники с ОТКРЫТОЙ явкой, НАЧАТОЙ СЕГОДНЯ, на филиале settings.branch_code,
+    без кухонных/кассирских ролей. Кэш ~60с (бережём слот лицензии RMS).
+
+    Явки в нашем iiko бывают задвоены и не закрываются годами — поэтому фильтр
+    строгий: dateTo пуст И dateFrom = сегодняшний локальный день."""
+    global _SHIFT_CACHE, _SHIFT_CACHE_TS
+    branch = (settings.branch_code or "").strip()
+    if not branch:
+        raise ValueError("BRANCH_CODE не настроен")
+    now = time.monotonic()
+    if _SHIFT_CACHE is not None and (now - _SHIFT_CACHE_TS) < _SHIFT_CACHE_TTL:
+        return _SHIFT_CACHE
+
+    today = _attendance_today_str()
+    base = settings.rms_base.rstrip("/")
+    async with session() as token:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.get(
+                f"{base}/api/employees/attendance/byDepartment/{branch}",
+                params={"key": token, "from": today, "to": today})
+            r.raise_for_status()
+            attendances = _parse_attendances(r.text)
+
+    open_today = {a["employee_id"] for a in attendances
+                  if a["employee_id"] and not a["date_to"]
+                  and a["date_from"][:10] == today}
+
+    employees, departments = await _employees_and_departments_cached()
+    branch_name = next((d["name"] for d in departments if d["code"] == branch), branch)
+    org_map = await branch_to_org_id()
+    org_id = org_map.get(branch, branch)
+
+    out: list[dict] = []
+    for emp in employees:
+        if emp["id"] not in open_today:
+            continue
+        if emp["deleted"] or not emp["is_employee"]:
+            continue
+        if emp["role"] in EXCLUDED_LOGIN_ROLES:
+            continue
+        out.append({
+            "employee_id": emp["id"],
+            "name": emp["name"],
+            "role": emp["role"],
+            "code": emp["code"],
+            "branch_code": branch,
+            "branch_name": branch_name,
+            "org_id": org_id,
+        })
+    out.sort(key=lambda e: e["name"])
+    _SHIFT_CACHE, _SHIFT_CACHE_TS = out, now
+    return out
