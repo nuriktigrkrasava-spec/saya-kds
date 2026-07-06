@@ -43,6 +43,10 @@ services:
       # Придумай длинную строку и вставь её и здесь (в дашборде), и в своём сервисе.
       - key: ANALYTICS_API_KEY
         sync: false
+      # Код филиала в RMS (Гейдар Алиева). Нужен входу курьеров по явке
+      # (/tg/shift-employees) и фильтру курьеров на дашборде.
+      - key: BRANCH_CODE
+        value: "10ASTKBN"
       # --- База данных ---
       # Вставляется вручную в форме postgresql+asyncpg://... (см. DEPLOY.md).
       # Render-овская fromDatabase даёт схему postgres://, которая НЕ подходит
