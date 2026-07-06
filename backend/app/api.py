@@ -1318,51 +1318,68 @@ class TgAuthIn(BaseModel):
     initData: str
 
 
-@app.post("/tg/auth")
-async def tg_auth(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
-    """Проверка initData и поиск привязки Telegram-аккаунта к сотруднику."""
-    pairs = _telegram.parse_and_validate(body.initData)
+# Человеческие подписи ролей в списке смены (код RMS -> подпись).
+_ROLE_LABELS = {
+    "КР": "Курьер", "КЭКСПО20": "Курьер",
+    "MN0": "Управляющий", "УПРЭКСПО": "Управляющий", "Администратор": "Управляющий",
+    "ADM": "Сисадмин", "ADM2": "Сисадмин",
+    "DW1": "Тех персонал", "WR1": "Официант", "opeCC": "Оператор КЦ",
+    "Бух": "Бухгалтер", "GBUH": "Бухгалтер", "МАРКЕТ": "Маркетолог",
+}
+
+
+def _tg_user_id(init_data: str) -> str:
+    """Проверенный telegram user id из initData; HTTPException(401) если подпись бита."""
+    pairs = _telegram.parse_and_validate(init_data)
     if pairs is None:
         raise HTTPException(status_code=401, detail="Invalid initData")
-    user = _telegram.extract_user(pairs)
-    telegram_id = str(user.get("id") or "")
+    telegram_id = str(_telegram.extract_user(pairs).get("id") or "")
     if not telegram_id:
         raise HTTPException(status_code=401, detail="Invalid initData")
-    link = (await session.execute(
-        _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
-    ).scalar_one_or_none()
-    if not link:
-        return {"linked": False}
-    return {
-        "linked": True,
-        "name": link.name,
-        "branch_code": link.branch_code,
-        "org_id": link.org_id,
-        "role": link.role,
-        "courier_code": link.employee_code,
-    }
+    return telegram_id
 
 
-class TgLinkIn(BaseModel):
+@app.get("/tg/shift-employees")
+async def tg_shift_employees(session: AsyncSession = Depends(get_session)):
+    """Кто сегодня на смене (открытая явка iiko, начатая сегодня) — для входа
+    без PIN. busy = имя уже выбрано другим Telegram-аккаунтом сегодня."""
+    try:
+        shift = await _rms.shift_employees_today()
+    except Exception as e:  # noqa: BLE001 — RMS недоступен/не настроен
+        raise HTTPException(status_code=503, detail=f"iiko недоступен: {e}")
+    today = _local_today().isoformat()
+    claimed = (await session.execute(
+        _select(_TelegramLink.employee_id)
+        .where(_TelegramLink.claimed_on == today,
+               _TelegramLink.employee_id.is_not(None)))).scalars().all()
+    busy_ids = set(claimed)
+    return [{
+        "employee_id": e["employee_id"],
+        "name": e["name"],
+        "role": e["role"],
+        "role_label": _ROLE_LABELS.get(e["role"], e["role"]),
+        "busy": e["employee_id"] in busy_ids,
+    } for e in shift]
+
+
+class TgClaimIn(BaseModel):
     initData: str
-    pin: str
+    employee_id: str
 
 
-@app.post("/tg/link")
-async def tg_link(body: TgLinkIn, session: AsyncSession = Depends(get_session)):
-    """Привязка Telegram-аккаунта к сотруднику по PIN (code)."""
-    pairs = _telegram.parse_and_validate(body.initData)
-    if pairs is None:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-    user = _telegram.extract_user(pairs)
-    telegram_id = str(user.get("id") or "")
-    if not telegram_id:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-
-    pin = body.pin.strip()
-    emp = await _rms.find_employee_by_pin(pin)
-    if not emp:
-        raise HTTPException(status_code=401, detail="Неверный PIN")
+@app.post("/tg/claim")
+async def tg_claim(body: TgClaimIn, session: AsyncSession = Depends(get_session)):
+    """Вход по явке: тап по своему имени вместо PIN. Требует, чтобы явка
+    сотрудника всё ещё была открыта (список кэширован ~60с)."""
+    telegram_id = _tg_user_id(body.initData)
+    try:
+        shift = await _rms.shift_employees_today()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"iiko недоступен: {e}")
+    emp = next((x for x in shift if x["employee_id"] == body.employee_id), None)
+    if emp is None:
+        raise HTTPException(status_code=409,
+                            detail="Явка закрыта или смена не открыта — обнови список")
 
     link = (await session.execute(
         _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
@@ -1370,11 +1387,13 @@ async def tg_link(body: TgLinkIn, session: AsyncSession = Depends(get_session)):
     if link is None:
         link = _TelegramLink(telegram_id=telegram_id)
         session.add(link)
-    link.employee_code = pin
+    link.employee_code = emp["code"]
     link.name = emp["name"]
     link.branch_code = emp["branch_code"]
     link.org_id = emp["org_id"]
     link.role = emp["role"]
+    link.employee_id = emp["employee_id"]
+    link.claimed_on = _local_today().isoformat()
     await session.commit()
 
     return {
@@ -1383,7 +1402,35 @@ async def tg_link(body: TgLinkIn, session: AsyncSession = Depends(get_session)):
         "branch_code": emp["branch_code"],
         "org_id": emp["org_id"],
         "role": emp["role"],
-        "courier_code": pin,
+        "courier_code": emp["code"],
+    }
+
+
+@app.post("/tg/auth")
+async def tg_auth(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
+    """Проверка initData и привязки. Привязка живёт, пока явка открыта:
+    вчерашняя/чужая эпоха (старый PIN-вход) или закрытая явка -> linked=False."""
+    telegram_id = _tg_user_id(body.initData)
+    link = (await session.execute(
+        _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    if not link:
+        return {"linked": False}
+    if link.claimed_on != _local_today().isoformat():
+        return {"linked": False}
+    try:
+        shift = await _rms.shift_employees_today()
+        if all(x["employee_id"] != link.employee_id for x in shift):
+            return {"linked": False}
+    except Exception:  # noqa: BLE001 — RMS лёг: не выкидываем курьера среди смены
+        pass
+    return {
+        "linked": True,
+        "name": link.name,
+        "branch_code": link.branch_code,
+        "org_id": link.org_id,
+        "role": link.role,
+        "courier_code": link.employee_code,
     }
 
 
