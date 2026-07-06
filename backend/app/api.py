@@ -244,6 +244,28 @@ async def debug_orgs(key: str = Query(default="")):
     return [{"id": o.get("id"), "name": o.get("name")} for o in orgs]
 
 
+@app.get("/debug/by_table")
+async def debug_by_table(org_id: str, key: str = Query(default="")):
+    """Диагностика зала: отдаёт ли филиал dine-in в Cloud (order/by_table).
+    Read-only, защищён тем же секретом, что /debug/orgs."""
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    orders = await iiko_cloud.fetch_table_orders(org_id)
+    out = []
+    for w in orders:
+        o = w.get("order") or {}
+        out.append({
+            "id": w.get("id"),
+            "creation_status": w.get("creationStatus"),
+            "status": o.get("status"),
+            "number": o.get("number"),
+            "when_created": o.get("whenCreated"),
+            "items": len(o.get("items") or []),
+            "table": ((o.get("tableIds") or [None])[0]),
+        })
+    return {"count": len(out), "orders": out}
+
+
 @app.post("/debug/pull")
 async def debug_pull(org_id: str, order_id: str,
                      session: AsyncSession = Depends(get_session)):

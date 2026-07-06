@@ -50,6 +50,18 @@ async def fetch_delivery_by_id(organization_id: str, order_id: str) -> dict | No
         return orders[0] if orders else None
 
 
+async def fetch_table_orders(organization_id: str) -> list[dict]:
+    """Заказы зала (order/by_table) — проверка, выгружает ли филиал dine-in в Cloud."""
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(f"{BASE}/api/1/order/by_table",
+                         headers={"Authorization": f"Bearer {token}"},
+                         json={"organizationIds": [organization_id],
+                               "statuses": TABLE_ORDER_STATUSES})
+        r.raise_for_status()
+        return r.json().get("orders", [])
+
+
 async def fetch_deliveries_by_revision(organization_id: str, start_revision: int) -> dict:
     """Инкрементально: заказы, изменённые после start_revision. Возвращает {orders, maxRevision}."""
     token = await get_token()
