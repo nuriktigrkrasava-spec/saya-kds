@@ -84,73 +84,68 @@
   opacity: 1;
 }
 
-/* ---- PIN pad ------------------------------------------------------------- */
-.tg__pin-display {
+/* ---- вход по явке: список имён ------------------------------------------- */
+.tg__center--top {
+  justify-content: flex-start;
+  padding-top: 24px;
+}
+
+.tg__emplist {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 40px;
-  margin-top: 8px;
-}
-
-.tg__pin-placeholder {
-  color: var(--tg-hint);
-  font-size: 30px;
-  letter-spacing: 8px;
-}
-
-.tg__pin-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--tg-text);
-}
-
-.tg__pad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  max-width: 320px;
-  margin-top: 8px;
+  max-width: 420px;
+  margin: 8px auto 0;
 }
 
-.tg__key {
+.tg__emp {
   appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 16px;
   border: none;
+  border-radius: var(--tg-radius);
   background: var(--tg-card);
   color: var(--tg-text);
-  font-size: 24px;
-  font-weight: 600;
-  border-radius: var(--tg-radius);
-  min-height: 60px;
-  padding: 16px 0;
+  font-size: 17px;
+  text-align: left;
   cursor: pointer;
   box-shadow: var(--tg-shadow);
   transition: filter 0.1s ease, transform 0.05s ease;
 }
 
-.tg__key:active {
-  transform: scale(0.96);
+.tg__emp:active {
+  transform: scale(0.98);
   filter: brightness(0.95);
 }
 
-.tg__key--ok {
-  background: var(--tg-accent);
-  color: var(--tg-accent-text);
-  font-size: 18px;
-}
-
-.tg__key--del {
-  background: var(--tg-ghost);
-  box-shadow: none;
-  font-size: 22px;
-}
-
-.tg__key:disabled {
+.tg__emp:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.tg__emp-name {
+  font-weight: 600;
+}
+
+.tg__emp-meta {
+  font-size: 13px;
+  color: var(--tg-hint);
+}
+
+.tg__emp-busy {
+  color: #e5a50a;
+}
+
+.tg__emplist-refresh {
+  margin-top: 14px;
+}
+
+.tg__hint--pick {
+  margin-top: 10px;
 }
 
 /* ---- orders view : header ----------------------------------------------- */

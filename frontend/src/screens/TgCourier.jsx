@@ -4,7 +4,6 @@ import "../tg.css";
 
 const BOT = "@finansistwire_bot";
 const POLL_MS = 15000;
-const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "del", "0", "ok"];
 
 function routeUrl(lat, lon) {
   // /geo/{lon},{lat} надёжно открывает точку в нужном городе (автоопределение по
@@ -18,15 +17,17 @@ export default function TgCourier() {
   const tg = tgRef.current;
   const initData = tg?.initData || "";
 
-  // phase: "loading" | "outside" | "pin" | "orders"
+  // phase: "loading" | "outside" | "pick" | "orders"
   const [phase, setPhase] = useState("loading");
   const [identity, setIdentity] = useState(null); // { name, branch_code, courier_code, ... }
   const [authErr, setAuthErr] = useState("");
 
-  // PIN pad state
-  const [pin, setPin] = useState("");
-  const [pinErr, setPinErr] = useState("");
-  const [pinBusy, setPinBusy] = useState(false);
+  // pick: список открытых сегодня явок iiko — тап по своему имени = вход
+  const [shift, setShift] = useState([]);
+  const [shiftErr, setShiftErr] = useState("");
+  const [shiftBusy, setShiftBusy] = useState(false);
+  const [claimBusyId, setClaimBusyId] = useState(null);
+  const [confirmEmp, setConfirmEmp] = useState(null); // занято — подтверждение
 
   // orders state
   const [orders, setOrders] = useState([]);
@@ -91,7 +92,7 @@ export default function TgCourier() {
           setPhase("orders");
           loadOrders(resp.courier_code);
         } else {
-          setPhase("pin");
+          setPhase("pick");
         }
       })
       .catch((e) => {
@@ -150,37 +151,44 @@ export default function TgCourier() {
     return () => clearInterval(t);
   }, [phase, sendLocation]);
 
-  // --- PIN pad ----------------------------------------------------------------
-  function press(key) {
-    setPinErr("");
-    if (key === "del") {
-      setPin((p) => p.slice(0, -1));
-      return;
-    }
-    if (key === "ok") {
-      submitPin();
-      return;
-    }
-    if (pin.length >= 12) return;
-    setPin((p) => p + key);
-  }
-
-  async function submitPin() {
-    if (!pin || pinBusy) return;
-    setPinBusy(true);
-    setPinErr("");
+  // --- вход по явке: список имён ------------------------------------------------
+  const loadShift = useCallback(async () => {
+    setShiftBusy(true);
+    setShiftErr("");
     try {
-      const resp = await api.tgLink(initData, pin);
+      const list = await api.tgShiftEmployees();
+      setShift(Array.isArray(list) ? list : []);
+    } catch (e) {
+      setShiftErr(String(e.message || e).includes("503")
+        ? "iiko недоступен, попробуй позже"
+        : e.message || String(e));
+    } finally {
+      setShiftBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (phase === "pick") loadShift();
+  }, [phase, loadShift]);
+
+  async function claim(emp) {
+    if (claimBusyId) return;
+    setConfirmEmp(null);
+    setClaimBusyId(emp.employee_id);
+    setShiftErr("");
+    try {
+      const resp = await api.tgClaim(initData, emp.employee_id);
       setIdentity(resp);
-      setPin("");
       setPhase("orders");
       loadOrders(resp.courier_code);
     } catch (e) {
       const msg = String(e.message || e);
-      setPinErr(msg.includes("401") ? "Неверный PIN" : msg);
-      setPin("");
+      setShiftErr(msg.includes("409")
+        ? "Явка уже закрыта — обнови список"
+        : msg.includes("503") ? "iiko недоступен, попробуй позже" : msg);
+      loadShift();
     } finally {
-      setPinBusy(false);
+      setClaimBusyId(null);
     }
   }
 
@@ -232,8 +240,7 @@ export default function TgCourier() {
     }
     setIdentity(null);
     setOrders([]);
-    setPin("");
-    setPhase(initData ? "pin" : "outside");
+    setPhase(initData ? "pick" : "outside");
   }
 
   // --- render -----------------------------------------------------------------
@@ -264,64 +271,77 @@ export default function TgCourier() {
     );
   }
 
-  if (phase === "pin") {
+  if (phase === "pick") {
     return (
       <div className="tg">
-        <div className="tg__center">
-          <h1 className="tg__title">Привязка курьера</h1>
-          <p className="tg__muted">Введите свой PIN-код</p>
+        <div className="tg__center tg__center--top">
+          <h1 className="tg__title">Кто ты?</h1>
+          <p className="tg__muted">Открытые сегодня явки · тапни своё имя</p>
+          <p className={`tg__err ${shiftErr ? "tg__err--show" : ""}`}>{shiftErr || " "}</p>
 
-          <div className="tg__pin-display" aria-label="PIN">
-            {pin.length === 0 ? (
-              <span className="tg__pin-placeholder">····</span>
-            ) : (
-              pin.split("").map((_, i) => <span key={i} className="tg__pin-dot" />)
-            )}
-          </div>
-
-          <p className={`tg__err ${pinErr ? "tg__err--show" : ""}`}>{pinErr || " "}</p>
-
-          <div className="tg__pad">
-            {PAD_KEYS.map((k) => {
-              if (k === "del") {
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    className="tg__key tg__key--del"
-                    onClick={() => press(k)}
-                    aria-label="Удалить"
-                  >
-                    ⌫
-                  </button>
-                );
-              }
-              if (k === "ok") {
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    className="tg__key tg__key--ok"
-                    onClick={() => press(k)}
-                    disabled={pinBusy || !pin}
-                  >
-                    {pinBusy ? "…" : "Войти"}
-                  </button>
-                );
-              }
-              return (
+          {shiftBusy && shift.length === 0 ? (
+            <p className="tg__muted">Загрузка…</p>
+          ) : shift.length === 0 ? (
+            <p className="tg__muted">
+              Никого нет в списке. Нет твоего имени? Попроси кассира открыть
+              смену в iiko, затем обнови.
+            </p>
+          ) : (
+            <div className="tg__emplist">
+              {shift.map((e) => (
                 <button
-                  key={k}
+                  key={e.employee_id}
                   type="button"
-                  className="tg__key"
-                  onClick={() => press(k)}
+                  className="tg__emp"
+                  disabled={claimBusyId !== null}
+                  onClick={() => (e.busy ? setConfirmEmp(e) : claim(e))}
                 >
-                  {k}
+                  <span className="tg__emp-name">
+                    {claimBusyId === e.employee_id ? "…" : e.name}
+                  </span>
+                  <span className="tg__emp-meta">
+                    {e.role_label}
+                    {e.busy && <span className="tg__emp-busy"> · уже вошли</span>}
+                  </span>
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="tg-btn tg-btn--ghost tg__emplist-refresh"
+            onClick={loadShift}
+            disabled={shiftBusy}
+          >
+            {shiftBusy ? "…" : "↻ Обновить список"}
+          </button>
+          <p className="tg__hint tg__hint--pick">
+            Нет твоего имени — попроси кассира открыть смену в iiko.
+          </p>
         </div>
+
+        {confirmEmp && (
+          <div className="tg-payment-overlay" role="dialog" aria-modal="true">
+            <div className="tg-payment-sheet">
+              <p className="tg-payment-sheet__title">Под именем «{confirmEmp.name}» уже вошли</p>
+              <p className="tg-payment-sheet__sub">
+                Если это не ты — выбери своё имя, иначе статистика доставок перепутается.
+              </p>
+              <div className="tg-payment-sheet__btns">
+                <button type="button" className="tg-btn tg-btn--primary"
+                        onClick={() => claim(confirmEmp)}>
+                  Это я, войти
+                </button>
+              </div>
+              <button type="button"
+                      className="tg-btn tg-btn--ghost tg-payment-sheet__cancel"
+                      onClick={() => setConfirmEmp(null)}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

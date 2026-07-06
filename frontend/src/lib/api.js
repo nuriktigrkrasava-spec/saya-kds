@@ -141,7 +141,8 @@ export const api = {
 
   // Telegram mini-app courier helpers (same-origin in Telegram).
   tgAuth: (initData) => tgPost("/tg/auth", { initData }),
-  tgLink: (initData, pin) => tgPost("/tg/link", { initData, pin }),
+  tgShiftEmployees: () => tgGet("/tg/shift-employees"),
+  tgClaim: (initData, employee_id) => tgPost("/tg/claim", { initData, employee_id }),
   tgMyOrders: (courier_code) =>
     tgGet(`/tg/my-orders?courier_code=${encodeURIComponent(courier_code)}`),
   tgLocation: (initData, lat, lon) => tgPost("/tg/location", { initData, lat, lon }),
