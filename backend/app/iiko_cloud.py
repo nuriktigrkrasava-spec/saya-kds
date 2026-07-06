@@ -50,18 +50,6 @@ async def fetch_delivery_by_id(organization_id: str, order_id: str) -> dict | No
         return orders[0] if orders else None
 
 
-async def fetch_table_orders(organization_id: str) -> list[dict]:
-    """Заказы зала (order/by_table) — проверка, выгружает ли филиал dine-in в Cloud."""
-    token = await get_token()
-    async with httpx.AsyncClient(timeout=60) as c:
-        r = await c.post(f"{BASE}/api/1/order/by_table",
-                         headers={"Authorization": f"Bearer {token}"},
-                         json={"organizationIds": [organization_id],
-                               "statuses": TABLE_ORDER_STATUSES})
-        r.raise_for_status()
-        return r.json().get("orders", [])
-
-
 async def fetch_deliveries_by_revision(organization_id: str, start_revision: int) -> dict:
     """Инкрементально: заказы, изменённые после start_revision. Возвращает {orders, maxRevision}."""
     token = await get_token()
@@ -105,6 +93,86 @@ def _lifecycle_ts(o: dict, *keys: str) -> datetime | None:
         if ts is not None:
             return ts
     return None
+
+
+# ── Заказы зала через Cloud (active pull по столам) ──────────────────────────
+# Заказы зала, созданные на кассе iikoFront, по умолчанию НЕ лежат в iiko Cloud
+# (отсюда «ненадёжность» вебхука). Поэтому тянем их активно:
+#   1) order/init_by_table — проталкивает заказы столов из терминала в Cloud,
+#   2) order/by_table     — забирает их.
+# terminalGroupId и tableIds добираем через terminal_groups + restaurant_sections.
+
+def _parse_terminal_group_ids(resp: dict) -> list[str]:
+    """ID терминальных групп (касс) из ответа /api/1/terminal_groups."""
+    ids: list[str] = []
+    for tg in (resp.get("terminalGroups") or []):
+        for item in (tg.get("items") or []):
+            if item.get("id"):
+                ids.append(str(item["id"]))
+    return ids
+
+
+def _parse_table_ids(resp: dict) -> list[str]:
+    """ID столов из ответа /api/1/reserve/available_restaurant_sections."""
+    ids: list[str] = []
+    for sec in (resp.get("restaurantSections") or []):
+        for t in (sec.get("tables") or []):
+            if t.get("id"):
+                ids.append(str(t["id"]))
+    return ids
+
+
+async def fetch_terminal_groups(organization_id: str) -> list[str]:
+    """Терминальные группы (кассы) филиала — нужны для init_by_table."""
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{BASE}/api/1/terminal_groups",
+                              headers={"Authorization": f"Bearer {token}"},
+                              json={"organizationIds": [organization_id]})
+        r.raise_for_status()
+        return _parse_terminal_group_ids(r.json())
+
+
+async def fetch_sections(terminal_group_ids: list[str]) -> list[str]:
+    """Столы залов по терминальным группам (tableIds для by_table/init_by_table)."""
+    if not terminal_group_ids:
+        return []
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            f"{BASE}/api/1/reserve/available_restaurant_sections",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"terminalGroupIds": terminal_group_ids, "returnSchema": False})
+        r.raise_for_status()
+        return _parse_table_ids(r.json())
+
+
+async def order_init_by_table(organization_id: str, terminal_group_id: str,
+                              table_ids: list[str]) -> dict:
+    """Проталкивает заказы указанных столов из терминала iikoFront в Cloud."""
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{BASE}/api/1/order/init_by_table",
+                              headers={"Authorization": f"Bearer {token}"},
+                              json={"organizationId": organization_id,
+                                    "terminalGroupId": terminal_group_id,
+                                    "tableIds": table_ids})
+        r.raise_for_status()
+        return r.json() if r.text.strip() else {}
+
+
+async def order_by_table(organization_ids: list[str], table_ids: list[str],
+                         statuses: list[str] | None = None) -> list[dict]:
+    """Забирает заказы зала по столам. Возвращает список обёрток {id, order, ...}."""
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(f"{BASE}/api/1/order/by_table",
+                              headers={"Authorization": f"Bearer {token}"},
+                              json={"organizationIds": organization_ids,
+                                    "tableIds": table_ids,
+                                    "statuses": statuses or ["New", "Bill"]})
+        r.raise_for_status()
+        return r.json().get("orders", []) or []
 
 
 def _format_address(dp: dict) -> str:

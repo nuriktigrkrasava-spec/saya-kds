@@ -252,7 +252,10 @@ async def debug_by_table(org_id: str, key: str = Query(default="")):
         raise HTTPException(status_code=403, detail="bad key")
     import httpx as _httpx
     try:
-        orders = await iiko_cloud.fetch_table_orders(org_id)
+        tgs = await iiko_cloud.fetch_terminal_groups(org_id)
+        tables = await iiko_cloud.fetch_sections(tgs)
+        orders = await iiko_cloud.order_by_table(
+            [org_id], tables, iiko_cloud.TABLE_ORDER_STATUSES) if tables else []
     except _httpx.HTTPStatusError as e:
         return {"error": True, "iiko_status": e.response.status_code,
                 "iiko_body": e.response.text[:500]}
