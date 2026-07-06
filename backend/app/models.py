@@ -106,6 +106,10 @@ class TelegramLink(Base):
     branch_code: Mapped[str | None] = mapped_column(String, nullable=True)
     org_id: Mapped[str | None] = mapped_column(String, nullable=True)
     role: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Вход по явке (без PIN): UUID сотрудника RMS и локальная дата входа.
+    # claimed_on != сегодня -> привязка протухла, курьер выбирает имя заново.
+    employee_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    claimed_on: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class CourierLocation(Base):

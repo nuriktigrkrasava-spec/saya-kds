@@ -30,3 +30,15 @@ async def test_order_with_items_persists(session):
     assert got.org_id == "org-1"
     assert len(got.items) == 1
     assert got.items[0].station == "rolls"
+
+
+async def test_telegram_link_claim_fields(session):
+    from app.models import TelegramLink
+    link = TelegramLink(telegram_id="42", employee_code="77",
+                        employee_id="e-courier", claimed_on="2026-07-06")
+    session.add(link)
+    await session.commit()
+    got = (await session.execute(
+        select(TelegramLink).where(TelegramLink.telegram_id == "42"))).scalar_one()
+    assert got.employee_id == "e-courier"
+    assert got.claimed_on == "2026-07-06"
