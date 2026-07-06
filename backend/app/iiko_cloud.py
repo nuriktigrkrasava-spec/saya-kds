@@ -266,6 +266,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         "whenSended=%r whenDelivered=%r",
         o.get("number"), o.get("status"), o.get("whenCreated"),
         o.get("whenCookingCompleted"), o.get("whenSended"), o.get("whenDelivered"))
+    courier = ((o.get("courierInfo") or {}).get("courier") or {})
     return NormalizedOrder(
         iiko_order_id=str(wrapper.get("id", "")),
         org_id=organization_id,
@@ -282,6 +283,8 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
         payment_type_id=(str(pt["id"]) if pt.get("id") else None),
         payment_type_kind=pt.get("kind"),
         payment_type_name=(pt.get("name") or None),
+        courier_iiko_id=(str(courier["id"]) if courier.get("id") else None),
+        courier_name=((courier.get("name") or "").strip() or None),
         complete_before=complete_before,
         when_created=when_created,
         when_cooking_completed=when_cooking,

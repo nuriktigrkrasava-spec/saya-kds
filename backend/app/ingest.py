@@ -12,6 +12,22 @@ def is_held(complete_before, now: datetime, lead_minutes: int) -> bool:
     return complete_before is not None and complete_before > now + timedelta(minutes=lead_minutes)
 
 
+async def _rms_code_by_employee_id(employee_id: str | None) -> str | None:
+    """Код (PIN) сотрудника RMS по его UUID — из кэша сотрудников (~60с).
+    Сбой RMS не должен ронять ingest: тогда просто без кода (имя всё равно покажем)."""
+    if not employee_id:
+        return None
+    try:
+        from app import rms
+        employees, _ = await rms._employees_and_departments_cached()
+    except Exception:  # noqa: BLE001
+        return None
+    for e in employees:
+        if e["id"] == employee_id:
+            return e["code"] or None
+    return None
+
+
 def _item_key(product_id: str | None, combo_id: str | None,
               name: str | None, comment: str | None) -> tuple:
     """Стабильный ключ позиции для переноса прогресса готовки между вебхуками."""
@@ -78,6 +94,15 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
         order.on_way_at = data.when_sended
     if order.delivered_at is None and data.when_delivered is not None:
         order.delivered_at = data.when_delivered
+
+    # Курьер, назначенный в iiko (диспетчером/кассиром). Непустой курьер из iiko —
+    # источник истины (наши назначения сами пушатся в iiko); пустой — не трогаем
+    # назначение сборщика. Код RMS нужен, чтобы заказ появился у курьера в TG.
+    if data.courier_name:
+        order.assigned_courier_name = data.courier_name
+        code = await _rms_code_by_employee_id(data.courier_iiko_id)
+        if code:
+            order.assigned_courier_code = code
 
     await session.flush()  # гарантирует order.id
 

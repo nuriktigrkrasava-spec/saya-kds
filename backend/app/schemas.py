@@ -30,6 +30,10 @@ class NormalizedOrder(BaseModel):
     payment_type_kind: str | None = None
     payment_type_name: str | None = None
     complete_before: datetime | None = None
+    # Курьер, назначенный в iiko (courierInfo.courier). id совпадает с UUID
+    # сотрудника RMS — по нему достаём code для /tg/my-orders.
+    courier_iiko_id: str | None = None
+    courier_name: str | None = None
     # Тайм-штампы жизненного цикла из iiko (UTC). Нужны, чтобы этапы аналитики
     # (Очередь/Сборка/Ожидание/Доставка) заполнялись, даже если курьер не тапает
     # кнопки в KDS. Заполняются в ingest по правилу «только если поле пусто».
