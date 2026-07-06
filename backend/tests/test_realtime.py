@@ -17,3 +17,16 @@ def test_order_payload_groups_items_by_station():
     assert p["org_id"] == "org-1"
     assert {i["name"] for i in p["items"] if i["station"] == "rolls"} == {"Ролл"}
     assert p["items"][0]["amount"] == 2
+
+
+def test_order_payload_exposes_courier_and_assembled_at():
+    """Сборщику нужно видеть, КОМУ передан заказ и КОГДА (таймер «в руках курьера»)."""
+    from datetime import datetime
+    order = Order(id=6, iiko_order_id="o2", org_id="org-1", number="102",
+                  assigned_courier_code="77", assigned_courier_name="Адильхан",
+                  assembled_at=datetime(2026, 7, 6, 12, 0, 0))
+    order.items = []
+    p = realtime.order_payload(order)
+    assert p["assigned_courier_name"] == "Адильхан"
+    assert p["assigned_courier_code"] == "77"
+    assert p["assembled_at"] == "2026-07-06T12:00:00Z"

@@ -64,6 +64,11 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
       : "") ||
     "";
 
+  // Сколько заказ «в руках курьера»: с момента передачи (assembled_at).
+  const assembledAt = parseServerTime(order.assembled_at);
+  const courierMin =
+    assembledAt != null ? Math.max(0, Math.floor((Date.now() - assembledAt) / 60000)) : null;
+
   // Overall order timer from created_at -> progress toward the target window.
   const createdAt = parseServerTime(order.created_at);
   const elapsed = createdAt != null ? Date.now() - createdAt : 0;
@@ -247,9 +252,8 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
       {order.assembled ? (
         <div className="badge badge--ready asm-handed">
           {channel.needsCourier
-            ? assignedName
-              ? `Назначен: ${assignedName}`
-              : "Передан курьеру"
+            ? (assignedName ? `🛵 ${assignedName}` : "Передан курьеру") +
+              (courierMin != null ? ` · в пути ${courierMin} мин` : "")
             : completeLabel(channel)}
         </div>
       ) : !channel.needsCourier ? (
