@@ -440,7 +440,7 @@ export default function TgCourier() {
             className={`tg__tab ${tab === "all" ? "tg__tab--on" : ""}`}
             onClick={() => setTab("all")}
           >
-            Все доставки · {allOrders.length}
+            Ждут курьера · {allOrders.length}
           </button>
         </div>
 
@@ -450,7 +450,7 @@ export default function TgCourier() {
               <div className="tg__logo" aria-hidden>
                 📭
               </div>
-              <p className="tg__muted">Нет собранных доставок</p>
+              <p className="tg__muted">Нет заказов, ждущих курьера</p>
             </div>
           ) : (
             <div className="tg__list">
@@ -463,11 +463,7 @@ export default function TgCourier() {
                 >
                   <div className="tg-card__head">
                     <span className="tg-card__num">№ {o.number}</span>
-                    <span className="tg-card__status">
-                      {o.assigned_courier_name
-                        ? `🛵 ${o.assigned_courier_name}`
-                        : "⏳ ждёт курьера"}
-                    </span>
+                    <span className="tg-card__status">⏳ ждёт курьера</span>
                   </div>
                   <div className="tg-card__addr">
                     📍 {o.address || "Адрес не указан"}

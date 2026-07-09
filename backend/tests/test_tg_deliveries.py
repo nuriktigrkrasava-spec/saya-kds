@@ -33,7 +33,7 @@ async def client():
         s.add_all([
             _order(1, assembled_at=TS),                                # ждёт курьера
             _order(2, assembled_at=TS, assigned_courier_name="Адильхан",
-                   assigned_courier_code="77"),                        # назначен
+                   assigned_courier_code="77"),                        # уже с курьером — мимо
             _order(3),                                                 # не собран — мимо
             _order(4, assembled_at=TS, delivered_at=TS),               # доставлен — мимо
             _order(5, assembled_at=TS, service_type="DineIn"),         # зал — мимо
@@ -66,8 +66,7 @@ async def test_tg_deliveries_filters_and_cc_phone(client, monkeypatch):
     body = r.json()
     assert body["call_center_phone"] == "+77000000000"
     nums = [o["number"] for o in body["orders"]]
-    assert nums == ["1", "2"]
-    assert body["orders"][1]["assigned_courier_name"] == "Адильхан"
+    assert nums == ["1"]
 
 
 @pytest.mark.asyncio

@@ -1485,14 +1485,17 @@ _AGGREGATOR_KEYS = ("wolt", "яндекс", "yandex", "glovo", "choco")
 
 @app.get("/tg/deliveries")
 async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session)):
-    """Все активные доставки филиала для курьерского аппа (только просмотр):
-    собранные и ещё не доставленные. Плюс общий телефон колл-центра."""
+    """Доставки филиала, ждущие курьера (только просмотр): собранные,
+    не доставленные и БЕЗ назначенного курьера. Плюс общий телефон колл-центра."""
     rows = (await session.execute(
         _select(_Order)
         .where(_Order.org_id == org_id,
                _Order.service_type == "DeliveryByCourier",
                _Order.assembled_at.is_not(None),
                _Order.delivered_at.is_(None),
+               # У кого курьер уже есть — те в «Моих» у своего курьера.
+               _Order.assigned_courier_code.is_(None),
+               _Order.assigned_courier_name.is_(None),
                # Закрытые/отменённые в iiko, у которых delivered_at не успел
                # проставиться (артефакт закрытия) — курьеру не показываем.
                _Order.status.not_in(("Closed", "Cancelled", "Delivered")))
