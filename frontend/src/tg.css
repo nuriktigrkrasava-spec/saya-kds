@@ -148,6 +148,70 @@
   margin-top: 10px;
 }
 
+/* ---- вкладки «Мои / Все доставки» + деталка --------------------------------- */
+.tg__tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tg__tab {
+  flex: 1;
+  appearance: none;
+  border: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--tg-card);
+  color: var(--tg-hint);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tg__tab--on {
+  background: var(--tg-accent);
+  color: var(--tg-accent-text);
+}
+
+.tg-card--tap {
+  appearance: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.tg-card--tap:active {
+  opacity: 0.75;
+}
+
+.tg-card__status {
+  font-size: 13px;
+  color: var(--tg-hint);
+  white-space: nowrap;
+}
+
+.tg-detail__row {
+  margin: 6px 0;
+  font-size: 15px;
+  text-align: left;
+}
+
+.tg-detail__items {
+  margin: 8px 0;
+  text-align: left;
+}
+
+/* Ссылки-кнопки (tel:) в деталке — как обычные кнопки */
+.tg-payment-sheet__btns a.tg-btn {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ---- orders view : header ----------------------------------------------- */
 .tg__header {
   position: sticky;

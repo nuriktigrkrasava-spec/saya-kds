@@ -1464,6 +1464,29 @@ async def tg_auth(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
     }
 
 
+# Заказы этих агрегаторов возят их собственные курьеры — в списке доставок
+# для наших курьеров они шум (та же логика, что orderChannel на фронте).
+_AGGREGATOR_KEYS = ("wolt", "яндекс", "yandex", "glovo", "choco")
+
+
+@app.get("/tg/deliveries")
+async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session)):
+    """Все активные доставки филиала для курьерского аппа (только просмотр):
+    собранные и ещё не доставленные. Плюс общий телефон колл-центра."""
+    rows = (await session.execute(
+        _select(_Order)
+        .where(_Order.org_id == org_id,
+               _Order.service_type == "DeliveryByCourier",
+               _Order.assembled_at.is_not(None),
+               _Order.delivered_at.is_(None))
+        .order_by(_Order.assembled_at))).scalars().all()
+    orders = [o for o in rows
+              if not any(k in (o.customer_name or "").lower()
+                         for k in _AGGREGATOR_KEYS)]
+    return {"call_center_phone": settings.call_center_phone,
+            "orders": [realtime.order_payload(o) for o in orders]}
+
+
 @app.get("/tg/my-orders")
 async def tg_my_orders(courier_code: str,
                        session: AsyncSession = Depends(get_session)):

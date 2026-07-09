@@ -33,6 +33,11 @@ export default function TgCourier() {
   const [orders, setOrders] = useState([]);
   const [ordersErr, setOrdersErr] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  // вкладки: мои заказы / все доставки филиала (только просмотр)
+  const [tab, setTab] = useState("my"); // "my" | "all"
+  const [allOrders, setAllOrders] = useState([]);
+  const [ccPhone, setCcPhone] = useState(""); // общий телефон колл-центра
+  const [detailOrder, setDetailOrder] = useState(null); // деталка по тапу
   const [actingId, setActingId] = useState(null);
   const [paymentOrder, setPaymentOrder] = useState(null); // order awaiting payment-kind pick
   const [paymentTypesList, setPaymentTypesList] = useState([]); // real payment types for overlay
@@ -76,6 +81,21 @@ export default function TgCourier() {
     []
   );
 
+  const loadAll = useCallback(async (orgId) => {
+    if (!orgId) return;
+    setRefreshing(true);
+    setOrdersErr("");
+    try {
+      const resp = await api.tgDeliveries(orgId);
+      setAllOrders(Array.isArray(resp?.orders) ? resp.orders : []);
+      setCcPhone(resp?.call_center_phone || "");
+    } catch (e) {
+      setOrdersErr(e.message || String(e));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   // --- auth on mount ----------------------------------------------------------
   useEffect(() => {
     if (!initData) {
@@ -105,12 +125,17 @@ export default function TgCourier() {
     };
   }, [initData, loadOrders]);
 
-  // --- poll my-orders ---------------------------------------------------------
+  // --- poll active tab --------------------------------------------------------
   useEffect(() => {
-    if (phase !== "orders" || !identity?.courier_code) return;
-    const t = setInterval(() => loadOrders(identity.courier_code), POLL_MS);
+    if (phase !== "orders" || !identity) return;
+    const tick = () =>
+      tab === "all"
+        ? loadAll(identity.org_id)
+        : loadOrders(identity.courier_code);
+    tick();
+    const t = setInterval(tick, POLL_MS);
     return () => clearInterval(t);
-  }, [phase, identity, loadOrders]);
+  }, [phase, identity, tab, loadOrders, loadAll]);
 
   // --- геолокация: на смене курьер шлёт позицию, иначе его нельзя назначить ----
   const [geo, setGeo] = useState("выкл");
@@ -150,6 +175,12 @@ export default function TgCourier() {
     const t = setInterval(() => sendLocation(), 20000);
     return () => clearInterval(t);
   }, [phase, sendLocation]);
+
+  // Телефон колл-центра нужен и на вкладке «Мои» — подтягиваем один раз при входе.
+  useEffect(() => {
+    if (phase === "orders" && identity?.org_id) loadAll(identity.org_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, identity?.org_id]);
 
   // --- вход по явке: список имён ------------------------------------------------
   const loadShift = useCallback(async () => {
@@ -396,7 +427,56 @@ export default function TgCourier() {
 
         {ordersErr && <p className="tg__err tg__err--show">{ordersErr}</p>}
 
-        {orders.length === 0 ? (
+        <div className="tg__tabs">
+          <button
+            type="button"
+            className={`tg__tab ${tab === "my" ? "tg__tab--on" : ""}`}
+            onClick={() => setTab("my")}
+          >
+            Мои · {orders.length}
+          </button>
+          <button
+            type="button"
+            className={`tg__tab ${tab === "all" ? "tg__tab--on" : ""}`}
+            onClick={() => setTab("all")}
+          >
+            Все доставки · {allOrders.length}
+          </button>
+        </div>
+
+        {tab === "all" ? (
+          allOrders.length === 0 ? (
+            <div className="tg__empty">
+              <div className="tg__logo" aria-hidden>
+                📭
+              </div>
+              <p className="tg__muted">Нет собранных доставок</p>
+            </div>
+          ) : (
+            <div className="tg__list">
+              {allOrders.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  className="tg-card tg-card--tap"
+                  onClick={() => setDetailOrder(o)}
+                >
+                  <div className="tg-card__head">
+                    <span className="tg-card__num">№ {o.number}</span>
+                    <span className="tg-card__status">
+                      {o.assigned_courier_name
+                        ? `🛵 ${o.assigned_courier_name}`
+                        : "⏳ ждёт курьера"}
+                    </span>
+                  </div>
+                  <div className="tg-card__addr">
+                    📍 {o.address || "Адрес не указан"}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )
+        ) : orders.length === 0 ? (
           <div className="tg__empty">
             <div className="tg__logo" aria-hidden>
               ✅
@@ -419,6 +499,11 @@ export default function TgCourier() {
                 {o.phone && (
                   <a className="tg-card__phone" href={`tel:${o.phone}`}>
                     📞 {o.phone}
+                  </a>
+                )}
+                {ccPhone && (
+                  <a className="tg-card__phone" href={`tel:${ccPhone}`}>
+                    ☎️ Колл-центр: {ccPhone}
                   </a>
                 )}
                 {o.comment && (
@@ -467,6 +552,70 @@ export default function TgCourier() {
           </div>
         )}
       </main>
+
+      {detailOrder && (
+        <div
+          className="tg-payment-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Заказ № ${detailOrder.number}`}
+          onClick={() => setDetailOrder(null)}
+        >
+          <div className="tg-payment-sheet" onClick={(e) => e.stopPropagation()}>
+            <p className="tg-payment-sheet__title">Заказ № {detailOrder.number}</p>
+            <p className="tg-payment-sheet__sub">
+              {detailOrder.assigned_courier_name
+                ? `🛵 Везёт: ${detailOrder.assigned_courier_name}`
+                : "⏳ Курьер не назначен"}
+            </p>
+            {detailOrder.customer && (
+              <p className="tg-detail__row">👤 {detailOrder.customer}</p>
+            )}
+            <p className="tg-detail__row">
+              📍 {detailOrder.address || "Адрес не указан"}
+            </p>
+            {Array.isArray(detailOrder.items) && detailOrder.items.length > 0 && (
+              <ul className="tg-card__items tg-detail__items">
+                {detailOrder.items.map((it, i) => (
+                  <li key={it.id ?? i}>
+                    {it.name}
+                    {it.amount != null && (
+                      <span className="tg-card__amount"> ×{it.amount}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="tg-payment-sheet__btns">
+              {detailOrder.phone && (
+                <a className="tg-btn tg-btn--primary" href={`tel:${detailOrder.phone}`}>
+                  📞 Клиент: {detailOrder.phone}
+                </a>
+              )}
+              {ccPhone && (
+                <a className="tg-btn tg-btn--cash" href={`tel:${ccPhone}`}>
+                  ☎️ Колл-центр: {ccPhone}
+                </a>
+              )}
+              <button
+                type="button"
+                className="tg-btn tg-btn--card"
+                onClick={() => buildRoute(detailOrder)}
+                disabled={detailOrder.lat == null || detailOrder.lon == null}
+              >
+                🗺 Маршрут
+              </button>
+            </div>
+            <button
+              type="button"
+              className="tg-btn tg-btn--ghost tg-payment-sheet__cancel"
+              onClick={() => setDetailOrder(null)}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
 
       {paymentOrder && (
         <div className="tg-payment-overlay" role="dialog" aria-modal="true" aria-label="Способ оплаты">

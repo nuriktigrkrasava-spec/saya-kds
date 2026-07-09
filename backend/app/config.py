@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Ключ для межсервисного доступа к выгрузке аналитики (/admin/analytics/export).
     # Пусто -> эндпоинт выгрузки выключен (fail-closed).
     analytics_api_key: str = ""
+    # Общий телефон колл-центра — показывается курьеру в деталке заказа.
+    # Пусто -> строка КЦ в аппе скрыта.
+    call_center_phone: str = ""
 
 
 settings = Settings()

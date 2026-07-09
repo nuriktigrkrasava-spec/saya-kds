@@ -145,6 +145,8 @@ export const api = {
   tgClaim: (initData, employee_id) => tgPost("/tg/claim", { initData, employee_id }),
   tgMyOrders: (courier_code) =>
     tgGet(`/tg/my-orders?courier_code=${encodeURIComponent(courier_code)}`),
+  tgDeliveries: (org_id) =>
+    tgGet(`/tg/deliveries?org_id=${encodeURIComponent(org_id)}`),
   tgLocation: (initData, lat, lon) => tgPost("/tg/location", { initData, lat, lon }),
   tgUnlink: (initData) => tgPost("/tg/unlink", { initData }),
 };
