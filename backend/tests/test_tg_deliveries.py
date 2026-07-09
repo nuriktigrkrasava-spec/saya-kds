@@ -39,6 +39,7 @@ async def client():
             _order(5, assembled_at=TS, service_type="DineIn"),         # зал — мимо
             _order(6, assembled_at=TS, customer_name="Wolt Астана"),   # агрегатор — мимо
             _order(7, assembled_at=TS, org_id="org-2"),                # чужой филиал — мимо
+            _order(8, assembled_at=TS, status="Closed"),               # закрыт в iiko — мимо
         ])
         await s.commit()
 

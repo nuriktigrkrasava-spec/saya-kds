@@ -1492,7 +1492,10 @@ async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session
         .where(_Order.org_id == org_id,
                _Order.service_type == "DeliveryByCourier",
                _Order.assembled_at.is_not(None),
-               _Order.delivered_at.is_(None))
+               _Order.delivered_at.is_(None),
+               # Закрытые/отменённые в iiko, у которых delivered_at не успел
+               # проставиться (артефакт закрытия) — курьеру не показываем.
+               _Order.status.not_in(("Closed", "Cancelled", "Delivered")))
         .order_by(_Order.assembled_at))).scalars().all()
     orders = [o for o in rows
               if not any(k in (o.customer_name or "").lower()
