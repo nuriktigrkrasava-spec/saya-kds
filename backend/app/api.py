@@ -1267,12 +1267,24 @@ async def branches_couriers(branch_code: str = "",
                             session: AsyncSession = Depends(get_session)):
     """Курьеры конкретного филиала RMS (роли КР/КЭКСПО20).
 
-    Каждый курьер помечается active=на смене, если его Telegram-апп присылал
-    геопозицию за последние _ACTIVE_WINDOW_MIN минут (надёжный признак смены
-    без отдельной интеграции с iiko). Активные идут первыми, далее по имени.
+    «На смене» (active) = открытая явка iiko, начатая сегодня, ИЛИ свежая
+    геопозиция из Telegram-аппа (за _ACTIVE_WINDOW_MIN минут). Явка — главный
+    признак: курьер виден сборщику, даже если не открывал апп; гео — фолбэк,
+    если RMS недоступен. Активные идут первыми, далее по имени.
     """
     if not branch_code:
         return []
+
+    # Открытые сегодня явки курьеров этого филиала. Сбой RMS не критичен —
+    # остаётся гео-признак.
+    shift_codes: set[str] = set()
+    try:
+        shift = await _rms.shift_employees_today()
+        shift_codes = {e["code"] for e in shift
+                       if e["role"] in _COURIER_ROLES
+                       and e["branch_code"] == branch_code and e["code"]}
+    except Exception:  # noqa: BLE001
+        pass
     branches = await _rms.branches_with_employees()
     branch = next((b for b in branches if b["code"] == branch_code), None)
     if not branch:
@@ -1297,12 +1309,14 @@ async def branches_couriers(branch_code: str = "",
     for c in couriers:
         loc = by_code.get(c["code"])
         minutes_ago = None
-        active = False
+        geo_fresh = False
         if loc is not None and loc.updated_at is not None:
             minutes_ago = int((now - loc.updated_at).total_seconds() // 60)
-            active = minutes_ago < _ACTIVE_WINDOW_MIN
+            geo_fresh = minutes_ago < _ACTIVE_WINDOW_MIN
         out.append({"code": c["code"], "name": c["name"],
-                    "active": active, "minutes_ago": minutes_ago})
+                    "active": c["code"] in shift_codes or geo_fresh,
+                    "on_shift": c["code"] in shift_codes,
+                    "minutes_ago": minutes_ago})
 
     # Активные первыми, затем по имени.
     out.sort(key=lambda c: (not c["active"], c["name"]))

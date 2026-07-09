@@ -89,3 +89,28 @@ async def test_couriers_active_flag_and_sort(client):
 
     # Активные сортируются первыми.
     assert data[0]["code"] == "C1"
+
+
+@respx.mock
+async def test_courier_on_shift_active_without_geo(client, monkeypatch):
+    """Открытая явка iiko = на смене, даже если курьер не открывал TG-апп."""
+    c, _ = client
+    _mock_rms()
+
+    from app import rms
+
+    async def fake_shift():
+        return [{"employee_id": "e2", "name": "Мустафа", "role": "КР",
+                 "code": "C2", "branch_code": "B1", "branch_name": "Бранч1",
+                 "org_id": "B1"}]
+    monkeypatch.setattr(rms, "shift_employees_today", fake_shift)
+
+    r = await c.get("/branches/couriers", params={"branch_code": "B1"})
+    data = r.json()
+    by_code = {d["code"]: d for d in data}
+
+    # C2: явка открыта -> активен, хотя геопозиции нет.
+    assert by_code["C2"]["active"] is True
+    assert by_code["C2"]["minutes_ago"] is None
+    # C1: ни явки, ни гео -> не на смене.
+    assert by_code["C1"]["active"] is False
