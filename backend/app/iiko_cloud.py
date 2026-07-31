@@ -50,15 +50,51 @@ async def fetch_delivery_by_id(organization_id: str, order_id: str) -> dict | No
         return orders[0] if orders else None
 
 
+def _flatten_by_organizations(data: dict) -> dict:
+    """Ответы deliveries/* приходят вложенными по организациям — сводим к
+    плоскому {orders, maxRevision}, чтобы поллер не знал про эту форму."""
+    orders: list[dict] = []
+    for og in (data.get("ordersByOrganizations") or []):
+        orders += (og.get("orders") or [])
+    if not orders:
+        orders = data.get("orders") or []
+    return {"orders": orders, "maxRevision": data.get("maxRevision")}
+
+
 async def fetch_deliveries_by_revision(organization_id: str, start_revision: int) -> dict:
-    """Инкрементально: заказы, изменённые после start_revision. Возвращает {orders, maxRevision}."""
+    """Инкрементально: заказы, изменённые после start_revision. Возвращает {orders, maxRevision}.
+
+    ВАЖНО: iiko ждёт organizationIds (массив). С одиночным organizationId endpoint
+    отвечает 400 INVALID_BODY_JSON_FORMAT — из-за этого фоллбэк-поллер, который
+    должен добирать пропущенные вебхуками обновления, молча не работал.
+    """
     token = await get_token()
     async with httpx.AsyncClient(timeout=60) as c:
         r = await c.post(f"{BASE}/api/1/deliveries/by_revision",
                          headers={"Authorization": f"Bearer {token}"},
-                         json={"organizationId": organization_id, "startRevision": start_revision})
+                         json={"organizationIds": [organization_id],
+                               "startRevision": start_revision})
         r.raise_for_status()
-        return r.json()
+        return _flatten_by_organizations(r.json())
+
+
+async def fetch_deliveries_by_date(organization_id: str, days: int = 2) -> dict:
+    """Заказы филиала за последние `days` суток + текущая ревизия.
+
+    Нужен для первого прохода поллера: стартовать by_revision не с чего —
+    ревизию 0 iiko отклоняет (TOO_OLD_REVISION). Поэтому догоняем по дате и
+    оттуда же берём стартовый курсор (maxRevision).
+    """
+    token = await get_token()
+    local_now = datetime.utcnow() + timedelta(hours=settings.iiko_tz_offset_hours)
+    date_from = (local_now - timedelta(days=days)).strftime("%Y-%m-%d 00:00:00.000")
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.post(f"{BASE}/api/1/deliveries/by_delivery_date_and_status",
+                         headers={"Authorization": f"Bearer {token}"},
+                         json={"organizationIds": [organization_id],
+                               "deliveryDateFrom": date_from})
+        r.raise_for_status()
+        return _flatten_by_organizations(r.json())
 
 
 async def fetch_nomenclature(organization_id: str) -> dict:

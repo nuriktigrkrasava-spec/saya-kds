@@ -221,3 +221,52 @@ def test_normalize_reads_lifecycle_timestamps():
     assert n.when_sended is not None
     assert n.when_delivered is not None
     assert n.when_created < n.when_cooking_completed < n.when_sended < n.when_delivered
+
+
+@respx.mock
+async def test_by_revision_sends_organization_ids_array():
+    """iiko принимает только organizationIds (массив). С одиночным organizationId
+    endpoint отвечает 400 INVALID_BODY_JSON_FORMAT — и фоллбэк-поллер молча не работал."""
+    import json as _json
+    settings.cloud_api_login = "key"
+    respx.post("https://api-ru.iiko.services/api/1/access_token").mock(
+        return_value=Response(200, json={"token": "T"}))
+    route = respx.post("https://api-ru.iiko.services/api/1/deliveries/by_revision").mock(
+        return_value=Response(200, json={
+            "maxRevision": 42,
+            "ordersByOrganizations": [
+                {"organizationId": "org-1",
+                 "orders": [{"id": "o1", "order": {"number": "5"}}]},
+            ],
+        }))
+    data = await c.fetch_deliveries_by_revision("org-1", 10)
+    body = _json.loads(route.calls.last.request.read())
+    assert body["organizationIds"] == ["org-1"]
+    assert body["startRevision"] == 10
+    # Ответ приходит вложенным по организациям — поллеру отдаём плоский список.
+    assert [w["id"] for w in data["orders"]] == ["o1"]
+    assert data["maxRevision"] == 42
+
+
+@respx.mock
+async def test_by_date_returns_orders_and_revision():
+    """Догон по дате: нужен и список заказов, и стартовый курсор ревизии."""
+    import json as _json
+    settings.cloud_api_login = "key"
+    respx.post("https://api-ru.iiko.services/api/1/access_token").mock(
+        return_value=Response(200, json={"token": "T"}))
+    route = respx.post(
+        "https://api-ru.iiko.services/api/1/deliveries/by_delivery_date_and_status").mock(
+        return_value=Response(200, json={
+            "maxRevision": 99,
+            "ordersByOrganizations": [
+                {"organizationId": "org-1",
+                 "orders": [{"id": "o9", "order": {"number": "9"}}]},
+            ],
+        }))
+    data = await c.fetch_deliveries_by_date("org-1", days=2)
+    body = _json.loads(route.calls.last.request.read())
+    assert body["organizationIds"] == ["org-1"]
+    assert "deliveryDateFrom" in body
+    assert [w["id"] for w in data["orders"]] == ["o9"]
+    assert data["maxRevision"] == 99

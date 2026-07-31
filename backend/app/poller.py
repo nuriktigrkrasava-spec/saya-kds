@@ -11,9 +11,18 @@ from app.models import Order
 
 log = logging.getLogger("saya.poller")
 
-# org_id -> последняя увиденная ревизия. Курсор живёт в памяти процесса:
-# начинаем с 0 (весь хвост), затем двигаем вперёд по maxRevision из ответа.
+# org_id -> последняя увиденная ревизия. Курсор живёт в памяти процесса.
+# Пока курсора нет, стартовать by_revision не с чего: ревизию 0 iiko отклоняет
+# (TOO_OLD_REVISION). Поэтому первый проход догоняет по дате и оттуда берёт курсор.
 _revisions: dict[str, int] = {}
+
+
+def _read_catchup_days() -> int:
+    """Глубина догона на первом проходе, суток (POLL_CATCHUP_DAYS, по умолчанию 2)."""
+    try:
+        return max(int(os.environ.get("POLL_CATCHUP_DAYS", "2") or "2"), 1)
+    except (TypeError, ValueError):
+        return 2
 
 
 def _read_orgs() -> list[str]:
@@ -37,8 +46,14 @@ async def poll_once(org_id: str) -> None:
     общий цикл и не мешал остальным филиалам.
     """
     try:
-        current = _revisions.get(org_id, 0)
-        data = await iiko_cloud.fetch_deliveries_by_revision(org_id, current)
+        current = _revisions.get(org_id)
+        if current is None:
+            # Первый проход после старта: догоняем по дате — заодно подбираем
+            # заказы, закрытые в iiko, пока вебхуки терялись.
+            data = await iiko_cloud.fetch_deliveries_by_date(
+                org_id, days=_read_catchup_days())
+        else:
+            data = await iiko_cloud.fetch_deliveries_by_revision(org_id, current)
         for wrapper in data.get("orders", []) or []:
             normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
             async with SessionLocal() as session:
@@ -47,7 +62,7 @@ async def poll_once(org_id: str) -> None:
                     await realtime.broadcast_order(order)
         max_rev = data.get("maxRevision")
         if isinstance(max_rev, int):
-            _revisions[org_id] = max(max_rev, current)
+            _revisions[org_id] = max(max_rev, current or 0)
     except Exception:  # noqa: BLE001 — устойчивость важнее точечной обработки
         log.exception("poller: poll_once failed for org %s", org_id)
 
@@ -103,6 +118,22 @@ async def _hall_refs(org_id: str) -> tuple[list[str], list[str]]:
     return tgs, tables
 
 
+async def _hall_active_from_db(org_id: str) -> set[str]:
+    """Открытые заказы зала филиала из БД — стартовое состояние после рестарта.
+
+    _hall_active живёт в памяти, и перезапуск процесса её обнуляет. Без досева
+    заказы, открытые до рестарта, никогда не попадают в «пропавшие» — они
+    висят на планшете вечно, даже когда касса их давно закрыла.
+    """
+    async with SessionLocal() as session:
+        rows = (await session.execute(
+            select(Order.iiko_order_id).where(
+                Order.org_id == org_id,
+                Order.service_type.in_(("Common", "DineIn")),
+                Order.status.in_(("New", "Bill"))))).scalars().all()
+    return set(rows)
+
+
 async def _close_vanished(org_id: str, vanished: set[str]) -> None:
     """Заказы, пропавшие из выдачи by_table (закрыты/удалены на кассе) —
     помечаем Closed и рассылаем, чтобы исчезли с экранов."""
@@ -146,8 +177,12 @@ async def hall_poll_once(org_id: str) -> None:
             async with SessionLocal() as session:
                 order = await ingest.ingest_order(session, normalized)
                 await realtime.broadcast_order(order)
-        # Закрытие: было в прошлом проходе, пропало сейчас.
-        await _close_vanished(org_id, _hall_active.get(org_id, set()) - seen)
+        # Закрытие: было в прошлом проходе, пропало сейчас. На первом проходе
+        # после старта «прошлый проход» берём из БД (см. _hall_active_from_db).
+        previous = _hall_active.get(org_id)
+        if previous is None:
+            previous = await _hall_active_from_db(org_id)
+        await _close_vanished(org_id, previous - seen)
         _hall_active[org_id] = seen
     except Exception:  # noqa: BLE001 — устойчивость важнее точечной обработки
         log.exception("hall poller: hall_poll_once failed for org %s", org_id)

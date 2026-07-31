@@ -48,16 +48,17 @@ async def test_poll_once_ingests_and_advances_revision(memory_maker):
         return_value=Response(200, json={"token": "T"}))
     route = respx.post("https://api-ru.iiko.services/api/1/deliveries/by_revision").mock(
         return_value=Response(200, json={
-            "orders": [{
+            "ordersByOrganizations": [{"organizationId": "org-1", "orders": [{
                 "id": "o1",
                 "order": {"number": "5",
                           "items": [{"product": {"id": "p1", "name": "Ролл"},
                                      "amount": 1}]},
-            }],
+            }]}],
             "maxRevision": 7,
         }))
 
     org = "org-1"
+    poller._revisions[org] = 3       # курсор уже есть -> идём инкрементально
     await poller.poll_once(org)
 
     # Заказ заингещён.
@@ -68,8 +69,40 @@ async def test_poll_once_ingests_and_advances_revision(memory_maker):
 
     # Курсор ревизии продвинулся до maxRevision.
     assert poller._revisions[org] == 7
-    # Запрос ушёл со стартовой ревизией 0.
-    assert b'"startRevision":0' in route.calls.last.request.read().replace(b" ", b"")
+    # Запрос ушёл с текущей ревизии, а не с нуля.
+    assert b'"startRevision":3' in route.calls.last.request.read().replace(b" ", b"")
+
+
+@respx.mock
+async def test_first_pass_catches_up_by_date_and_seeds_cursor(memory_maker):
+    """Первый проход (курсора нет) догоняет по дате: ревизию 0 iiko отклоняет
+    (TOO_OLD_REVISION), поэтому by_revision на первом проходе не дёргаем вовсе.
+    Именно этот проход подбирает заказы, закрытые в iiko, пока вебхуки терялись."""
+    settings.cloud_api_login = "key"
+    respx.post("https://api-ru.iiko.services/api/1/access_token").mock(
+        return_value=Response(200, json={"token": "T"}))
+    rev = respx.post("https://api-ru.iiko.services/api/1/deliveries/by_revision").mock(
+        return_value=Response(400, json={"error": "TOO_OLD_REVISION"}))
+    respx.post(
+        "https://api-ru.iiko.services/api/1/deliveries/by_delivery_date_and_status").mock(
+        return_value=Response(200, json={
+            "ordersByOrganizations": [{"organizationId": "org-1", "orders": [{
+                "id": "old-1",
+                "order": {"number": "77", "status": "Closed",
+                          "items": [{"product": {"id": "p1", "name": "Ролл"},
+                                     "amount": 1}]},
+            }]}],
+            "maxRevision": 99,
+        }))
+
+    await poller.poll_once("org-1")
+
+    assert not rev.called
+    async with memory_maker() as s:
+        order = (await s.execute(
+            select(Order).where(Order.iiko_order_id == "old-1"))).scalar_one()
+        assert order.status == "Closed"
+    assert poller._revisions["org-1"] == 99
 
 
 @respx.mock
@@ -82,3 +115,40 @@ async def test_poll_once_swallows_errors(memory_maker):
     await poller.poll_once("org-err")
     # Курсор не двинулся.
     assert poller._revisions.get("org-err", 0) == 0
+
+
+async def test_hall_closes_orders_opened_before_restart(memory_maker, monkeypatch):
+    """Заказ зала, открытый ДО перезапуска процесса, должен закрыться.
+
+    _hall_active живёт в памяти и обнуляется рестартом: без досева из БД такие
+    заказы никогда не попадают в «пропавшие» и висят на планшете вечно.
+    """
+    from app import iiko_cloud
+
+    poller._hall_active.clear()
+    poller._hall_cache.clear()
+
+    async with memory_maker() as s:
+        s.add(Order(iiko_order_id="h1", org_id="org-1", number="12",
+                    status="Bill", service_type="Common"))
+        await s.commit()
+
+    monkeypatch.setattr(iiko_cloud, "fetch_terminal_groups",
+                        lambda org: _async_value(["tg1"]))
+    monkeypatch.setattr(iiko_cloud, "fetch_sections",
+                        lambda tgs: _async_value(["t1"]))
+    monkeypatch.setattr(iiko_cloud, "order_init_by_table",
+                        lambda *a, **k: _async_value(None))
+    monkeypatch.setattr(iiko_cloud, "order_by_table",
+                        lambda *a, **k: _async_value([]))  # в зале пусто
+
+    await poller.hall_poll_once("org-1")
+
+    async with memory_maker() as s:
+        order = (await s.execute(
+            select(Order).where(Order.iiko_order_id == "h1"))).scalar_one()
+        assert order.status == "Closed"
+
+
+async def _async_value(value):
+    return value

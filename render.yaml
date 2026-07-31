@@ -47,6 +47,16 @@ services:
       # (/tg/shift-employees) и фильтру курьеров на дашборде.
       - key: BRANCH_CODE
         value: "10ASTKBN"
+      # Фоллбэк-поллер доставки: добирает из iiko обновления, потерянные
+      # вебхуками, — без него заказы висят на планшете незакрытыми (31.07.2026).
+      # Первый проход после старта догоняет POLL_CATCHUP_DAYS суток, дальше идёт
+      # инкрементально по ревизиям. 0 = выключен.
+      - key: POLL_INTERVAL_SECONDS
+        value: "60"
+      - key: POLL_ORG_IDS
+        value: "d9a4272f-65f0-4e56-8846-434f2348889c"
+      - key: POLL_CATCHUP_DAYS
+        value: "2"
       # Поллер зала: тянет dine-in заказы из Cloud (order/by_table) раз в N сек.
       # iiko починили выгрузку зала у Алиева 06.07.2026. 0 = выключен.
       - key: HALL_POLL_INTERVAL_SECONDS
