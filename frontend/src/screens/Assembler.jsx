@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
 import CourierMiniMap from "../components/CourierMiniMap.jsx";
 import StopListBanner from "../components/StopListBanner.jsx";
+import AudioGuard from "../components/AudioGuard.jsx";
 import { useOrders } from "../lib/orders.js";
 import { getOperatorName, getSession } from "../lib/auth.js";
 import { api } from "../lib/api.js";
@@ -426,6 +427,7 @@ export default function Assembler() {
 
   return (
     <div className="screen" style={{ "--accent": ACCENT }}>
+      <AudioGuard />
       <ScreenHeader title="Сборщик" accent={ACCENT} connected={connected} />
       <main className="screen-body">
         <StopListBanner />
