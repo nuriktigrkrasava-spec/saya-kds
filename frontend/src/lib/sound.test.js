@@ -77,4 +77,16 @@ describe("модуль звука не даёт себя выключить", ()
     playNewOrder();
     expect(spy).toHaveBeenCalled();
   });
+
+  it("играет, даже если на планшете лежит старая настройка saya_sound_on=0", async () => {
+    localStorage.setItem("saya_sound_on", "0");
+    unlockAudio();
+    await Promise.resolve();
+    const spy = vi.spyOn(FakeAudioContext.prototype, "createOscillator");
+    // spyOn поверх уже установленного спая возвращает его же вместе с историей
+    // вызовов из предыдущего теста — обнуляем, иначе проверка ничего не докажет.
+    spy.mockClear();
+    playNewOrder();
+    expect(spy).toHaveBeenCalled();
+  });
 });
