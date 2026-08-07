@@ -444,13 +444,31 @@ async def order_assemble(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
+async def _push_on_way(session, order) -> tuple[bool, dict]:
+    """Перевести заказ в iiko в «В пути» (deliveryStatus=OnWay).
+
+    Без этого iiko не двигает заказ из «Готов» во вкладку «В пути»: назначение
+    курьера статус доставки НЕ меняет (жалоба заказчика 07.08.2026 — курьер в
+    iiko проставлялся, а заказ висел в готовых). Пишет iiko_sync_error и аудит,
+    ошибку наружу не бросает — локальный прогресс важнее синхронизации."""
+    if not order.org_id or not order.iiko_order_id:
+        return True, {}
+    ok, detail = await _iiko_write.set_delivery_status(
+        order.org_id, order.iiko_order_id, "OnWay")
+    order.iiko_sync_error = None if ok else str(detail)[:500]
+    await session.commit()
+    await _log_iiko_event(session, order, "update_order_delivery_status", ok, detail)
+    return ok, detail
+
+
 @app.post("/orders/{order_id}/take")
 async def order_take(order_id: int, body: ActionIn,
                      session: AsyncSession = Depends(get_session)):
-    """Курьер забрал заказ."""
+    """Курьер забрал заказ. В iiko уходит deliveryStatus=OnWay."""
     order = await _load_order(session, order_id)
     order.on_way_at = _dt.utcnow()
     await _log_action(session, order, "take", actor_name=body.by)
+    await _push_on_way(session, order)
     return await _order_action_and_broadcast(session, order_id)
 
 
@@ -1353,6 +1371,10 @@ async def order_assign_courier(order_id: int, body: AssignCourierIn,
     await session.commit()
     if order.org_id:
         await _log_iiko_event(session, order, method, ok, detail)
+    # Передача курьеру = заказ уехал: двигаем статус доставки, иначе в iiko он
+    # остаётся в «Готов». Кнопки «Забрал» у курьера в TG-апе нет.
+    if ok:
+        ok, detail = await _push_on_way(session, order)
     order = await _load_order(session, order_id)
     await realtime.broadcast_order(order)
     return realtime.order_payload(order)

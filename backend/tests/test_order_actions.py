@@ -141,6 +141,8 @@ async def test_assign_courier_success_syncs_to_iiko(client):
             {"organizationId": "org-1", "items": [{"id": "emp-9", "displayName": "Иван Курьер"}]}]}))
     upd = respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
         return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c2"}))
     _command_ok()
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
@@ -150,6 +152,83 @@ async def test_assign_courier_success_syncs_to_iiko(client):
     assert r.status_code == 200
     assert upd.called
     assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_assign_courier_moves_order_to_on_way_in_iiko(client):
+    """Назначили курьера — заказ должен уехать во вкладку «В пути» в iiko.
+
+    Курьер физически забирает заказ в момент передачи сборщиком: кнопки «Забрал»
+    в TG-апе курьера нет. Раньше KDS ставил только курьера, статус доставки в
+    iiko не двигался, и заказ висел в «Готов» — жалоба заказчика 07.08.2026."""
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    respx.post(f"{_IIKO}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": [
+            {"organizationId": "org-1", "items": [{"id": "emp-9", "displayName": "Иван Курьер"}]}]}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c2"}))
+    _command_ok()
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/assign-courier",
+                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+    assert r.status_code == 200
+    assert st.called, "статус доставки в iiko не отправлен — заказ не попадёт в «В пути»"
+    assert b'"OnWay"' in st.calls.last.request.read()
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_assign_courier_on_way_failure_does_not_hide_assignment(client):
+    """Курьер назначен, а перевод в «В пути» не прошёл — назначение не откатываем,
+    но ошибку показываем сборщику."""
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    respx.post(f"{_IIKO}/api/1/employees/couriers").mock(
+        return_value=httpx.Response(200, json={"employees": [
+            {"organizationId": "org-1", "items": [{"id": "emp-9", "displayName": "Иван Курьер"}]}]}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(500, json={"error": "BOOM"}))
+    _command_ok()
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/assign-courier",
+                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+    assert r.status_code == 200
+    assert r.json()["iiko_sync_error"]
+    async with maker() as s:
+        o = (await s.execute(select(Order).where(Order.id == oid))).scalar_one()
+        assert o.assigned_courier_name == "Иван Курьер"
+
+
+@respx.mock
+async def test_take_moves_order_to_on_way_in_iiko(client):
+    """Кнопка «Забрал» на веб-экране курьера тоже двигает статус доставки в iiko."""
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    _command_ok()
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/take", json={"by": "Курьер"})
+    assert r.status_code == 200 and r.json()["on_way"] is True
+    assert st.called
+    assert b'"OnWay"' in st.calls.last.request.read()
 
 
 @respx.mock
