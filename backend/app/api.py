@@ -1493,9 +1493,13 @@ async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session
                _Order.service_type == "DeliveryByCourier",
                _Order.assembled_at.is_not(None),
                _Order.delivered_at.is_(None),
-               # У кого курьер уже есть — те в «Моих» у своего курьера.
+               # У кого курьер уже есть — те в «Моих» у своего курьера. Признак
+               # «занят» — именно КОД: «Мои» ищут по assigned_courier_code, и
+               # только он адресует заказ конкретному курьеру. По имени НЕ
+               # фильтруем: ingest ставит имя из iiko всегда, а код — лишь когда
+               # сотрудник нашёлся в RMS, поэтому заказ с одним именем не попадёт
+               # ни в чьи «Мои» и обязан остаться здесь, а не стать невидимкой.
                _Order.assigned_courier_code.is_(None),
-               _Order.assigned_courier_name.is_(None),
                # Закрытые/отменённые в iiko, у которых delivered_at не успел
                # проставиться (артефакт закрытия) — курьеру не показываем.
                _Order.status.not_in(("Closed", "Cancelled", "Delivered")))

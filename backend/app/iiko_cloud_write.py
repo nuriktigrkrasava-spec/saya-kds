@@ -1,8 +1,17 @@
 from __future__ import annotations
+import asyncio
 import time
 import httpx
 from app.iiko_cloud import BASE, get_token
 from app.rms import _norm_name
+
+# Команды deliveries/* в iiko АСИНХРОННЫЕ: 200 приходит сразу и означает лишь
+# «принято в очередь», а выполняется команда позже. Раньше мы слали оплату,
+# статус и close подряд, не дожидаясь исполнения, — close успевал обогнать
+# оплату, и iiko по своему правилу печатал чек, но оставлял доставку ОТКРЫТОЙ.
+# Ошибок при этом не было нигде: все три вызова вернули 200.
+COMMAND_TIMEOUT_SECONDS = 15.0
+COMMAND_POLL_SECONDS = 0.4
 
 
 async def _post(path: str, body: dict) -> tuple[bool, dict]:
@@ -22,27 +31,61 @@ async def _post(path: str, body: dict) -> tuple[bool, dict]:
         return False, {"error": str(e)[:500]}
 
 
+async def _await_command(org_id: str, ok: bool, detail: dict) -> tuple[bool, dict]:
+    """Дожидается фактического выполнения асинхронной команды iiko.
+
+    Успех — только состояние Success из commands/status. Ответ без
+    correlationId считаем синхронным и возвращаем как есть."""
+    if not ok:
+        return ok, detail
+    correlation_id = (detail or {}).get("correlationId")
+    if not correlation_id:
+        return ok, detail
+
+    deadline = time.monotonic() + COMMAND_TIMEOUT_SECONDS
+    last: dict = {}
+    while True:
+        got, status = await _post("commands/status",
+                                  {"organizationId": org_id,
+                                   "correlationId": correlation_id})
+        if got:
+            last = status
+            state = (status or {}).get("state") or ""
+            if state == "Success":
+                return True, status
+            if state == "Error":
+                return False, status
+        if time.monotonic() >= deadline:
+            return False, {"error": "command_timeout",
+                           "correlationId": correlation_id, "last": last}
+        await asyncio.sleep(COMMAND_POLL_SECONDS)
+
+
 async def assign_courier(org_id: str, order_id: str, employee_id: str) -> tuple[bool, dict]:
-    return await _post("deliveries/update_order_courier",
-                       {"organizationId": org_id, "orderId": order_id,
-                        "employeeId": employee_id})
+    return await _await_command(org_id, *(await _post(
+        "deliveries/update_order_courier",
+        {"organizationId": org_id, "orderId": order_id,
+         "employeeId": employee_id})))
 
 
 async def set_payments(org_id: str, order_id: str, payment_items: list[dict]) -> tuple[bool, dict]:
-    return await _post("deliveries/update_order_payments",
-                       {"organizationId": org_id, "orderId": order_id,
-                        "paymentItems": payment_items})
+    return await _await_command(org_id, *(await _post(
+        "deliveries/update_order_payments",
+        {"organizationId": org_id, "orderId": order_id,
+         "paymentItems": payment_items})))
 
 
 async def close_order(org_id: str, order_id: str) -> tuple[bool, dict]:
-    return await _post("deliveries/close",
-                       {"organizationId": org_id, "orderId": order_id})
+    return await _await_command(org_id, *(await _post(
+        "deliveries/close",
+        {"organizationId": org_id, "orderId": order_id})))
 
 
 async def set_delivery_status(org_id: str, order_id: str, status: str) -> tuple[bool, dict]:
-    return await _post("deliveries/update_order_delivery_status",
-                       {"organizationId": org_id, "orderId": order_id,
-                        "deliveryStatus": status})
+    return await _await_command(org_id, *(await _post(
+        "deliveries/update_order_delivery_status",
+        {"organizationId": org_id, "orderId": order_id,
+         "deliveryStatus": status})))
 
 
 async def list_payment_types(org_id: str) -> list[dict]:

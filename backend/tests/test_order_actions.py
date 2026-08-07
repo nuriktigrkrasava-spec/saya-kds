@@ -124,6 +124,12 @@ def _token():
         return_value=httpx.Response(200, json={"token": "T"}))
 
 
+def _command_ok():
+    """Команды deliveries/* асинхронные: успех подтверждается commands/status."""
+    return respx.post(f"{_IIKO}/api/1/commands/status").mock(
+        return_value=httpx.Response(200, json={"state": "Success"}))
+
+
 @respx.mock
 async def test_assign_courier_success_syncs_to_iiko(client):
     from app import iiko_cloud_write
@@ -135,6 +141,7 @@ async def test_assign_courier_success_syncs_to_iiko(client):
             {"organizationId": "org-1", "items": [{"id": "emp-9", "displayName": "Иван Курьер"}]}]}))
     upd = respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
         return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    _command_ok()
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
 
@@ -178,6 +185,7 @@ async def test_delivered_with_payment_closes_in_iiko(client):
         return_value=httpx.Response(200, json={}))
     close = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
         return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    _command_ok()
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
 

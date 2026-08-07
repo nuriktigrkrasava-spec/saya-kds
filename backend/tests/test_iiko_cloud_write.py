@@ -22,6 +22,9 @@ async def test_assign_courier_ok_sends_employee_id():
     _token_route()
     route = respx.post(f"{BASE}/api/1/deliveries/update_order_courier").mock(
         return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    # Команда асинхронная: успех подтверждается только через commands/status.
+    respx.post(f"{BASE}/api/1/commands/status").mock(
+        return_value=httpx.Response(200, json={"state": "Success"}))
     ok, detail = await w.assign_courier("org-1", "ord-1", "emp-1")
     assert ok is True
     body = route.calls.last.request.read()
@@ -128,3 +131,49 @@ def test_payment_item_by_id_externally_false():
     item = w.payment_item_by_id("org-x", "pt-1", "Card", 6990)
     assert item == {"paymentTypeId": "pt-1", "paymentTypeKind": "Card",
                     "sum": 6990, "isProcessedExternally": False}
+
+
+# ── Асинхронность команд iiko ───────────────────────────────────────────────
+# deliveries/* возвращают 200 + correlationId СРАЗУ, а выполняются в фоне.
+# Пока команда не подтверждена через commands/status, слать следующую нельзя:
+# close, обогнавший оплату, печатает чек и оставляет заказ ОТКРЫТЫМ.
+
+def _status_route(*states):
+    """commands/status отвечает переданными состояниями по очереди."""
+    responses = [httpx.Response(200, json={"state": s}) for s in states]
+    return respx.post(f"{BASE}/api/1/commands/status").mock(side_effect=responses)
+
+
+@respx.mock
+async def test_close_waits_for_command_success():
+    """200 на close — ещё не успех: ждём подтверждения выполнения."""
+    _token_route()
+    respx.post(f"{BASE}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    route = _status_route("InProgress", "Success")
+    ok, _ = await w.close_order("org-1", "ord-1")
+    assert ok is True
+    assert route.call_count == 2  # дождались, а не поверили первому ответу
+
+
+@respx.mock
+async def test_close_reports_failure_when_command_errors():
+    """Команда принята (200), но упала в iiko -> это НЕ успех."""
+    _token_route()
+    respx.post(f"{BASE}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    _status_route("Error")
+    ok, detail = await w.close_order("org-1", "ord-1")
+    assert ok is False, "200 + Error в статусе не должен считаться успехом"
+
+
+@respx.mock
+async def test_set_payments_waits_too():
+    """Оплата тоже асинхронна: close нельзя слать, пока она не применилась."""
+    _token_route()
+    respx.post(f"{BASE}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c2"}))
+    route = _status_route("Success")
+    ok, _ = await w.set_payments("org-1", "ord-1", [{"sum": 100}])
+    assert ok is True
+    assert route.call_count == 1
