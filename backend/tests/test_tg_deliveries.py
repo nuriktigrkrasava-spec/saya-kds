@@ -40,6 +40,11 @@ async def client():
             _order(6, assembled_at=TS, customer_name="Wolt Астана"),   # агрегатор — мимо
             _order(7, assembled_at=TS, org_id="org-2"),                # чужой филиал — мимо
             _order(8, assembled_at=TS, status="Closed"),               # закрыт в iiko — мимо
+            # Курьер из iiko есть по имени, но кода RMS нет (ingest.py ставит имя
+            # всегда, а код — только если сотрудник нашёлся в RMS). По коду такой
+            # заказ не попадёт ни в чьи «Мои», значит он ЖДЁТ курьера и обязан
+            # быть виден, иначе становится невидимкой для всех.
+            _order(9, assembled_at=TS, assigned_courier_name="Адильхан"),
         ])
         await s.commit()
 
@@ -66,7 +71,7 @@ async def test_tg_deliveries_filters_and_cc_phone(client, monkeypatch):
     body = r.json()
     assert body["call_center_phone"] == "+77000000000"
     nums = [o["number"] for o in body["orders"]]
-    assert nums == ["1"]
+    assert nums == ["1", "9"]
 
 
 @pytest.mark.asyncio
