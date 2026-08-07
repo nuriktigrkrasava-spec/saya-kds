@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import ScreenHeader from "./ScreenHeader.jsx";
 import KitchenItemRow from "./KitchenItemRow.jsx";
 import StopListBanner from "./StopListBanner.jsx";
+import AudioGuard from "./AudioGuard.jsx";
 import { useOrders } from "../lib/orders.js";
 import { getOperatorName } from "../lib/auth.js";
 import {
@@ -144,6 +145,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
 
   return (
     <div className="screen" style={{ "--accent": accent }}>
+      <AudioGuard />
       <ScreenHeader title={title} accent={accent} connected={connected} />
 
       <main className="screen-body">
