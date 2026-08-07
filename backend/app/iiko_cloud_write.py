@@ -107,19 +107,23 @@ async def read_order_state(org_id: str, order_id: str) -> dict | None:
       самовывоз) всегда падает с ошибкой 173 — этапов доставки у них нет.
 
     Предварительные оплаты (`isPreliminary`) — намерение из iikoFront, а не
-    деньги: они в «оплачено» не считаются. None — прочитать не удалось.
+    деньги: они в «оплачено» не считаются. None — прочитать не удалось,
+    `is_delivery=False` — заказ зала/выноса, доставки для него не существует.
     """
     try:
         wrapper = await iiko_cloud.fetch_delivery_by_id(org_id, order_id)
     except Exception:  # noqa: BLE001 — сеть / токен / 5xx
         return None
-    order = (wrapper or {}).get("order") or {}
+    if wrapper is None:
+        return {"is_delivery": False}
+    order = wrapper.get("order") or {}
     total = order.get("sum")
     if total is None:
         return None
     paid = sum((p.get("sum") or 0) for p in (order.get("payments") or [])
                if not p.get("isPreliminary"))
-    return {"total": total,
+    return {"is_delivery": True,
+            "total": total,
             "paid": paid + 0.01 >= total,
             "service_type": (order.get("orderType") or {}).get("orderServiceType")}
 

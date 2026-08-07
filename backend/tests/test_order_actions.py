@@ -459,6 +459,30 @@ async def test_delivered_pickup_order_skips_delivery_status(client):
 
 
 @respx.mock
+async def test_delivered_hall_order_is_not_a_delivery(client):
+    """Заказ зала/выноса закрывает касса — в deliveries его вообще нет.
+
+    Прод 07.08.2026, заказ №86 (service_type Common): проверка состояния честно
+    не нашла доставку и повесила сборщику красное «не ушло в iiko». Это не
+    ошибка — по такому заказу писать в iiko просто нечего."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    respx.post(f"{_IIKO}/api/1/deliveries/by_id").mock(
+        return_value=httpx.Response(200, json={"orders": []}))
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered", json={"by": "Сборщик"})
+    assert r.status_code == 200 and r.json()["delivered"] is True
+    assert not pay.called and not cl.called
+    assert r.json()["iiko_sync_error"] is None, "зал — это не сбой синхронизации"
+
+
+@respx.mock
 async def test_delivered_unreadable_order_does_not_guess_payment(client):
     """Не смогли прочитать заказ в iiko — оплату наугад не шлём (риск двойного чека)."""
     from app import iiko_cloud_write; iiko_cloud_write.reset_caches()

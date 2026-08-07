@@ -488,6 +488,9 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
     if state is None:
         # Вслепую платить нельзя: промахнуться суммой дороже, чем не закрыть.
         return False, {"error": "order_state_unavailable"}
+    if not state["is_delivery"]:
+        # Зал/вынос: доставки не существует, заказ закрывает касса. Не сбой.
+        return True, {"skipped": "not_a_delivery"}
 
     if not state["paid"]:
         pt_id = body.payment_type_id or order.payment_type_id
