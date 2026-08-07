@@ -10,8 +10,12 @@ const AGGREGATORS = [
 ];
 
 export function orderChannel(order) {
-  const cust = (order?.customer || "").toLowerCase();
-  const agg = AGGREGATORS.find((a) => a.keys.some((k) => cust.includes(k)));
+  // Тип оплаты у агрегаторов свой («Яндекс безнал», «Wolt Онлайн») — по нему
+  // заказ опознаётся, даже когда в имени клиента агрегатора нет, а
+  // service_type приехал как DeliveryByCourier (прод, заказ №91 от 07.08.2026:
+  // сборщику показали выбор курьера, а iiko назначение отбил).
+  const hay = `${order?.customer || ""} ${order?.payment_type_name || ""}`.toLowerCase();
+  const agg = AGGREGATORS.find((a) => a.keys.some((k) => hay.includes(k)));
   if (agg) {
     return {
       type: "aggregator",

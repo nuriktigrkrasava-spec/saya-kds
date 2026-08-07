@@ -177,3 +177,28 @@ async def test_set_payments_waits_too():
     ok, _ = await w.set_payments("org-1", "ord-1", [{"sum": 100}])
     assert ok is True
     assert route.call_count == 1
+
+
+@respx.mock
+async def test_command_not_found_fails_fast():
+    """410 PASSED_COMMAND_NOT_FOUND — окончательный отказ, а не повод ждать таймаут.
+
+    Так iiko отвечает про команду, которой нет в хранилище (например, она упала
+    сразу). Раньше мы такой ответ не распознавали и честно висели 15 секунд,
+    заставляя курьера ждать впустую."""
+    _token_route()
+    respx.post(f"{BASE}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    route = respx.post(f"{BASE}/api/1/commands/status").mock(
+        return_value=httpx.Response(410, json={
+            "correlationId": "c1", "error": "PASSED_COMMAND_NOT_FOUND",
+            "errorDescription": "Command not found in commands storage"}))
+
+    started = time.monotonic()
+    ok, detail = await w.close_order("org-1", "ord-1")
+    elapsed = time.monotonic() - started
+
+    assert ok is False
+    assert elapsed < 3, f"ждали {elapsed:.1f}с вместо мгновенного отказа"
+    assert route.call_count == 1, "повторять опрос несуществующей команды бессмысленно"
+    assert detail.get("error") == "PASSED_COMMAND_NOT_FOUND"

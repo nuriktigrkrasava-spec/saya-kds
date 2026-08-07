@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import time
 import httpx
+from app import iiko_cloud
 from app.iiko_cloud import BASE, get_token
 from app.rms import _norm_name
 
@@ -12,6 +13,11 @@ from app.rms import _norm_name
 # Ошибок при этом не было нигде: все три вызова вернули 200.
 COMMAND_TIMEOUT_SECONDS = 15.0
 COMMAND_POLL_SECONDS = 0.4
+
+# Ответы commands/status, после которых ждать бессмысленно: команды нет в
+# хранилище iiko (410), значит она уже не выполнится. Раньше мы такой ответ не
+# распознавали и висели весь таймаут, заставляя курьера ждать впустую.
+COMMAND_TERMINAL_ERRORS = {"PASSED_COMMAND_NOT_FOUND"}
 
 
 async def _post(path: str, body: dict) -> tuple[bool, dict]:
@@ -55,6 +61,9 @@ async def _await_command(org_id: str, ok: bool, detail: dict) -> tuple[bool, dic
                 return True, status
             if state == "Error":
                 return False, status
+        elif (status or {}).get("error") in COMMAND_TERMINAL_ERRORS:
+            # Команды нет в хранилище — она уже не выполнится, ждать нечего.
+            return False, status
         if time.monotonic() >= deadline:
             return False, {"error": "command_timeout",
                            "correlationId": correlation_id, "last": last}
@@ -86,6 +95,33 @@ async def set_delivery_status(org_id: str, order_id: str, status: str) -> tuple[
         "deliveries/update_order_delivery_status",
         {"organizationId": org_id, "orderId": order_id,
          "deliveryStatus": status})))
+
+
+async def read_order_state(org_id: str, order_id: str) -> dict | None:
+    """Что iiko думает о заказе прямо сейчас: сумма, оплачен ли, тип доставки.
+
+    Нужно перед записью, потому что:
+    * `update_order_payments` НЕ заменяет оплаты, а добавляет — на уже оплаченном
+      заказе получается двойной чек (прод, заказ №91 от 07.08.2026);
+    * `update_order_delivery_status` у заказов `DeliveryByClient` (Яндекс/Wolt,
+      самовывоз) всегда падает с ошибкой 173 — этапов доставки у них нет.
+
+    Предварительные оплаты (`isPreliminary`) — намерение из iikoFront, а не
+    деньги: они в «оплачено» не считаются. None — прочитать не удалось.
+    """
+    try:
+        wrapper = await iiko_cloud.fetch_delivery_by_id(org_id, order_id)
+    except Exception:  # noqa: BLE001 — сеть / токен / 5xx
+        return None
+    order = (wrapper or {}).get("order") or {}
+    total = order.get("sum")
+    if total is None:
+        return None
+    paid = sum((p.get("sum") or 0) for p in (order.get("payments") or [])
+               if not p.get("isPreliminary"))
+    return {"total": total,
+            "paid": paid + 0.01 >= total,
+            "service_type": (order.get("orderType") or {}).get("orderServiceType")}
 
 
 async def list_payment_types(org_id: str) -> list[dict]:

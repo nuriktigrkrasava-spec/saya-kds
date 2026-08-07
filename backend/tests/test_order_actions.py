@@ -130,6 +130,14 @@ def _command_ok():
         return_value=httpx.Response(200, json={"state": "Success"}))
 
 
+def _by_id(total=1000.0, payments=(), service="DeliveryByCourier"):
+    """Состояние заказа в iiko, которое /delivered читает перед записью."""
+    return respx.post(f"{_IIKO}/api/1/deliveries/by_id").mock(
+        return_value=httpx.Response(200, json={"orders": [{"id": "o1", "order": {
+            "sum": total, "payments": list(payments),
+            "orderType": {"orderServiceType": service}}}]}))
+
+
 @respx.mock
 async def test_assign_courier_success_syncs_to_iiko(client):
     from app import iiko_cloud_write
@@ -232,6 +240,34 @@ async def test_take_moves_order_to_on_way_in_iiko(client):
 
 
 @respx.mock
+async def test_assign_courier_refused_for_pickup_order(client):
+    """Яндекс/Wolt/самовывоз — не наша доставка, курьера на них не вешаем.
+
+    Наша копия типа заказа бывает устаревшей (заказ №91 на проде значился
+    курьерским, а в iiko был DeliveryByClient — назначение отбилось ошибкой).
+    Спрашиваем iiko и чиним service_type у себя, чтобы карточка сборщика
+    переключилась на «Выдан»."""
+    from app import iiko_cloud_write
+    iiko_cloud_write.reset_caches()
+    c, maker = client
+    _token()
+    _by_id(service="DeliveryByClient")
+    upd = respx.post(f"{_IIKO}/api/1/deliveries/update_order_courier").mock(
+        return_value=httpx.Response(200, json={"correlationId": "c1"}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/assign-courier",
+                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+    assert r.status_code == 409
+    assert not upd.called
+    async with maker() as s:
+        o = (await s.execute(select(Order).where(Order.id == oid))).scalar_one()
+        assert o.assigned_courier_name is None, "курьер не должен зависнуть на заказе"
+        assert o.service_type == "DeliveryByClient", "тип заказа поправлен по iiko"
+
+
+@respx.mock
 async def test_assign_courier_unmatched_sets_sync_error(client):
     from app import iiko_cloud_write
     iiko_cloud_write.reset_caches()
@@ -258,6 +294,7 @@ async def test_delivered_with_payment_closes_in_iiko(client):
     iiko_cloud_write.reset_caches()
     c, maker = client
     _token()
+    _by_id(payments=[])
     pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
         return_value=httpx.Response(200, json={}))
     st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
@@ -331,6 +368,7 @@ async def test_delivered_iiko_down_still_200(client):
 async def test_delivered_full_close_flow(client):
     from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
     c, maker = client; _token()
+    _by_id(payments=[])
     pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(return_value=httpx.Response(200, json={}))
     st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(return_value=httpx.Response(200, json={}))
     cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(return_value=httpx.Response(200, json={}))
@@ -343,6 +381,102 @@ async def test_delivered_full_close_flow(client):
     body = st.calls.last.request.read()
     assert b'"Delivered"' in body
     assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_paid_order_does_not_add_second_payment(client):
+    """Заказ уже оплачен в iiko — вторую оплату не шлём.
+
+    update_order_payments не заменяет оплаты, а ДОБАВЛЯЕТ: на проде 07.08.2026
+    заказ №91 на 8495 ₸ получил вторую «Яндекс безнал» 8495 ₸ и стал «оплачен»
+    на 16990 ₸. Оплату шлём только когда заказ в iiko реально не закрыт по деньгам."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=8495.0, payments=[{"sum": 8495.0, "isPreliminary": False}])
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_type_id": "pt-1", "payment_kind": "Card"})
+    assert r.status_code == 200
+    assert not pay.called, "повторная оплата уже оплаченного заказа — двойной чек"
+    assert st.called and cl.called
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_preliminary_payment_is_not_real_payment(client):
+    """Предварительная оплата из iikoFront — намерение, а не деньги: её подтверждаем."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=1000.0, payments=[{"sum": 1000.0, "isPreliminary": True}])
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_type_id": "pt-1", "payment_kind": "Card"})
+    assert r.status_code == 200 and pay.called
+    assert b'"sum":1000.0' in pay.calls.last.request.read(), "сумму берём из iiko, а не из своей БД"
+
+
+@respx.mock
+async def test_delivered_pickup_order_skips_delivery_status(client):
+    """DeliveryByClient (Яндекс/Wolt/самовывоз) — этапов доставки у заказа нет.
+
+    Любой update_order_delivery_status по такому заказу iiko отбивает ошибкой 173
+    «Статус заказа был обновлен на кассе ресторана» (проверено на проде на заказе
+    №91). Раньше цепочка на этом обрывалась и close не вызывался вовсе — заказ
+    оставался открытым."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=8495.0, payments=[{"sum": 8495.0, "isPreliminary": False}],
+           service="DeliveryByClient")
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(500, json={"error": "BOOM"}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Сборщик", "payment_type_id": "pt-1", "payment_kind": "Card"})
+    assert r.status_code == 200
+    assert not st.called, "для самовывоза статус доставки слать нельзя"
+    assert cl.called, "заказ всё равно должен закрываться"
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_unreadable_order_does_not_guess_payment(client):
+    """Не смогли прочитать заказ в iiko — оплату наугад не шлём (риск двойного чека)."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    respx.post(f"{_IIKO}/api/1/deliveries/by_id").mock(
+        return_value=httpx.Response(500, json={"error": "boom"}))
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_type_id": "pt-1", "payment_kind": "Card"})
+    assert r.status_code == 200 and r.json()["delivered"] is True
+    assert not pay.called and not cl.called
+    assert r.json()["iiko_sync_error"]
 
 
 @respx.mock

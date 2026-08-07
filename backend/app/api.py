@@ -472,23 +472,52 @@ async def order_take(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
+async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
+    """Довести заказ в iiko до закрытого: оплата → Delivered → close.
+
+    Каждый шаг делается только если он вообще нужен и разрешён — состояние
+    заказа читаем из iiko, а не из своей БД:
+    * оплату шлём, ТОЛЬКО если заказ ещё не оплачен (update_order_payments
+      добавляет оплату, а не заменяет → иначе двойной чек);
+    * сумму берём из iiko, а не из order.total (та может быть пустой);
+    * Delivered шлём только курьерским заказам: у DeliveryByClient (Яндекс,
+      Wolt, самовывоз) этапов доставки нет и любой статус отбивается ошибкой 173;
+    * close зовём в обоих случаях — ради него всё и затевалось.
+    """
+    state = await _iiko_write.read_order_state(order.org_id, order.iiko_order_id)
+    if state is None:
+        # Вслепую платить нельзя: промахнуться суммой дороже, чем не закрыть.
+        return False, {"error": "order_state_unavailable"}
+
+    if not state["paid"]:
+        pt_id = body.payment_type_id or order.payment_type_id
+        if not pt_id:
+            return False, {"error": "no_payment_type"}
+        kind = body.payment_kind or order.payment_type_kind
+        item = _iiko_write.payment_item_by_id(order.org_id, pt_id, kind, state["total"])
+        ok, detail = await _iiko_write.set_payments(
+            order.org_id, order.iiko_order_id, [item])
+        if not ok:
+            return ok, detail
+
+    if state["service_type"] == "DeliveryByCourier":
+        ok, detail = await _iiko_write.set_delivery_status(
+            order.org_id, order.iiko_order_id, "Delivered")
+        if not ok:
+            return ok, detail
+
+    return await _iiko_write.close_order(order.org_id, order.iiko_order_id)
+
+
 @app.post("/orders/{order_id}/delivered")
 async def order_delivered(order_id: int, body: ActionIn,
                           session: AsyncSession = Depends(get_session)):
-    """Курьер доставил заказ. Поток iiko: set_payments → set_delivery_status(Delivered) → close."""
+    """Курьер доставил заказ — закрываем его в iiko (см. _close_in_iiko)."""
     order = await _load_order(session, order_id)
     order.delivered_at = _dt.utcnow()
     await _log_action(session, order, "delivered", actor_name=body.by)
-    pt_id = body.payment_type_id or order.payment_type_id
-    if pt_id and order.org_id:
-        kind = body.payment_kind or order.payment_type_kind
-        item = _iiko_write.payment_item_by_id(order.org_id, pt_id, kind, order.total)
-        ok, detail = await _iiko_write.set_payments(order.org_id, order.iiko_order_id, [item])
-        if ok:
-            ok, detail = await _iiko_write.set_delivery_status(
-                order.org_id, order.iiko_order_id, "Delivered")
-        if ok:
-            ok, detail = await _iiko_write.close_order(order.org_id, order.iiko_order_id)
+    if order.org_id and order.iiko_order_id:
+        ok, detail = await _close_in_iiko(order, body)
         order.iiko_sync_error = None if ok else str(detail)[:500]
         await session.commit()
         await _log_iiko_event(session, order, "close", ok, detail)
@@ -1352,6 +1381,23 @@ async def order_assign_courier(order_id: int, body: AssignCourierIn,
                                session: AsyncSession = Depends(get_session)):
     """Сборщик «Передать курьеру» с выбором конкретного курьера."""
     order = await _load_order(session, order_id)
+
+    # Наша копия типа заказа бывает устаревшей: заказ приезжает курьерским, а в
+    # iiko он DeliveryByClient (Яндекс/Wolt везут сами, самовывоз забирает
+    # клиент). Курьера на такие вешать нельзя — iiko всё равно откажет. Чиним
+    # тип у себя и отдаём карточку сборщику уже как «Выдан».
+    if order.org_id and order.iiko_order_id:
+        state = await _iiko_write.read_order_state(order.org_id, order.iiko_order_id)
+        svc = (state or {}).get("service_type")
+        if svc and svc != "DeliveryByCourier":
+            order.service_type = svc
+            await session.commit()
+            order = await _load_order(session, order_id)
+            await realtime.broadcast_order(order)
+            raise HTTPException(
+                status_code=409,
+                detail="Это не курьерская доставка — закройте заказ кнопкой «Выдан»")
+
     if order.assembled_at is None:
         order.assembled_at = _dt.utcnow()
     order.assigned_courier_code = body.courier_code
