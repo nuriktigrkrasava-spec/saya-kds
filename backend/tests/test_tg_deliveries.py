@@ -31,10 +31,13 @@ async def client():
     maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with maker() as s:
         s.add_all([
-            _order(1, assembled_at=TS),                                # ждёт курьера
+            _order(1, assembled_at=TS),                                # собран, ждёт курьера
             _order(2, assembled_at=TS, assigned_courier_name="Адильхан",
                    assigned_courier_code="77"),                        # уже с курьером — мимо
-            _order(3),                                                 # не собран — мимо
+            # Ещё готовится. Курьер обязан его видеть заранее: сборщик назначает
+            # курьера тем же нажатием, что и сборку, поэтому «собран, но без
+            # курьера» живёт доли секунды — вкладка была вечно пустой (09.08.2026).
+            _order(3),
             _order(4, assembled_at=TS, delivered_at=TS),               # доставлен — мимо
             _order(5, assembled_at=TS, service_type="DineIn"),         # зал — мимо
             _order(6, assembled_at=TS, customer_name="Wolt Астана"),   # агрегатор — мимо
@@ -71,7 +74,10 @@ async def test_tg_deliveries_filters_and_cc_phone(client, monkeypatch):
     body = r.json()
     assert body["call_center_phone"] == "+77000000000"
     nums = [o["number"] for o in body["orders"]]
-    assert nums == ["1", "9"]
+    assert nums == ["1", "3", "9"]
+    by_num = {o["number"]: o for o in body["orders"]}
+    assert by_num["1"]["assembled"] is True, "курьер отличает готовый заказ от готовящегося"
+    assert by_num["3"]["assembled"] is False
 
 
 @pytest.mark.asyncio

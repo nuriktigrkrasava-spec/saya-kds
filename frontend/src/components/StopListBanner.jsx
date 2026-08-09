@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Icon from "./Icon.jsx";
 import { BASE } from "../lib/api.js";
 import { getOrgId } from "../lib/auth.js";
 import { socket } from "../lib/socket.js";
@@ -46,22 +47,10 @@ export default function StopListBanner() {
     .join(", ");
 
   return (
-    <div
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        background: "#b00020",
-        color: "#fff",
-        padding: "10px 16px",
-        fontWeight: 700,
-        fontSize: "1.05rem",
-        borderRadius: 8,
-        marginBottom: 12,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-      }}
-    >
-      ⛔ Стоп-лист: {names}
+    <div className="stoplist-banner" role="status">
+      <Icon name="ban" size={20} />
+      <span className="stoplist-banner__label">Стоп-лист</span>
+      <span className="stoplist-banner__names">{names}</span>
     </div>
   );
 }

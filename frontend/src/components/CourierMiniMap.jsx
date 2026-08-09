@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Icon from "./Icon.jsx";
 import { BASE } from "../lib/api.js";
 import { getSession } from "../lib/auth.js";
 
@@ -77,7 +78,10 @@ export default function CourierMiniMap() {
   return (
     <section className="minimap">
       <button type="button" className="minimap__head" onClick={() => setOpen((v) => !v)}>
-        <span>🗺 Курьеры на карте</span>
+        <span className="minimap__label">
+          <Icon name="map" size={18} />
+          Курьеры на карте
+        </span>
         <span className="minimap__count">{couriers.length}</span>
         <span className="minimap__chev">{open ? "▾" : "▸"}</span>
       </button>

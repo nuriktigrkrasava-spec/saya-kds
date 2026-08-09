@@ -411,24 +411,63 @@ async def test_delivered_paid_order_does_not_add_second_payment(client):
 
 
 @respx.mock
-async def test_delivered_preliminary_payment_is_not_real_payment(client):
-    """Предварительная оплата из iikoFront — намерение, а не деньги: её подтверждаем."""
+async def test_delivered_preliminary_payment_closes_without_second_payment(client):
+    """Предоплата на всю сумму — заказ просто закрываем, вторую оплату не шлём.
+
+    Прод 09.08.2026, заказ №23: в iiko висела предварительная «Терминал Kaspi»
+    на все 22990 ₸, курьер в аппе выбрал «Kaspi для QR» — iiko отбил
+    «Тип „Kaspi для QR“ некомбинируемый. Заказ не может содержать других типов
+    оплаты», close не вызывался вовсе, и заказ навсегда остался в «В пути»."""
     from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
     c, maker = client; _token()
-    _by_id(total=1000.0, payments=[{"sum": 1000.0, "isPreliminary": True}])
+    _by_id(total=1000.0, payments=[{"sum": 1000.0, "isPreliminary": True,
+                                    "paymentType": {"id": "pt-kaspi", "kind": "Card"}}])
     pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
         return_value=httpx.Response(200, json={}))
-    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+    st = respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
         return_value=httpx.Response(200, json={}))
-    respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
         return_value=httpx.Response(200, json={}))
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/delivered",
                      json={"by": "Курьер", "payment_type_id": "pt-1", "payment_kind": "Card"})
-    assert r.status_code == 200 and pay.called
-    assert b'"sum":1000.0' in pay.calls.last.request.read(), "сумму берём из iiko, а не из своей БД"
+    assert r.status_code == 200
+    assert not pay.called, "по предоплаченному заказу вторая оплата = отказ iiko"
+    assert st.called and cl.called
+    assert r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_prepaid_close_retry_confirms_same_payment_type(client):
+    """Если close по предоплате не прошёл — подтверждаем ЕЁ ЖЕ типом и закрываем.
+
+    Своим типом (тем, что выбрал курьер) платить нельзя: некомбинируемые типы
+    iiko отбивает, и заказ остаётся открытым."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=1000.0, payments=[{"sum": 1000.0, "isPreliminary": True,
+                                    "paymentType": {"id": "pt-kaspi", "kind": "Card"}}])
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(side_effect=[
+        httpx.Response(500, json={"error": "order is not paid"}),
+        httpx.Response(200, json={}),
+    ])
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_type_id": "pt-1", "payment_kind": "Card"})
+    assert r.status_code == 200
+    assert pay.called, "оплату всё же подтверждаем — но типом из самого заказа"
+    body = pay.calls.last.request.read()
+    assert b"pt-kaspi" in body and b"pt-1" not in body
+    assert b'"sum":1000.0' in body, "сумму берём из iiko, а не из своей БД"
+    assert cl.call_count == 2 and r.json()["iiko_sync_error"] is None
 
 
 @respx.mock

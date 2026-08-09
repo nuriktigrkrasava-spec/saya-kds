@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import Icon from "../components/Icon.jsx";
 import { api } from "../lib/api.js";
 import { getSession, clearSession, isManager } from "../lib/auth.js";
 
@@ -10,7 +11,7 @@ const DEVICES = [
     desc: "Приём и готовность позиций",
     tag: "Станция кухни",
     color: "#16a34a",
-    emoji: "🍣",
+    icon: "station",
   },
   {
     to: "/pizza",
@@ -18,7 +19,7 @@ const DEVICES = [
     desc: "Приём и готовность пиццы",
     tag: "Станция кухни",
     color: "#e8552d",
-    emoji: "🍕",
+    icon: "fire",
   },
   {
     to: "/assembler",
@@ -26,7 +27,7 @@ const DEVICES = [
     desc: "Проверка и передача курьеру",
     tag: "Сборка",
     color: "#0ea5e9",
-    emoji: "📦",
+    icon: "assembly",
   },
 ];
 
@@ -83,7 +84,7 @@ export default function Home() {
               style={{ "--accent": d.color }}
             >
               <span className="device-card__icon" aria-hidden>
-                {d.emoji}
+                <Icon name={d.icon} size={30} />
               </span>
               <span className="device-card__body">
                 <span className="device-card__tag">{d.tag}</span>
@@ -91,7 +92,7 @@ export default function Home() {
                 <span className="device-card__desc">{d.desc}</span>
               </span>
               <span className="device-card__go" aria-hidden>
-                →
+                <Icon name="arrowRight" size={24} />
               </span>
             </Link>
           ))}

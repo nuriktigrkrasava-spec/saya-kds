@@ -38,7 +38,7 @@ function OrderRow({ order, name, taken }) {
   return (
     <section className="courier-card">
       <div className="courier-card__head">
-        <span className="order-num">№ {order.number}</span>
+        <span className="order-num">{order.number}</span>
       </div>
       <div className="courier-card__addr">{order.address || "Адрес не указан"}</div>
       <div className="courier-card__meta">

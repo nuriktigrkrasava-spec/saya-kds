@@ -3,8 +3,12 @@ import ScreenHeader from "./ScreenHeader.jsx";
 import KitchenItemRow from "./KitchenItemRow.jsx";
 import StopListBanner from "./StopListBanner.jsx";
 import AudioGuard from "./AudioGuard.jsx";
+import Icon from "./Icon.jsx";
+import PreorderShelf from "./PreorderShelf.jsx";
 import { useOrders } from "../lib/orders.js";
 import { getOperatorName } from "../lib/auth.js";
+import { channelBadge } from "../lib/orderType.js";
+import { splitPreorders, isPreorder, dueLabel } from "../lib/preorder.js";
 import {
   useTick,
   formatElapsed,
@@ -13,23 +17,6 @@ import {
   orderUrgency,
 } from "../lib/time.js";
 import { playNewOrder, playHandoff } from "../lib/sound.js";
-
-// Map an iiko orderServiceType to a short Russian badge label.
-function serviceTypeBadge(serviceType) {
-  if (!serviceType) return null;
-  if (serviceType === "DeliveryByCourier") return "🛵 Доставка";
-  // Зал (dine-in).
-  if (serviceType === "DineIn" || serviceType === "Common") return "🍽 Зал";
-  // Вынос / самовывоз.
-  if (
-    serviceType === "ToGo" ||
-    serviceType === "PickUp" ||
-    serviceType === "DeliveryByPickUp" ||
-    serviceType === "DeliveryByClient"
-  )
-    return "🏃 Самовывоз";
-  return serviceType;
-}
 
 // How long a freshly arrived card keeps its attention flash (ms).
 const NEW_FLASH_MS = 6000;
@@ -52,7 +39,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
   const { orders, loading, error, connected } = useOrders(zones);
 
   // Orders that have at least one item for these stations and aren't delivered.
-  const visibleOrders = orders
+  const relevant = orders
     .filter((o) => !o.delivered)
     .map((o) => ({
       ...o,
@@ -60,10 +47,17 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
     }))
     .filter((o) => o._items.length > 0)
     // hide orders where every relevant item is ready (kitchen done)
-    .filter((o) => o._items.some((it) => !it.ready))
-    // Smart queue: most urgent first (overdue, then burning, then by age).
-    // useTick re-renders every second, so this re-sorts as time passes.
-    .sort((a, b) => orderUrgency(b, stations) - orderUrgency(a, stations));
+    .filter((o) => o._items.some((it) => !it.ready));
+
+  // Предзаказ на вечер не должен лезть в очередь: он висит на «полке» внизу и
+  // входит в работу сам за час до срока (preorder_held снимает бэкенд).
+  const { live, parked } = splitPreorders(relevant);
+
+  // Smart queue: most urgent first (overdue, then burning, then by age).
+  // useTick re-renders every second, so this re-sorts as time passes.
+  const visibleOrders = live.sort(
+    (a, b) => orderUrgency(b, stations) - orderUrgency(a, stations)
+  );
 
   // --- new-order detection -------------------------------------------------
   // Track which order ids we've already seen so we only flash/beep genuinely
@@ -146,14 +140,18 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
   return (
     <div className="screen" style={{ "--accent": accent }}>
       <AudioGuard />
-      <ScreenHeader title={title} accent={accent} connected={connected} />
+      <ScreenHeader title={title} accent={accent} connected={connected}>
+        <span className="screen-header__count" title="Заказов в работе">
+          {visibleOrders.length}
+        </span>
+      </ScreenHeader>
 
       <main className="screen-body">
         <StopListBanner />
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}
         {!loading && !error && visibleOrders.length === 0 && (
-          <p className="empty">Нет активных позиций 🎉</p>
+          <p className="empty">Активных позиций нет</p>
         )}
 
         <div className="cards-grid">
@@ -170,12 +168,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
                 : "ok";
             const cardOverdue = orderLevel === "overdue";
             const cardWarn = orderLevel === "warn";
-
-            const urgencyBadge = cardOverdue
-              ? { text: "🔴 просрочка", bg: "#c0392b" }
-              : cardWarn
-              ? { text: "🟡 горит", bg: "#b8860b" }
-              : null;
+            const badge = channelBadge(o);
 
             const cls = [
               "order-card",
@@ -188,49 +181,54 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
             return (
               <section key={o.id} className={cls}>
                 <div className="order-card__head">
-                  <span className="order-num">№ {o.number}</span>
+                  <span className="order-num">{o.number}</span>
                   <div className="order-card__meta-head">
-                    {serviceTypeBadge(o.service_type) && (
-                      <span
-                        title="Тип заказа"
-                        style={{
-                          fontSize: "0.8em",
-                          fontWeight: 700,
-                          color: "#fff",
-                          background: "#2c3e50",
-                          borderRadius: "6px",
-                          padding: "2px 8px",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {serviceTypeBadge(o.service_type)}
-                      </span>
-                    )}
-                    {urgencyBadge && (
-                      <span
-                        title="Срочность заказа"
-                        style={{
-                          fontSize: "0.8em",
-                          fontWeight: 700,
-                          color: "#fff",
-                          background: urgencyBadge.bg,
-                          borderRadius: "6px",
-                          padding: "2px 8px",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {urgencyBadge.text}
-                      </span>
-                    )}
                     {sinceOrder && (
-                      <span className="order-since" title="Время с момента заказа">
-                        ⏱ {sinceOrder}
+                      <span
+                        className={`order-since order-since--${orderLevel}`}
+                        title="Время с момента заказа"
+                      >
+                        <Icon name="clock" size={16} />
+                        {sinceOrder}
                       </span>
                     )}
-                    {o.customer && <span className="order-cust">{o.customer}</span>}
+                    {cardOverdue && (
+                      <span className="chip chip--danger">
+                        <Icon name="alert" size={16} />
+                        просрочка
+                      </span>
+                    )}
+                    {cardWarn && !cardOverdue && (
+                      <span className="chip chip--warn">
+                        <Icon name="fire" size={16} />
+                        горит
+                      </span>
+                    )}
                   </div>
                 </div>
-                {o.comment && <div className="order-note">📝 {o.comment}</div>}
+
+                <div className="order-card__tags">
+                  {badge && (
+                    <span className="chip chip--neutral" title="Тип заказа">
+                      <Icon name={badge.icon} size={16} />
+                      {badge.text}
+                    </span>
+                  )}
+                  {isPreorder(o) && dueLabel(o) && (
+                    <span className="chip chip--preorder" title="Заказ ко времени">
+                      <Icon name="preorder" size={16} />
+                      Предзаказ {dueLabel(o)}
+                    </span>
+                  )}
+                  {o.customer && <span className="order-cust">{o.customer}</span>}
+                </div>
+
+                {o.comment && (
+                  <div className="order-note">
+                    <Icon name="note" size={18} />
+                    <span>{o.comment}</span>
+                  </div>
+                )}
                 <div className="order-card__items">
                   {o._items.map((it) => (
                     <KitchenItemRow
@@ -245,6 +243,8 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
             );
           })}
         </div>
+
+        <PreorderShelf orders={parked} itemsOf={(o) => o._items} />
       </main>
     </div>
   );

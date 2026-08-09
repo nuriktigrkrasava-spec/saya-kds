@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api.js";
+import Icon from "./Icon.jsx";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
 import {
   formatElapsed,
@@ -61,12 +62,20 @@ export default function KitchenItemRow({ item, name, orderCreatedAt }) {
         <span className="kitem__name">
           {item.name}
           <span className="kitem__amount"> ×{item.amount}</span>
-          {item.comment && <span className="kitem__note">📝 {item.comment}</span>}
+          {item.comment && (
+            <span className="kitem__note">
+              <Icon name="note" size={15} />
+              {item.comment}
+            </span>
+          )}
         </span>
 
         <div className="kitem__action">
           {item.ready ? (
-            <span className="badge badge--ready">Готово ✓</span>
+            <span className="badge badge--ready">
+              <Icon name="check" size={16} />
+              Готово
+            </span>
           ) : (
             <>
               <span className={`timer timer--${level}`}>{timerText}</span>

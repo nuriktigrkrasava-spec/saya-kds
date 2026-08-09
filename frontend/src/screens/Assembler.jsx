@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ScreenHeader from "../components/ScreenHeader.jsx";
+import Icon from "../components/Icon.jsx";
+import PreorderShelf from "../components/PreorderShelf.jsx";
 import CourierMiniMap from "../components/CourierMiniMap.jsx";
 import StopListBanner from "../components/StopListBanner.jsx";
 import AudioGuard from "../components/AudioGuard.jsx";
@@ -8,6 +10,7 @@ import { getOperatorName, getSession } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
 import { orderChannel, channelBadge, completeLabel } from "../lib/orderType.js";
+import { splitPreorders, isPreorder, dueLabel } from "../lib/preorder.js";
 import {
   useTick,
   formatElapsed,
@@ -154,34 +157,34 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   return (
     <section className={cls}>
       <div className="order-card__head">
-        <span className="order-num">№ {order.number}</span>
+        <span className="order-num">{order.number}</span>
         <div className="order-card__meta-head">
-          {channelBadge(order) && (
-            <span
-              title="Тип заказа"
-              style={{
-                fontSize: "0.8em",
-                fontWeight: 700,
-                color: "#fff",
-                background: "#2c3e50",
-                borderRadius: "6px",
-                padding: "2px 8px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {channelBadge(order)}
-            </span>
-          )}
           {timerText && (
             <span
               className={`order-since order-since--${level}`}
               title="Время с момента заказа"
             >
-              ⏱ {timerText}
+              <Icon name="clock" size={16} />
+              {timerText}
             </span>
           )}
-          {order.customer && <span className="order-cust">{order.customer}</span>}
         </div>
+      </div>
+
+      <div className="order-card__tags">
+        {channelBadge(order) && (
+          <span className="chip chip--neutral" title="Тип заказа">
+            <Icon name={channelBadge(order).icon} size={16} />
+            {channelBadge(order).text}
+          </span>
+        )}
+        {isPreorder(order) && dueLabel(order) && (
+          <span className="chip chip--preorder" title="Заказ ко времени">
+            <Icon name="preorder" size={16} />
+            Предзаказ {dueLabel(order)}
+          </span>
+        )}
+        {order.customer && <span className="order-cust">{order.customer}</span>}
       </div>
 
       {order.iiko_sync_error && (
@@ -189,13 +192,22 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
           className="iiko-sync-err"
           title={order.iiko_sync_error}
         >
-          ⚠ не ушло в iiko
+          <Icon name="alert" size={16} />
+          не ушло в iiko
         </div>
       )}
 
-      {order.comment && <div className="order-note">📝 {order.comment}</div>}
+      {order.comment && (
+        <div className="order-note">
+          <Icon name="note" size={18} />
+          <span>{order.comment}</span>
+        </div>
+      )}
       {order.payment_type_name && (
-        <div className="order-pay-badge">💳 Оплата: {order.payment_type_name}</div>
+        <div className="order-pay-badge">
+          <Icon name="card" size={16} />
+          Оплата: {order.payment_type_name}
+        </div>
       )}
 
       {!order.assembled && timerText && (
@@ -212,14 +224,15 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
       )}
 
       {groups.map((g) => {
-        const zReady = g.items.every((it) => it.ready);
+        const zReadyCount = g.items.filter((it) => it.ready).length;
+        const zReady = zReadyCount === g.items.length;
         return (
           <div key={g.zone} className="asm-group">
             <div className="asm-group__title">
               <span className="kitem__dot" style={{ background: zoneColor(g.zone) }} />
               {zoneLabel(g.zone)}
               <span className={`asm-group__state ${zReady ? "asm-group__state--ready" : ""}`}>
-                {zReady ? "✓ готово" : "ждём…"}
+                {zReady ? "готово" : `${zReadyCount} из ${g.items.length}`}
               </span>
             </div>
             {g.items.map((it) => (
@@ -227,10 +240,15 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                 <span className="asm-item__name">
                   {it.name}
                   <span className="kitem__amount"> ×{it.amount}</span>
-                  {it.comment && <span className="kitem__note">📝 {it.comment}</span>}
+                  {it.comment && (
+                    <span className="kitem__note">
+                      <Icon name="note" size={15} />
+                      {it.comment}
+                    </span>
+                  )}
                 </span>
                 <span className={`ready-flag ${(it.ready || !needsReady(it)) ? "ready-flag--on" : ""}`}>
-                  {it.ready ? "✓ готово" : (!needsReady(it) ? "—" : "ждём…")}
+                  {it.ready ? "готово" : (!needsReady(it) ? "—" : "ждём…")}
                 </span>
                 {it.ready && needsReady(it) && !order.assembled && (
                   <button
@@ -252,8 +270,9 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
 
       {order.assembled ? (
         <div className="badge badge--ready asm-handed">
+          <Icon name={channel.needsCourier ? "courier" : "check"} size={18} />
           {channel.needsCourier
-            ? (assignedName ? `🛵 ${assignedName}` : "Передан курьеру") +
+            ? (assignedName || "Передан курьеру") +
               (courierMin != null ? ` · в пути ${courierMin} мин` : "")
             : completeLabel(channel)}
         </div>
@@ -354,12 +373,15 @@ export default function Assembler() {
     };
   }, []);
 
-  const visible = orders
-    .filter((o) => !o.delivered && (o.items || []).length > 0)
-    .sort(
-      (a, b) =>
-        Number(a.assembled) - Number(b.assembled) || (a.number || 0) - (b.number || 0)
-    );
+  // Предзаказы ждут своего часа на отдельной полке: собирать их сейчас нечего,
+  // а в общей сетке они путали сборщика с текущими заказами.
+  const { live, parked } = splitPreorders(
+    orders.filter((o) => !o.delivered && (o.items || []).length > 0)
+  );
+  const visible = live.sort(
+    (a, b) =>
+      Number(a.assembled) - Number(b.assembled) || (a.number || 0) - (b.number || 0)
+  );
 
   // --- new-order detection (same approach as KitchenScreen) ----------------
   const seenIds = useRef(null);
@@ -428,14 +450,18 @@ export default function Assembler() {
   return (
     <div className="screen" style={{ "--accent": ACCENT }}>
       <AudioGuard />
-      <ScreenHeader title="Сборщик" accent={ACCENT} connected={connected} />
+      <ScreenHeader title="Сборщик" accent={ACCENT} connected={connected}>
+        <span className="screen-header__count" title="Заказов в работе">
+          {visible.length}
+        </span>
+      </ScreenHeader>
       <main className="screen-body">
         <StopListBanner />
         <CourierMiniMap />
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}
         {!loading && !error && visible.length === 0 && (
-          <p className="empty">Нет заказов для сборки 🎉</p>
+          <p className="empty">Заказов для сборки нет</p>
         )}
         <div className="cards-grid">
           {visible.map((o) => (
@@ -449,6 +475,8 @@ export default function Assembler() {
             />
           ))}
         </div>
+
+        <PreorderShelf orders={parked} />
       </main>
     </div>
   );

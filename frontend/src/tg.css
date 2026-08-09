@@ -193,6 +193,18 @@
   white-space: nowrap;
 }
 
+/* Собранный заказ можно забирать прямо сейчас — выделяем зелёным. */
+.tg-card__status--ready {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+/* Тип оплаты в подтверждении закрытия заказа. */
+.tg-payment-sheet__pay {
+  margin: 10px 0 4px;
+  font-size: 16px;
+}
+
 .tg-detail__row {
   margin: 6px 0;
   font-size: 15px;

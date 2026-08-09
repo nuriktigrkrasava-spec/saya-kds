@@ -1,6 +1,15 @@
 from __future__ import annotations
+from datetime import timedelta
+
 import socketio
+from app.config import settings
 from app.models import Order
+
+# Заказ считаем предзаказом, если срок отстоит от приёма дальше, чем «обычный
+# дальний» заказ. iiko ставит completeBefore всем подряд: у текущих это +15 или
+# +60 минут от создания (иногда +66 — оператор поправил), у предзаказов — 2-4
+# часа и ровное время (16:00). Запас в 15 минут разделяет эти две группы.
+_PREORDER_MARGIN = timedelta(minutes=15)
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 
@@ -14,6 +23,14 @@ def room(org_id: str, zone: str) -> str:
 def _iso(dt) -> str | None:
     """Наивный UTC -> ISO с суффиксом Z, чтобы фронт считал время одинаково на всех планшетах."""
     return dt.isoformat() + "Z" if dt is not None else None
+
+
+def is_preorder(order: Order) -> bool:
+    """Заказ «на время» — готовить его сейчас не нужно."""
+    if order.complete_before is None or order.created_at is None:
+        return False
+    lead = timedelta(minutes=settings.preorder_lead_minutes)
+    return order.complete_before > order.created_at + lead + _PREORDER_MARGIN
 
 
 def order_payload(order: Order) -> dict:
@@ -31,6 +48,11 @@ def order_payload(order: Order) -> dict:
         "service_type": order.service_type,
         "comment": order.comment or "",
         "created_at": _iso(order.created_at),
+        # Предзаказ: висит на экране с меткой «к 16:00», в работу входит сам за
+        # preorder_lead_minutes до срока (preorder_held переключает релизер).
+        "is_preorder": is_preorder(order),
+        "preorder_held": bool(order.preorder_held),
+        "complete_before": _iso(order.complete_before),
         "assembled": order.assembled_at is not None,
         "assembled_at": _iso(order.assembled_at),
         "assigned_courier_code": order.assigned_courier_code,

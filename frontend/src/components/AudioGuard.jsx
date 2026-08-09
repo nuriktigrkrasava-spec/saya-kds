@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Icon from "./Icon.jsx";
 import { audioHealthy, unlockAudio } from "../lib/sound.js";
 
 // Как часто проверяем, жив ли звук. Планшет мог уснуть, браузер — приостановить
@@ -30,7 +31,7 @@ export default function AudioGuard() {
 
   return (
     <div className="audio-guard" onClick={fix} role="alert">
-      <div className="audio-guard__icon" aria-hidden="true">🔇</div>
+      <Icon name="mute" size={112} className="audio-guard__icon" />
       <div className="audio-guard__text">ЗВУК НЕ РАБОТАЕТ</div>
       <div className="audio-guard__hint">КОСНИСЬ ЭКРАНА</div>
     </div>

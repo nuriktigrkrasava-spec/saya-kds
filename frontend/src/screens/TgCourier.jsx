@@ -233,6 +233,12 @@ export default function TgCourier() {
   function startDeliver(order) {
     setPaymentOrder(order);
     setPaymentTypesList([]);
+    // Тип оплаты в заказе уже есть почти всегда (его ставит колл-центр: Kaspi,
+    // наличные, онлайн). Тогда выбирать нечего — курьер просто закрывает заказ,
+    // а бэкенд не трогает оплату: iiko отбивает второй тип как некомбинируемый,
+    // и заказ навсегда зависал в «В пути» (прод 09.08.2026, заказ №23).
+    // Список типов нужен только когда оплаты в заказе нет вовсе.
+    if (order.payment_type_name) return;
     if (order.org_id) {
       setPaymentTypesLoading(true);
       api
@@ -463,7 +469,13 @@ export default function TgCourier() {
                 >
                   <div className="tg-card__head">
                     <span className="tg-card__num">№ {o.number}</span>
-                    <span className="tg-card__status">⏳ ждёт курьера</span>
+                    {/* Готовность видно сразу: собранный заказ можно забирать
+                        прямо сейчас, остальные ещё на кухне. */}
+                    <span
+                      className={`tg-card__status${o.assembled ? " tg-card__status--ready" : ""}`}
+                    >
+                      {o.assembled ? "✅ собран, ждёт курьера" : "👨‍🍳 готовится"}
+                    </span>
                   </div>
                   <div className="tg-card__addr">
                     📍 {o.address || "Адрес не указан"}
@@ -540,7 +552,7 @@ export default function TgCourier() {
                     onClick={() => startDeliver(o)}
                     disabled={actingId === o.id}
                   >
-                    {actingId === o.id ? "…" : "✓ Доставлено"}
+                    {actingId === o.id ? "…" : "✓ Закрыть заказ"}
                   </button>
                 </div>
               </section>
@@ -614,11 +626,29 @@ export default function TgCourier() {
       )}
 
       {paymentOrder && (
-        <div className="tg-payment-overlay" role="dialog" aria-modal="true" aria-label="Способ оплаты">
+        <div className="tg-payment-overlay" role="dialog" aria-modal="true" aria-label="Закрыть заказ">
           <div className="tg-payment-sheet">
-            <p className="tg-payment-sheet__title">Способ оплаты</p>
+            <p className="tg-payment-sheet__title">
+              {paymentOrder.payment_type_name ? "Закрыть заказ?" : "Способ оплаты"}
+            </p>
             <p className="tg-payment-sheet__sub">Заказ № {paymentOrder.number}</p>
-            {paymentTypesLoading ? (
+            {paymentOrder.payment_type_name ? (
+              // Оплата в заказе уже указана — одно действие, без выбора.
+              <>
+                <p className="tg-payment-sheet__pay">
+                  Оплата: <b>{paymentOrder.payment_type_name}</b>
+                </p>
+                <div className="tg-payment-sheet__btns">
+                  <button
+                    type="button"
+                    className="tg-btn tg-btn--primary"
+                    onClick={() => confirmDeliver(null, null)}
+                  >
+                    Закрыть заказ
+                  </button>
+                </div>
+              </>
+            ) : paymentTypesLoading ? (
               <p className="tg-payment-sheet__sub">Загрузка…</p>
             ) : paymentTypesList.length > 0 ? (
               <div className="tg-payment-sheet__btns tg-payment-sheet__btns--wrap">

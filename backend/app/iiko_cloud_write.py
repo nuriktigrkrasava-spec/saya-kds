@@ -106,9 +106,16 @@ async def read_order_state(org_id: str, order_id: str) -> dict | None:
     * `update_order_delivery_status` у заказов `DeliveryByClient` (Яндекс/Wolt,
       самовывоз) всегда падает с ошибкой 173 — этапов доставки у них нет.
 
-    Предварительные оплаты (`isPreliminary`) — намерение из iikoFront, а не
-    деньги: они в «оплачено» не считаются. None — прочитать не удалось,
-    `is_delivery=False` — заказ зала/выноса, доставки для него не существует.
+    Предварительная оплата (`isPreliminary`) — это уже выбранный в заказе тип
+    оплаты (Kaspi, наличные), который касса фискализирует при закрытии. Своей
+    оплатой поверх неё платить НЕЛЬЗЯ: iiko отбивает такой заказ («Тип „Kaspi
+    для QR“ некомбинируемый», прод 09.08.2026, заказ №23) и close не проходит —
+    заказ навсегда остаётся в «В пути». Поэтому отдаём её отдельным полем
+    `prepaid` вместе с типом оплаты самого заказа: подтверждать предоплату, если
+    придётся, можно только ТЕМ ЖЕ типом.
+
+    None — прочитать не удалось, `is_delivery=False` — заказ зала/выноса,
+    доставки для него не существует.
     """
     try:
         wrapper = await iiko_cloud.fetch_delivery_by_id(org_id, order_id)
@@ -120,11 +127,16 @@ async def read_order_state(org_id: str, order_id: str) -> dict | None:
     total = order.get("sum")
     if total is None:
         return None
-    paid = sum((p.get("sum") or 0) for p in (order.get("payments") or [])
-               if not p.get("isPreliminary"))
+    payments = order.get("payments") or []
+    paid = sum((p.get("sum") or 0) for p in payments if not p.get("isPreliminary"))
+    prepaid = sum((p.get("sum") or 0) for p in payments if p.get("isPreliminary"))
+    own = (payments[0].get("paymentType") or {}) if payments else {}
     return {"is_delivery": True,
             "total": total,
             "paid": paid + 0.01 >= total,
+            "prepaid": prepaid + 0.01 >= total,
+            "payment_type_id": own.get("id"),
+            "payment_type_kind": own.get("kind"),
             "service_type": (order.get("orderType") or {}).get("orderServiceType")}
 
 

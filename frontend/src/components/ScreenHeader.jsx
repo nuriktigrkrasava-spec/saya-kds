@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
+import Icon from "./Icon.jsx";
 import { getSession, clearSession } from "../lib/auth.js";
 
 export default function ScreenHeader({ title, accent, connected, children }) {
@@ -17,7 +18,7 @@ export default function ScreenHeader({ title, accent, connected, children }) {
     <header className="screen-header" style={accent ? { borderColor: accent } : undefined}>
       <div className="screen-header__left">
         <Link to="/" className="back-link" aria-label="На главную">
-          ←
+          <Icon name="arrowLeft" size={22} />
         </Link>
         <h1 className="screen-title">{title}</h1>
         <span

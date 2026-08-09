@@ -92,8 +92,12 @@ async def test_ingest_front_hall_order_by_category(client):
 
 
 @respx.mock
-async def test_held_preorder_not_broadcast(client):
-    """Предзаказ с completeBefore далеко в будущем — ingest'ится, но broadcast не вызывается."""
+async def test_held_preorder_is_broadcast_marked(client):
+    """Предзаказ уходит на экраны сразу, но с меткой: висит, а не готовится.
+
+    Раньше его прятали до срока — кухня узнавала о заказе на 20 ролов за час до
+    выдачи. Теперь карточка приходит с preorder_held=True, и экран сам держит её
+    в отложенной пачке (жалоба заказчика 09.08.2026)."""
     c, maker = client
     settings.webhook_secret = "s3cret"
     settings.cloud_api_login = "key"
@@ -134,8 +138,12 @@ async def test_held_preorder_not_broadcast(client):
         n = (await s.execute(select(func.count()).select_from(Order))).scalar_one()
         assert n == 1
 
-    # Broadcast НЕ должен был вызваться
-    assert broadcast_calls == [], f"broadcast вызван для придержанного заказа: {broadcast_calls}"
+    # Экран получает предзаказ сразу — и видит, что он придержан
+    assert len(broadcast_calls) == 1
+    from app.realtime import order_payload
+    payload = order_payload(broadcast_calls[0])
+    assert payload["preorder_held"] is True and payload["is_preorder"] is True
+    assert payload["complete_before"] is not None, "на какое время — обязательно"
 
 
 @respx.mock
@@ -179,8 +187,8 @@ async def test_normal_order_is_broadcast(client):
     assert len(broadcast_calls) == 1, f"broadcast не вызван для обычного заказа"
 
 
-async def test_list_orders_excludes_held(client):
-    """GET /orders?org_id=... возвращает только не-придержанные заказы."""
+async def test_list_orders_includes_held_marked(client):
+    """GET /orders отдаёт и придержанные предзаказы — помеченными."""
     from app.models import OrderItem
     c, maker = client
 
@@ -200,9 +208,10 @@ async def test_list_orders_excludes_held(client):
     r = await c.get("/orders?org_id=org-test")
     assert r.status_code == 200
     body = r.json()
-    numbers = [o["number"] for o in body]
-    assert "1" in numbers, "Обычный заказ должен быть в /orders"
-    assert "2" not in numbers, "Придержанный заказ НЕ должен быть в /orders"
+    by_num = {o["number"]: o for o in body}
+    assert set(by_num) == {"1", "2"}, "предзаказ тоже виден кухне"
+    assert by_num["1"]["preorder_held"] is False
+    assert by_num["2"]["preorder_held"] is True, "но помечен как отложенный"
 
 
 async def test_bot_webhook_live_location_updates_courier(client):

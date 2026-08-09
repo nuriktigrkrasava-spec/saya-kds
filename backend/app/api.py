@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_session
 from datetime import datetime as _dt
-from sqlalchemy import delete as _sl_delete
+from sqlalchemy import delete as _sl_delete, func as _func
 from app import iiko_cloud, ingest, realtime
 from app import iiko_cloud_write as _iiko_write
 from app import analytics_stages as _stages
@@ -73,12 +73,16 @@ async def health():
 
 @app.get("/orders")
 async def list_orders(org_id: str, session: AsyncSession = Depends(get_session)):
-    """Активные заказы филиала для начальной загрузки экрана (live-обновления идут по Socket.IO)."""
+    """Активные заказы филиала для начальной загрузки экрана (live-обновления идут по Socket.IO).
+
+    Предзаказы отдаём вместе со всеми, с флагами is_preorder/preorder_held:
+    прятать их целиком было хуже — кухня не видела, что вечером её ждёт заказ на
+    20 ролов. Экран сам держит их в отдельной «отложенной» пачке.
+    """
     rows = (await session.execute(
         select(Order).where(
             Order.org_id == org_id,
-            Order.status.notin_(["Closed", "Deleted", "Cancelled"]),
-            Order.preorder_held == False)  # noqa: E712
+            Order.status.notin_(["Closed", "Deleted", "Cancelled"]))
         .order_by(Order.created_at))).scalars().all()
     return [realtime.order_payload(o) for o in rows]
 
@@ -135,8 +139,7 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
                 _wlog.warning("table order SKIPPED (no items) number=%s", normalized.number)
                 continue
             order = await ingest.ingest_order(session, normalized)
-            if not order.preorder_held:
-                await realtime.broadcast_order(order)
+            await realtime.broadcast_order(order)
             handled += 1
             continue
         if event.get("eventType") != "DeliveryOrderUpdate":
@@ -150,8 +153,7 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
             continue
         normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
         order = await ingest.ingest_order(session, normalized)
-        if not order.preorder_held:
-            await realtime.broadcast_order(order)
+        await realtime.broadcast_order(order)
         handled += 1
     return {"ok": True, "handled": handled}
 
@@ -477,12 +479,15 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
 
     Каждый шаг делается только если он вообще нужен и разрешён — состояние
     заказа читаем из iiko, а не из своей БД:
-    * оплату шлём, ТОЛЬКО если заказ ещё не оплачен (update_order_payments
-      добавляет оплату, а не заменяет → иначе двойной чек);
+    * оплату шлём, ТОЛЬКО если заказ ещё не оплачен и не предоплачен
+      (update_order_payments добавляет оплату, а не заменяет → иначе двойной
+      чек, а по предоплате iiko ещё и отбивает чужой тип как некомбинируемый);
     * сумму берём из iiko, а не из order.total (та может быть пустой);
     * Delivered шлём только курьерским заказам: у DeliveryByClient (Яндекс,
       Wolt, самовывоз) этапов доставки нет и любой статус отбивается ошибкой 173;
-    * close зовём в обоих случаях — ради него всё и затевалось.
+    * close зовём в обоих случаях — ради него всё и затевалось;
+    * если close по предоплаченному заказу не прошёл — подтверждаем предоплату
+      ЕЁ ЖЕ типом (чужим нельзя) и закрываем снова.
     """
     state = await _iiko_write.read_order_state(order.org_id, order.iiko_order_id)
     if state is None:
@@ -492,7 +497,8 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
         # Зал/вынос: доставки не существует, заказ закрывает касса. Не сбой.
         return True, {"skipped": "not_a_delivery"}
 
-    if not state["paid"]:
+    prepaid = state.get("prepaid", False)
+    if not state["paid"] and not prepaid:
         pt_id = body.payment_type_id or order.payment_type_id
         if not pt_id:
             return False, {"error": "no_payment_type"}
@@ -509,6 +515,18 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
         if not ok:
             return ok, detail
 
+    ok, detail = await _iiko_write.close_order(order.org_id, order.iiko_order_id)
+    if ok or not prepaid or not state.get("payment_type_id"):
+        return ok, detail
+
+    # Касса ждёт подтверждения предоплаты — шлём её же тип и её же сумму.
+    ok, pay_detail = await _iiko_write.set_payments(
+        order.org_id, order.iiko_order_id,
+        [_iiko_write.payment_item_by_id(order.org_id, state["payment_type_id"],
+                                        state.get("payment_type_kind"),
+                                        state["total"])])
+    if not ok:
+        return False, {"close": detail, "confirm_prepaid": pay_detail}
     return await _iiko_write.close_order(order.org_id, order.iiko_order_id)
 
 
@@ -1556,14 +1574,21 @@ _AGGREGATOR_KEYS = ("wolt", "яндекс", "yandex", "glovo", "choco")
 
 @app.get("/tg/deliveries")
 async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session)):
-    """Доставки филиала, ждущие курьера (только просмотр): собранные,
-    не доставленные и БЕЗ назначенного курьера. Плюс общий телефон колл-центра."""
+    """Доставки филиала, ждущие курьера (только просмотр): не доставленные и БЕЗ
+    назначенного курьера. Плюс общий телефон колл-центра.
+
+    Сборку в фильтр НЕ закладываем: сборщик назначает курьера тем же нажатием,
+    которым отмечает сборку, поэтому состояние «собран, но ничей» живёт доли
+    секунды — вкладка была вечно пустой (жалоба заказчика 09.08.2026). Курьеру
+    нужно видеть очередь заранее; готовность он читает по признаку assembled.
+    """
     rows = (await session.execute(
         _select(_Order)
         .where(_Order.org_id == org_id,
                _Order.service_type == "DeliveryByCourier",
-               _Order.assembled_at.is_not(None),
                _Order.delivered_at.is_(None),
+               # Предзаказ на вечер курьеру сейчас не нужен — он ещё не в работе.
+               _Order.preorder_held == False,  # noqa: E712
                # У кого курьер уже есть — те в «Моих» у своего курьера. Признак
                # «занят» — именно КОД: «Мои» ищут по assigned_courier_code, и
                # только он адресует заказ конкретному курьеру. По имени НЕ
@@ -1574,7 +1599,7 @@ async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session
                # Закрытые/отменённые в iiko, у которых delivered_at не успел
                # проставиться (артефакт закрытия) — курьеру не показываем.
                _Order.status.not_in(("Closed", "Cancelled", "Delivered")))
-        .order_by(_Order.assembled_at))).scalars().all()
+        .order_by(_Order.created_at))).scalars().all()
     orders = [o for o in rows
               if not any(k in (o.customer_name or "").lower()
                          for k in _AGGREGATOR_KEYS)]
@@ -2075,6 +2100,30 @@ async def demand_zones(org_id: str, session: AsyncSession = Depends(get_session)
         if zid is not None:
             counts[zid] = counts.get(zid, 0) + 1
     return [{**z, "count": counts.get(z["id"], 0)} for z in zones]
+
+
+@app.post("/admin/reset-analytics")
+async def admin_reset_analytics(key: str = Query(default=""),
+                                session: AsyncSession = Depends(get_session)):
+    """Стереть историю заказов, чтобы аналитика считалась с нуля.
+
+    Удаляет заказы, их позиции и события — то, на чём строятся все отчёты. Всё
+    остальное (филиалы, сотрудники, карта станций, зоны доставки, привязки
+    Telegram, стоп-лист) остаётся: это настройки, а не данные аналитики.
+    Незакрытые заказы вернёт поллер iiko (POLL_CATCHUP_DAYS), так что рабочие
+    экраны восстановятся сами. Защищено тем же секретом, что /debug/*.
+    """
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    counts = {}
+    for name, model in (("events", _OrderEvent), ("items", _OrderItem),
+                        ("orders", _Order)):
+        counts[name] = (await session.execute(
+            _select(_func.count()).select_from(model))).scalar_one()
+        await session.execute(_sl_delete(model))
+    await session.commit()
+    return {"orders": counts["orders"], "items": counts["items"],
+            "events": counts["events"]}
 
 
 # ──────────────────────────────────────────────────────────────────────────
