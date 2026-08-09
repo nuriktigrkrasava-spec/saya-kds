@@ -1,4 +1,4 @@
-"""Тесты списка смены: парсер явок RMS, фильтр «открыта+сегодня», роли, дедуп."""
+"""Тесты списка смены: парсер явок RMS, фильтр открытых смен, роли, дедуп."""
 import pytest
 import respx
 from httpx import Response
@@ -25,6 +25,10 @@ ATT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <dateFrom>2026-07-06T11:53:00+05:00</dateFrom></attendance>
   <attendance><employeeId>e-deleted</employeeId>
     <dateFrom>2026-07-06T11:00:00+05:00</dateFrom></attendance>
+  <attendance><employeeId>e-night</employeeId>
+    <dateFrom>2026-07-05T21:30:00+05:00</dateFrom></attendance>
+  <attendance><employeeId>e-tech</employeeId>
+    <dateFrom>2026-07-06T11:10:00+05:00</dateFrom></attendance>
 </attendances>"""
 
 EMP_XML = """<?xml version="1.0"?>
@@ -47,6 +51,12 @@ EMP_XML = """<?xml version="1.0"?>
   <employee><id>e-deleted</id><name>Уволенный</name><code>55</code>
     <mainRoleCode>КР</mainRoleCode><departmentCodes>10ASTKBN</departmentCodes>
     <deleted>true</deleted><employee>true</employee></employee>
+  <employee><id>e-night</id><name>Мейрам курьер</name><code>66</code>
+    <mainRoleCode>КР</mainRoleCode><departmentCodes>10ASTKBN</departmentCodes>
+    <deleted>false</deleted><employee>true</employee></employee>
+  <employee><id>e-tech</id><name>Техперсонал</name><code>88</code>
+    <mainRoleCode>DW1</mainRoleCode><departmentCodes>10ASTKBN</departmentCodes>
+    <deleted>false</deleted><employee>true</employee></employee>
 </employees>"""
 
 DEP_XML = """<?xml version="1.0"?>
@@ -86,7 +96,7 @@ def _mock_rms(att_xml=ATT_XML):
 
 def test_parse_attendances_extracts_fields():
     atts = rms._parse_attendances(ATT_XML)
-    assert len(atts) == 7
+    assert len(atts) == 9
     assert atts[0] == {"employee_id": "e-courier",
                        "date_from": "2026-07-06T11:53:00+05:00", "date_to": ""}
     assert atts[4]["date_to"] == "2026-07-06T10:00:00+05:00"
@@ -94,13 +104,20 @@ def test_parse_attendances_extracts_fields():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_shift_today_filters_and_joins(monkeypatch):
-    """Открытые+сегодняшние; хвост-2024, закрытая, кассир и deleted — вне списка; дедуп."""
+async def test_shift_lists_every_open_shift(monkeypatch):
+    """Все ОТКРЫТЫЕ смены, а не только начатые сегодня.
+
+    Решение заказчика 09.08.2026: курьеры, которым кассир открыл смену вчера
+    вечером, пропадали из аппа и не могли войти. Остаются вне списка: закрытая
+    явка, уволенный, кухня/касса и «всякое» (техперсонал, официант), а также
+    зависшая с 2024 года явка — это не смена, а забытый хвост."""
     monkeypatch.setattr(rms, "_attendance_today_str", lambda: "2026-07-06")
     _mock_rms()
     out = await rms.shift_employees_today()
     names = [e["name"] for e in out]
-    assert names == ["Kaнат Сарыбай", "Адильхан курьер"]  # sorted, no dups
+    assert names == ["Kaнат Сарыбай", "Адильхан курьер", "Мейрам курьер"]
+    assert "Старый Хвост" not in names, "явка с 2024 года — не текущая смена"
+    assert "Техперсонал" not in names and "Нурсая" not in names
     courier = out[1]
     assert courier == {"employee_id": "e-courier", "name": "Адильхан курьер",
                        "role": "КЭКСПО20", "code": "77",

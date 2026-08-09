@@ -322,10 +322,17 @@ async def branches_with_employees() -> list[dict]:
 
 # ── Вход по открытой явке (курьерский TG-апп) ────────────────────────────────
 
-# Роли, которым НЕ показываем вход по явке: кассиры, повара/сушисты, пиццеристы.
+# Роли, которым НЕ показываем вход по явке: кухня, касса и всё, что к доставке
+# отношения не имеет (техперсонал, официанты, КЦ, бухгалтерия, маркетинг).
+# В аппе остаются курьеры и управляющие — решение заказчика 09.08.2026.
 # Источник кодов: docs/PHOTO-2026-06-17-13-42-13.jpg (скрин заказчика).
 EXCLUDED_LOGIN_ROLES = {"CS1", "CO1", "СуШеф", "СУШ", "СЭКСПО12", "СЭКСПО13",
-                        "ПИЦЦ", "ПЭКСПО13"}
+                        "ПИЦЦ", "ПЭКСПО13",
+                        "DW1", "WR1", "opeCC", "Бух", "GBUH", "МАРКЕТ"}
+
+# Явка, открытая раньше этого срока, — забытый хвост, а не смена: в нашем iiko
+# такие висят открытыми с 2024 года (5 штук на филиале на 09.08.2026).
+STALE_ATTENDANCE_DAYS = 2
 
 
 def _parse_attendances(xml: str) -> list[dict]:
@@ -347,6 +354,21 @@ def _attendance_today_str() -> str:
     return now.strftime("%Y-%m-%d")
 
 
+def _is_current_shift(attendance: dict, today: str) -> bool:
+    """Открытая смена, начатая не раньше STALE_ATTENDANCE_DAYS назад."""
+    if attendance["date_to"] or not attendance["employee_id"]:
+        return False
+    started = (attendance["date_from"] or "")[:10]
+    if not started:
+        return False
+    from datetime import date, timedelta
+    try:
+        oldest = date.fromisoformat(today) - timedelta(days=STALE_ATTENDANCE_DAYS)
+        return date.fromisoformat(started) >= oldest
+    except ValueError:  # неожиданный формат даты — не выкидываем человека
+        return True
+
+
 _SHIFT_CACHE: list[dict] | None = None
 _SHIFT_CACHE_TS: float = 0.0
 _SHIFT_CACHE_TTL: float = 60.0
@@ -358,11 +380,14 @@ def reset_attendance_cache() -> None:
 
 
 async def shift_employees_today() -> list[dict]:
-    """Сотрудники с ОТКРЫТОЙ явкой, НАЧАТОЙ СЕГОДНЯ, на филиале settings.branch_code,
-    без кухонных/кассирских ролей. Кэш ~60с (бережём слот лицензии RMS).
+    """Сотрудники с ОТКРЫТОЙ сменой на филиале settings.branch_code, без кухни,
+    кассы и прочих не относящихся к делу ролей. Кэш ~60с (бережём слот лицензии RMS).
 
-    Явки в нашем iiko бывают задвоены и не закрываются годами — поэтому фильтр
-    строгий: dateTo пуст И dateFrom = сегодняшний локальный день."""
+    Решение заказчика 09.08.2026: берём все текущие открытые смены, а не только
+    начатые сегодня — курьеры с ночной смены (кассир открыл её вчера вечером)
+    пропадали из аппа и не могли войти. Единственная защита от мусора: явки в
+    нашем iiko иногда не закрывают годами, поэтому всё, что старше
+    STALE_ATTENDANCE_DAYS, считаем забытым хвостом, а не сменой."""
     global _SHIFT_CACHE, _SHIFT_CACHE_TS
     branch = (settings.branch_code or "").strip()
     if not branch:
@@ -382,8 +407,7 @@ async def shift_employees_today() -> list[dict]:
             attendances = _parse_attendances(r.text)
 
     open_today = {a["employee_id"] for a in attendances
-                  if a["employee_id"] and not a["date_to"]
-                  and a["date_from"][:10] == today}
+                  if _is_current_shift(a, today)}
 
     employees, departments = await _employees_and_departments_cached()
     branch_name = next((d["name"] for d in departments if d["code"] == branch), branch)
