@@ -5,6 +5,12 @@ import "../tg.css";
 const BOT = "@finansistwire_bot";
 const POLL_MS = 15000;
 
+const MONEY = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+
+function formatMoney(sum) {
+  return `${MONEY.format(sum)} ₸`;
+}
+
 function routeUrl(lat, lon) {
   // /geo/{lon},{lat} надёжно открывает точку в нужном городе (автоопределение по
   // координатам), откуда курьер строит маршрут «Проезд». Формат routeSearch на web
@@ -42,6 +48,7 @@ export default function TgCourier() {
   const [paymentOrder, setPaymentOrder] = useState(null); // order awaiting payment-kind pick
   const [paymentTypesList, setPaymentTypesList] = useState([]); // real payment types for overlay
   const [paymentTypesLoading, setPaymentTypesLoading] = useState(false);
+  const [closeInfo, setCloseInfo] = useState(null); // сколько осталось получить, из iiko
 
   // --- Telegram init + theme --------------------------------------------------
   useEffect(() => {
@@ -233,30 +240,35 @@ export default function TgCourier() {
   function startDeliver(order) {
     setPaymentOrder(order);
     setPaymentTypesList([]);
-    // Тип оплаты в заказе уже есть почти всегда (его ставит колл-центр: Kaspi,
-    // наличные, онлайн). Тогда выбирать нечего — курьер просто закрывает заказ,
-    // а бэкенд не трогает оплату: iiko отбивает второй тип как некомбинируемый,
-    // и заказ навсегда зависал в «В пути» (прод 09.08.2026, заказ №23).
-    // Список типов нужен только когда оплаты в заказе нет вовсе.
-    if (order.payment_type_name) return;
-    if (order.org_id) {
-      setPaymentTypesLoading(true);
-      api
-        .paymentTypes(order.org_id)
-        .then((list) => setPaymentTypesList(Array.isArray(list) ? list : []))
-        .catch(() => setPaymentTypesList([]))
-        .finally(() => setPaymentTypesLoading(false));
-    }
+    setCloseInfo(null);
+    setPaymentTypesLoading(true);
+    // Правда об оплате — только в iiko и только сейчас. Тип из заказа может
+    // оказаться бонусной частью сплита: заказ №36 от 09.08.2026 показывал
+    // «БАЛЛЫ» и ими же закрылся, хотя клиент платил онлайн. Поэтому спрашиваем
+    // бэкенд: сколько осталось получить и нужен ли вообще выбор типа.
+    api
+      .closeInfo(order.id)
+      .then(async (info) => {
+        setCloseInfo(info);
+        if (info?.needs_choice && order.org_id) {
+          const list = await api.paymentTypes(order.org_id).catch(() => []);
+          setPaymentTypesList(Array.isArray(list) ? list : []);
+        }
+      })
+      .catch(() => setCloseInfo(null))
+      .finally(() => setPaymentTypesLoading(false));
   }
 
   function cancelDeliver() {
     setPaymentOrder(null);
+    setCloseInfo(null);
   }
 
   async function confirmDeliver(paymentKind, paymentTypeId) {
     const order = paymentOrder;
     setPaymentOrder(null);
     setPaymentTypesList([]);
+    setCloseInfo(null);
     setActingId(order.id);
     setOrdersErr("");
     try {
@@ -385,6 +397,12 @@ export default function TgCourier() {
 
   // phase === "orders"
   const geoOn = geo.startsWith("вкл");
+  // Выбор типа оплаты нужен, только если с клиента реально осталось получить
+  // деньги. Если iiko не ответил (closeInfo=null) — падаем на прежнее правило:
+  // тип в заказе есть => закрываем одной кнопкой, нет => спрашиваем.
+  const needsChoice = closeInfo
+    ? Boolean(closeInfo.needs_choice)
+    : Boolean(paymentOrder && !paymentOrder.payment_type_name);
   return (
     <div className="tg">
       <header className="tg__header">
@@ -629,14 +647,28 @@ export default function TgCourier() {
         <div className="tg-payment-overlay" role="dialog" aria-modal="true" aria-label="Закрыть заказ">
           <div className="tg-payment-sheet">
             <p className="tg-payment-sheet__title">
-              {paymentOrder.payment_type_name ? "Закрыть заказ?" : "Способ оплаты"}
+              {needsChoice ? "Чем оплатил клиент?" : "Закрыть заказ?"}
             </p>
             <p className="tg-payment-sheet__sub">Заказ № {paymentOrder.number}</p>
-            {paymentOrder.payment_type_name ? (
-              // Оплата в заказе уже указана — одно действие, без выбора.
+            {needsChoice && closeInfo?.due > 0 && (
+              <p className="tg-payment-sheet__due">
+                Получить с клиента: <b>{formatMoney(closeInfo.due)}</b>
+              </p>
+            )}
+            {paymentTypesLoading ? (
+              <p className="tg-payment-sheet__sub">Проверяем оплату…</p>
+            ) : !needsChoice ? (
+              // Заказ уже оплачен (онлайн, Kaspi, бонусы или их сумма) — просто
+              // закрываем: доплачивать нечего, выбирать нечего.
               <>
                 <p className="tg-payment-sheet__pay">
-                  Оплата: <b>{paymentOrder.payment_type_name}</b>
+                  {closeInfo?.payment_type_name ? (
+                    <>
+                      Оплата: <b>{closeInfo.payment_type_name}</b>
+                    </>
+                  ) : (
+                    <>Заказ оплачен полностью</>
+                  )}
                 </p>
                 <div className="tg-payment-sheet__btns">
                   <button
@@ -648,8 +680,6 @@ export default function TgCourier() {
                   </button>
                 </div>
               </>
-            ) : paymentTypesLoading ? (
-              <p className="tg-payment-sheet__sub">Загрузка…</p>
             ) : paymentTypesList.length > 0 ? (
               <div className="tg-payment-sheet__btns tg-payment-sheet__btns--wrap">
                 {paymentTypesList.map((pt) => {

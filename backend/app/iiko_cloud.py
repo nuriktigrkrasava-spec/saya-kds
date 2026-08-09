@@ -107,6 +107,23 @@ async def fetch_nomenclature(organization_id: str) -> dict:
         return r.json()
 
 
+def settlement_payment_type(payments: list[dict]) -> dict:
+    """Тип оплаты заказа для экранов: чем он реально рассчитывается.
+
+    НЕ `payments[0]`: у сплита первой часто идёт бонусная часть («БАЛЛЫ»,
+    `isProcessedExternally`) — на карточке сборщика и в аппе курьера писалось
+    «Оплата: БАЛЛЫ» вместо онлайна, и заказ №36 от 09.08.2026 этими баллами и
+    закрылся. Берём предоплату (её касса фискализирует при закрытии), иначе
+    самый крупный НЕ внешний платёж.
+    """
+    prelim = [p for p in payments if p.get("isPreliminary")]
+    internal = [p for p in payments if not p.get("isProcessedExternally")]
+    pool = prelim or internal or payments
+    if not pool:
+        return {}
+    return max(pool, key=lambda p: p.get("sum") or 0).get("paymentType") or {}
+
+
 def _parse_iiko_local_to_utc(s, offset_hours: int) -> datetime | None:
     if not s:
         return None
@@ -286,7 +303,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
             comment=(it.get("comment") or "").strip(),
         ))
     pays = o.get("payments") or []
-    pt = (pays[0].get("paymentType") or {}) if pays else {}
+    pt = settlement_payment_type(pays)
     complete_before = _parse_iiko_local_to_utc(
         o.get("completeBefore"), settings.iiko_tz_offset_hours)
     # Тайм-штампы жизненного цикла. Имена полей зависят от версии Transport API,
@@ -378,7 +395,7 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
     service_type = (o.get("orderType") or {}).get("orderServiceType") or "DineIn"
 
     pays = o.get("payments") or []
-    pt = (pays[0].get("paymentType") or {}) if pays else {}
+    pt = settlement_payment_type(pays)
     complete_before = _parse_iiko_local_to_utc(
         o.get("completeBefore"), settings.iiko_tz_offset_hours)
     return NormalizedOrder(

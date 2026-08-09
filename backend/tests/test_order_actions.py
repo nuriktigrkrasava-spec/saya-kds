@@ -130,6 +130,12 @@ def _command_ok():
         return_value=httpx.Response(200, json={"state": "Success"}))
 
 
+def _pay(sum_, name="Оплата", pid="pt-x", kind="Card", **flags):
+    """Оплата в ответе iiko. По умолчанию — обычная, уже проведённая."""
+    return {"sum": sum_, "paymentType": {"id": pid, "name": name, "kind": kind},
+            "isPreliminary": False, "isProcessedExternally": False, **flags}
+
+
 def _by_id(total=1000.0, payments=(), service="DeliveryByCourier"):
     """Состояние заказа в iiko, которое /delivered читает перед записью."""
     return respx.post(f"{_IIKO}/api/1/deliveries/by_id").mock(
@@ -468,6 +474,97 @@ async def test_delivered_prepaid_close_retry_confirms_same_payment_type(client):
     assert b"pt-kaspi" in body and b"pt-1" not in body
     assert b'"sum":1000.0' in body, "сумму берём из iiko, а не из своей БД"
     assert cl.call_count == 2 and r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_pays_only_the_remainder_of_a_split_order(client):
+    """Часть уже оплачена бонусами — доплачиваем ОСТАТОК, а не всю сумму.
+
+    Прод 09.08.2026, заказ №36 на 17070 ₸: 8535 ₸ уже списаны «БАЛЛАМИ»
+    (isProcessedExternally), а мы отправили оплату на все 17070 ₸ — заказ
+    получил лишнюю оплату, iiko ответил PaymentSumTooLarge, кассир разбирал
+    руками. Платить можно только разницу."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=17070.0, payments=[
+        _pay(8535.0, "БАЛЛЫ", "pt-bonus", isProcessedExternally=True)])
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Курьер", "payment_type_id": "pt-kaspi", "payment_kind": "Card"})
+    assert r.status_code == 200
+    body = pay.calls.last.request.read()
+    assert b'"sum":8535.0' in body, "платим разницу 17070 - 8535"
+    assert b"pt-kaspi" in body, "тип берём тот, которым курьер реально принял деньги"
+    assert cl.called and r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_delivered_never_pays_with_bonus_type_from_our_db(client):
+    """Тип оплаты из нашей БД может оказаться бонусной частью сплита.
+
+    ingest раньше брал payments[0] — у заказа №36 это были «БАЛЛЫ», и заказ
+    закрылся баллами вместо онлайна. Когда курьер тип не выбирал, берём тип
+    расчёта из самого iiko (предоплата/не-внешний платёж), а не бонусный."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=17070.0, payments=[
+        _pay(8535.0, "БАЛЛЫ", "pt-bonus", isProcessedExternally=True),
+        _pay(8535.0, "Терминал Kaspi", "pt-kaspi", isPreliminary=True)])
+    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/deliveries/update_order_delivery_status").mock(
+        return_value=httpx.Response(200, json={}))
+    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        o = (await s.execute(select(Order))).scalar_one()
+        o.payment_type_id, o.payment_type_kind = "pt-bonus", "Card"
+        await s.commit()
+        oid = o.id
+
+    r = await c.post(f"/orders/{oid}/delivered", json={"by": "Курьер"})
+    assert r.status_code == 200
+    assert not pay.called, "предоплата покрывает остаток — доплачивать нечего"
+    assert cl.called and r.json()["iiko_sync_error"] is None
+
+
+@respx.mock
+async def test_close_info_tells_the_courier_what_is_left_to_pay(client):
+    """Курьер перед закрытием видит правду из iiko: сколько и чем доплатить."""
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=17070.0, payments=[
+        _pay(8535.0, "БАЛЛЫ", "pt-bonus", isProcessedExternally=True)])
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    r = await c.get(f"/orders/{oid}/close-info")
+    assert r.status_code == 200
+    b = r.json()
+    assert b["total"] == 17070.0 and b["paid"] == 8535.0 and b["due"] == 8535.0
+    assert b["needs_choice"] is True, "чем добирать остаток — знает только курьер"
+    assert b["payment_type_name"] is None
+
+
+@respx.mock
+async def test_close_info_prepaid_order_needs_no_choice(client):
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    _by_id(total=1000.0, payments=[_pay(1000.0, "КАСПИ онлайн", "pt-kaspi", isPreliminary=True)])
+    async with maker() as s:
+        oid = (await s.execute(select(Order.id))).scalar_one()
+
+    b = (await c.get(f"/orders/{oid}/close-info")).json()
+    assert b["due"] == 0 and b["needs_choice"] is False
+    assert b["payment_type_name"] == "КАСПИ онлайн", "показываем реальный тип из iiko"
 
 
 @respx.mock

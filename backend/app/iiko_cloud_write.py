@@ -130,13 +130,21 @@ async def read_order_state(org_id: str, order_id: str) -> dict | None:
     payments = order.get("payments") or []
     paid = sum((p.get("sum") or 0) for p in payments if not p.get("isPreliminary"))
     prepaid = sum((p.get("sum") or 0) for p in payments if p.get("isPreliminary"))
-    own = (payments[0].get("paymentType") or {}) if payments else {}
+    # Сколько реально осталось получить с клиента. Оплаты бывают сплитом
+    # (БАЛЛЫ 8535 + Kaspi 8535 на заказ 17070), поэтому платить «на всю сумму»
+    # нельзя — iiko отвечает PaymentSumTooLarge, а в заказе остаётся лишний чек.
+    due = max(0.0, round(total - paid - prepaid, 2))
+    own = iiko_cloud.settlement_payment_type(payments)
     return {"is_delivery": True,
             "total": total,
+            "paid_sum": round(paid, 2),
+            "prepaid_sum": round(prepaid, 2),
+            "due": due,
             "paid": paid + 0.01 >= total,
-            "prepaid": prepaid + 0.01 >= total,
+            "prepaid": due <= 0.01 and prepaid > 0,
             "payment_type_id": own.get("id"),
             "payment_type_kind": own.get("kind"),
+            "payment_type_name": own.get("name"),
             "service_type": (order.get("orderType") or {}).get("orderServiceType")}
 
 

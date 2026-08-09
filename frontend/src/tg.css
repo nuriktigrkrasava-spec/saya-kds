@@ -205,6 +205,13 @@
   font-size: 16px;
 }
 
+/* Сколько ещё получить с клиента (сплит: часть закрыта бонусами/онлайном). */
+.tg-payment-sheet__due {
+  margin: 8px 0 2px;
+  font-size: 17px;
+  color: #b45309;
+}
+
 .tg-detail__row {
   margin: 6px 0;
   font-size: 15px;

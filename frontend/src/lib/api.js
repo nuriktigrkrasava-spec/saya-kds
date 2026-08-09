@@ -98,6 +98,8 @@ export const api = {
     return post(`/orders/${orderId}/delivered`, body);
   },
   paymentTypes: (orgId) => get(`/payment-types?org_id=${encodeURIComponent(orgId)}`),
+  // Что реально осталось получить с клиента (читается из iiko в момент запроса).
+  closeInfo: (orderId) => get(`/orders/${orderId}/close-info`),
 
   // Assembler assigns a courier (also marks the order assembled).
   branchCouriers: (branchCode) =>

@@ -479,10 +479,11 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
 
     Каждый шаг делается только если он вообще нужен и разрешён — состояние
     заказа читаем из iiko, а не из своей БД:
-    * оплату шлём, ТОЛЬКО если заказ ещё не оплачен и не предоплачен
+    * оплату шлём, ТОЛЬКО если по заказу реально осталось получить деньги
       (update_order_payments добавляет оплату, а не заменяет → иначе двойной
       чек, а по предоплате iiko ещё и отбивает чужой тип как некомбинируемый);
-    * сумму берём из iiko, а не из order.total (та может быть пустой);
+    * платим РОВНО остаток: часть заказа могла быть закрыта бонусами или
+      предоплатой, и оплата «на всю сумму» ловит PaymentSumTooLarge;
     * Delivered шлём только курьерским заказам: у DeliveryByClient (Яндекс,
       Wolt, самовывоз) этапов доставки нет и любой статус отбивается ошибкой 173;
     * close зовём в обоих случаях — ради него всё и затевалось;
@@ -498,12 +499,19 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
         return True, {"skipped": "not_a_delivery"}
 
     prepaid = state.get("prepaid", False)
-    if not state["paid"] and not prepaid:
-        pt_id = body.payment_type_id or order.payment_type_id
+    due = state.get("due", 0.0)
+    if due > 0.01:
+        # Тип: чем курьер реально принял деньги; иначе тип расчёта из самого
+        # iiko; наш сохранённый — в последнюю очередь (он мог приехать бонусной
+        # частью сплита, см. заказ №36 от 09.08.2026, закрывшийся «БАЛЛАМИ»).
+        pt_id = (body.payment_type_id or state.get("payment_type_id")
+                 or order.payment_type_id)
         if not pt_id:
             return False, {"error": "no_payment_type"}
-        kind = body.payment_kind or order.payment_type_kind
-        item = _iiko_write.payment_item_by_id(order.org_id, pt_id, kind, state["total"])
+        kind = (body.payment_kind if body.payment_type_id else None) \
+            or state.get("payment_type_kind") or order.payment_type_kind
+        # Сумма — только остаток: часть заказа могла быть закрыта бонусами.
+        item = _iiko_write.payment_item_by_id(order.org_id, pt_id, kind, due)
         ok, detail = await _iiko_write.set_payments(
             order.org_id, order.iiko_order_id, [item])
         if not ok:
@@ -519,15 +527,45 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
     if ok or not prepaid or not state.get("payment_type_id"):
         return ok, detail
 
-    # Касса ждёт подтверждения предоплаты — шлём её же тип и её же сумму.
+    # Касса ждёт подтверждения предоплаты — шлём её же тип и ЕЁ ЖЕ сумму
+    # (не total: остальное могло быть закрыто бонусами).
     ok, pay_detail = await _iiko_write.set_payments(
         order.org_id, order.iiko_order_id,
         [_iiko_write.payment_item_by_id(order.org_id, state["payment_type_id"],
                                         state.get("payment_type_kind"),
-                                        state["total"])])
+                                        state.get("prepaid_sum") or state["total"])])
     if not ok:
         return False, {"close": detail, "confirm_prepaid": pay_detail}
     return await _iiko_write.close_order(order.org_id, order.iiko_order_id)
+
+
+@app.get("/orders/{order_id}/close-info")
+async def order_close_info(order_id: int,
+                           session: AsyncSession = Depends(get_session)):
+    """Что курьер увидит перед закрытием: сколько уже оплачено и чем добирать.
+
+    Правда только в iiko: у заказа бывает сплит (бонусы + онлайн), и наш
+    сохранённый тип оплаты может оказаться бонусной частью — заказ №36 от
+    09.08.2026 из-за этого закрылся «БАЛЛАМИ». `needs_choice=true` означает,
+    что остаток есть, а чем его приняли — знает только курьер.
+    """
+    order = await _load_order(session, order_id)
+    fallback = {"total": order.total, "paid": None, "due": None,
+                "payment_type_name": order.payment_type_name,
+                "needs_choice": not order.payment_type_id, "known": False}
+    if not (order.org_id and order.iiko_order_id):
+        return fallback
+    state = await _iiko_write.read_order_state(order.org_id, order.iiko_order_id)
+    if state is None or not state.get("is_delivery"):
+        # iiko не ответил или это заказ зала — не выдумываем, отдаём своё.
+        return fallback
+    due = state.get("due", 0.0)
+    return {"total": state["total"],
+            "paid": round(state.get("paid_sum", 0) + state.get("prepaid_sum", 0), 2),
+            "due": due,
+            "payment_type_name": None if due > 0.01 else state.get("payment_type_name"),
+            "needs_choice": due > 0.01,
+            "known": True}
 
 
 @app.post("/orders/{order_id}/delivered")
