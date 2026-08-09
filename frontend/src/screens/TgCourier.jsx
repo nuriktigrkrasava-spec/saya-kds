@@ -11,11 +11,17 @@ function formatMoney(sum) {
   return `${MONEY.format(sum)} ₸`;
 }
 
-function routeUrl(lat, lon) {
+function routeUrl(order) {
   // /geo/{lon},{lat} надёжно открывает точку в нужном городе (автоопределение по
   // координатам), откуда курьер строит маршрут «Проезд». Формат routeSearch на web
   // редиректит на Москву и маршрут не строит, поэтому не используем.
-  return `https://2gis.ru/geo/${lon},${lat}`;
+  if (order?.lat != null && order?.lon != null) {
+    return `https://2gis.ru/geo/${order.lon},${order.lat}`;
+  }
+  // Заказы с сайта приезжают без координат — ищем по самому адресу: 2ГИС
+  // распознаёт его нормально, это и делали курьеры руками.
+  const query = (order?.address || "").trim();
+  return query ? `https://2gis.ru/astana/search/${encodeURIComponent(query)}` : null;
 }
 
 export default function TgCourier() {
@@ -232,7 +238,8 @@ export default function TgCourier() {
 
   // --- order actions ----------------------------------------------------------
   function buildRoute(order) {
-    const url = routeUrl(order.lat, order.lon);
+    const url = routeUrl(order);
+    if (!url) return;
     if (tg?.openLink) tg.openLink(url);
     else window.open(url, "_blank");
   }
@@ -560,7 +567,7 @@ export default function TgCourier() {
                     type="button"
                     className="tg-btn tg-btn--primary"
                     onClick={() => buildRoute(o)}
-                    disabled={o.lat == null || o.lon == null}
+                    disabled={!routeUrl(o)}
                   >
                     🗺 Маршрут
                   </button>
@@ -627,7 +634,7 @@ export default function TgCourier() {
                 type="button"
                 className="tg-btn tg-btn--card"
                 onClick={() => buildRoute(detailOrder)}
-                disabled={detailOrder.lat == null || detailOrder.lon == null}
+                disabled={!routeUrl(detailOrder)}
               >
                 🗺 Маршрут
               </button>

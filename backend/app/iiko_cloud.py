@@ -228,21 +228,52 @@ async def order_by_table(organization_ids: list[str], table_ids: list[str],
         return r.json().get("orders", []) or []
 
 
+def _is_placeholder(value: str) -> bool:
+    """«----------», «0», «-», пусто — заглушка вместо адреса, а не адрес."""
+    stripped = (value or "").strip(" -–—_.")
+    return not stripped or stripped == "0"
+
+
+def _coordinates(dp: dict) -> dict:
+    """Координаты точки, но (0, 0) — это «координат нет», а не Атлантика.
+
+    Заказы с сайта приходят с нулями; по ним кнопка «Маршрут» открывала 2ГИС
+    в океане, поэтому такие координаты выбрасываем — курьер поедет по адресу.
+    """
+    coords = dp.get("coordinates") or {}
+    lat, lon = coords.get("latitude"), coords.get("longitude")
+    if not lat or not lon:  # None или 0.0
+        return {}
+    return coords
+
+
 def _format_address(dp: dict) -> str:
     """Собирает читаемый адрес доставки из deliveryPoint.
 
     iiko Cloud кладёт адрес по частям (улица, дом, квартира, подъезд, этаж),
     а раньше мы брали только название улицы — курьер видел «Абая» без дома.
     Склеиваем всё, что есть, в одну строку.
+
+    Заказы с сайта (sourceKey=WEB) приходят иначе: улица «----------», дом «0»,
+    а настоящий адрес одной строкой в `line1` («г. Астана, ул. Туркестан 8,
+    кв 155»). Курьер видел мусор вида «----------, 0» — жалоба 09.08.2026.
+    Поэтому: если улица/дом заглушки, берём line1.
     """
     addr = (dp.get("address") or {})
-    street = (addr.get("street") or {}).get("name") or addr.get("line1") or ""
+    street = (addr.get("street") or {}).get("name") or ""
     house = addr.get("house") or ""
     building = addr.get("building") or ""
+    line1 = (addr.get("line1") or "").strip()
 
-    # Первая часть: «Улица, дом[ к.корпус]».
-    head_parts = [p for p in (street, house) if p]
-    head = ", ".join(head_parts)
+    if _is_placeholder(street) and _is_placeholder(house) and line1:
+        head = line1
+        building = ""
+    else:
+        if _is_placeholder(street) and line1:
+            street = line1
+        # Первая часть: «Улица, дом[ к.корпус]».
+        head_parts = [p for p in (street, house) if p and not _is_placeholder(p)]
+        head = ", ".join(head_parts)
     if building:
         head = f"{head} к.{building}" if head else f"к.{building}"
 
@@ -279,7 +310,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
     phone = (o.get("phone") or cust_obj.get("phone") or "").strip()
     dp = o.get("deliveryPoint") or {}
     address = _format_address(dp)
-    coords = dp.get("coordinates") or {}
+    coords = _coordinates(dp)
     # ДИАГНОСТИКА: смотрим сырую структуру адреса/телефона от iiko, чтобы
     # прицельно чинить «неполный адрес / неверный телефон» у курьера.
     logging.getLogger("saya.ingest").info(
