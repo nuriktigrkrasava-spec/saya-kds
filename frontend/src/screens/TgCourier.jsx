@@ -211,8 +211,15 @@ export default function TgCourier() {
     }
   }, []);
 
+  // Список явок обновляем сам, пока курьер стоит на экране выбора: смену ему
+  // открывают на кассе прямо в этот момент, и ждать, пока он догадается нажать
+  // «Обновить», незачем (09.08.2026: Мейіржану открыли смену в 18:37, а он
+  // смотрел в список, загруженный минутой раньше).
   useEffect(() => {
-    if (phase === "pick") loadShift();
+    if (phase !== "pick") return;
+    loadShift();
+    const t = setInterval(loadShift, 30000);
+    return () => clearInterval(t);
   }, [phase, loadShift]);
 
   async function claim(emp) {
