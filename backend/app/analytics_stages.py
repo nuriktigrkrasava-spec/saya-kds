@@ -216,6 +216,44 @@ def stage_aggregates(orders, close_at_by_order: dict | None = None) -> dict:
     return {"stages": out_stages, "bottleneck_distribution": bottleneck}
 
 
+# Шкала «Путь заказа»: только то, что видит клиент от готовки до двери.
+# Очередь на кухню и закрытие в iiko сюда не входят — это внутренняя кухня и
+# бухгалтерия, а не время ожидания заказа.
+PATH_STAGES = [
+    ("cooking", "Готовка"),
+    ("assembly", "Сборка"),
+    ("pickup_wait", "Ожидание"),
+    ("delivery", "Доставка"),
+]
+
+
+def order_path(orders) -> dict:
+    """Средняя длительность этапов пути заказа + сумма («N минут до клиента»).
+
+    Каждый этап усредняется по своей выборке: заказ без сборки не занижает
+    среднее по сборке, он в него просто не входит. Поэтому total — это сумма
+    средних, а не среднее полного времени; для шкалы это и нужно.
+    """
+    buckets: dict[str, list[float]] = {k: [] for k, _ in PATH_STAGES}
+    for o in orders:
+        for s in order_stages(o):
+            if s["key"] in buckets and s["seconds"] is not None:
+                buckets[s["key"]].append(s["seconds"])
+
+    stages = []
+    total_min = 0
+    for key, label in PATH_STAGES:
+        vals = buckets[key]
+        avg = (sum(vals) / len(vals)) if vals else None
+        minutes = round(avg / 60) if avg is not None else None
+        if minutes is not None:
+            total_min += minutes
+        stages.append({"key": key, "label": label, "count": len(vals),
+                       "seconds": avg, "minutes": minutes})
+    return {"stages": stages, "total_minutes": total_min,
+            "unit_label": "мин до клиента"}
+
+
 def zone_load(orders, tz_offset_hours: int = 0,
               zones: tuple[str, ...] = ("pizza", "rolls", "hot", "other")) -> dict:
     """Нагрузка кухни по часам: для каждой зоны и локального часа — число готовых

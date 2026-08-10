@@ -72,6 +72,22 @@ async def test_export_point_outside_any_zone_has_null_zone(client, session, api_
 
 
 @pytest.mark.asyncio
+async def test_export_returns_order_path_scale(client, session, api_key):
+    """Шкала «Путь заказа» отдаётся готовой, чтобы её не пересобирали на месте."""
+    session.add(Order(iiko_order_id="p4", org_id="demo", number="104",
+                      created_at=datetime.utcnow()))
+    await session.commit()
+
+    async with client as c:
+        r = await c.get("/admin/analytics/export?org_id=demo",
+                        headers={"X-API-Key": api_key})
+    path = r.json()["order_path"]
+    assert [s["key"] for s in path["stages"]] == [
+        "cooking", "assembly", "pickup_wait", "delivery"]
+    assert "total_minutes" in path
+
+
+@pytest.mark.asyncio
 async def test_export_skips_orders_without_coordinates(client, session, api_key):
     session.add(Order(iiko_order_id="p3", org_id="demo", number="103",
                       created_at=datetime.utcnow()))

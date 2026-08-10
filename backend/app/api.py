@@ -2238,6 +2238,8 @@ async def admin_analytics_export(org_id: str,
         "anomalies": await admin_anomalies(org_id, session),
         "journal": await admin_journal(org_id, from_, to, None, None, None, 1000, 0, session),
         "delivery_points": await _delivery_points(session, org_id, dt_from, dt_to),
+        "order_path": _stages.order_path(
+            await _orders_in_period(session, org_id, dt_from, dt_to)),
     }
 
 
