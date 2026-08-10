@@ -2179,6 +2179,39 @@ def require_analytics_key(x_api_key: str | None = Header(default=None, alias="X-
     return True
 
 
+async def _delivery_points(session, org_id: str, dt_from, dt_to) -> list[dict]:
+    """Точки доставки заказов периода + зона, в которую попал адрес.
+
+    Ни координат заказа, ни наших зон в iiko OLAP нет — это данные KDS, ради
+    них внешняя аналитика и ходит к нам. Заказы без координат пропускаем:
+    рисовать на карте нечего.
+    """
+    zrows = (await session.execute(
+        _select(_DeliveryZone).where(_DeliveryZone.org_id == org_id)
+        .order_by(_DeliveryZone.id))).scalars().all()
+    zones = [{"id": z.id, "name": z.name, "polygon": z.polygon or []} for z in zrows]
+    zone_names = {z["id"]: z["name"] for z in zones}
+
+    points = []
+    for o in await _orders_in_period(session, org_id, dt_from, dt_to):
+        if o.address_lat is None or o.address_lon is None:
+            continue
+        zid = _geo.assign_zone(o.address_lat, o.address_lon, zones)
+        secs = _stages.delivery_seconds(o)
+        points.append({
+            "order_id": o.iiko_order_id,
+            "number": o.number or "",
+            "created_at": _iso(o.created_at),
+            "delivered_at": _iso(o.delivered_at),
+            "lat": o.address_lat,
+            "lon": o.address_lon,
+            "zone_id": zid,
+            "zone_name": zone_names.get(zid),
+            "delivery_seconds": int(secs) if secs is not None else None,
+        })
+    return points
+
+
 @app.get("/admin/analytics/export")
 async def admin_analytics_export(org_id: str,
                                  from_: str | None = Query(None, alias="from"),
@@ -2189,7 +2222,8 @@ async def admin_analytics_export(org_id: str,
     """Вся аналитика филиала одним JSON (для внешнего сервиса). Защищено X-API-Key.
 
     Период (from/to, YYYY-MM-DD) влияет на analytics/stage_stats/kitchen_zones/
-    zone_load/journal; anomalies/demand — за сегодня (как в исходных эндпоинтах).
+    zone_load/journal/delivery_points; anomalies/demand — за сегодня (как в
+    исходных эндпоинтах).
     Переиспользует те же функции, что и отдельные эндпоинты.
     """
     dt_from, dt_to = _parse_period(from_, to)
@@ -2203,6 +2237,7 @@ async def admin_analytics_export(org_id: str,
         "demand": await admin_demand(org_id, session),
         "anomalies": await admin_anomalies(org_id, session),
         "journal": await admin_journal(org_id, from_, to, None, None, None, 1000, 0, session),
+        "delivery_points": await _delivery_points(session, org_id, dt_from, dt_to),
     }
 
 
