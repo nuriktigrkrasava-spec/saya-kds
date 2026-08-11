@@ -126,6 +126,9 @@ export const api = {
     get(`/admin/anomalies?org_id=${orgId}`),
   zoneLoad: (orgId, from, to) =>
     get(`/admin/zone-load?org_id=${orgId}&from=${from}&to=${to}`),
+  // Опоздания — из OLAP-отчёта iiko, а не из наших отметок.
+  lateDeliveries: (orgId, from, to) =>
+    get(`/admin/late-deliveries?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
   courierZoneLoad: (orgId, from, to) =>
     get(`/admin/courier-zone-load?org_id=${orgId}&from=${from}&to=${to}`),
   deliveryZones: (orgId) =>

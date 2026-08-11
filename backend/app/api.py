@@ -2179,6 +2179,45 @@ def require_analytics_key(x_api_key: str | None = Header(default=None, alias="X-
     return True
 
 
+from app import olap as _olap
+
+
+def _period_dates(from_: str | None, to: str | None) -> tuple[str, str]:
+    """Границы периода как локальные даты YYYY-MM-DD — в таком виде их ждёт OLAP.
+    Дефолт тот же, что у _parse_period: последние 7 локальных дней."""
+    off = _td(hours=settings.iiko_tz_offset_hours)
+    today = (_dt.utcnow() + off).date()
+    d_to = _dt.fromisoformat(to).date() if to else today
+    d_from = _dt.fromisoformat(from_).date() if from_ else (d_to - _td(days=6))
+    return d_from.isoformat(), d_to.isoformat()
+
+
+async def _late_deliveries(org_id: str, from_: str | None, to: str | None) -> dict:
+    """Опоздания доставок филиала из OLAP iiko. Бросает 404, если филиал не найден."""
+    department = await _olap.department_name(org_id)
+    if department is None:
+        raise HTTPException(status_code=404,
+                            detail=f"филиал {org_id} не найден среди организаций iiko")
+    date_from, date_to = _period_dates(from_, to)
+    rows = await _olap.fetch_delivery_rows(department, date_from, date_to)
+    return {"org_id": org_id, "department": department,
+            "period": {"from": date_from, "to": date_to},
+            **_olap.late_deliveries(rows)}
+
+
+@app.get("/admin/late-deliveries")
+async def admin_late_deliveries(org_id: str,
+                                from_: str | None = Query(None, alias="from"),
+                                to: str | None = None):
+    """Сколько доставок филиала опоздало за период и каждая из них поимённо.
+
+    Источник — OLAP-отчёт iiko (колонка «Опоздание доставки»), тот же, что и
+    «Отчёт заказы-доставка» в iikoOffice: цифры обязаны сходиться с ним.
+    Самовывоз не считаем — курьер к нему отношения не имеет.
+    """
+    return await _late_deliveries(org_id, from_, to)
+
+
 async def _delivery_points(session, org_id: str, dt_from, dt_to) -> list[dict]:
     """Точки доставки заказов периода + зона, в которую попал адрес.
 
@@ -2240,7 +2279,17 @@ async def admin_analytics_export(org_id: str,
         "delivery_points": await _delivery_points(session, org_id, dt_from, dt_to),
         "order_path": _stages.order_path(
             await _orders_in_period(session, org_id, dt_from, dt_to)),
+        # OLAP живёт в RMS и падает отдельно от нас: его недоступность не должна
+        # ронять всю выгрузку — отдаём ошибку блоком, остальное доезжает.
+        "late_deliveries": await _late_deliveries_safe(org_id, from_, to),
     }
+
+
+async def _late_deliveries_safe(org_id: str, from_: str | None, to: str | None) -> dict:
+    try:
+        return await _late_deliveries(org_id, from_, to)
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 @app.delete("/admin/orders/by-number/{number}")

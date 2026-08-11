@@ -32,6 +32,14 @@ function fmtSeconds(seconds) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
+// Время из OLAP приходит строкой локального времени филиала ("2026-08-10T22:56:46.572").
+// Показываем «10.08 22:56» — секунды и миллисекунды в таблице только мешают.
+function fmtOlapTime(s) {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
+  return m ? `${m[3]}.${m[2]} ${m[4]}:${m[5]}` : s;
+}
+
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"];
 
 // Сравнение текущего значения с предыдущим периодом. lowerIsBetter — для времени
@@ -369,6 +377,12 @@ export default function Analytics() {
   // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
 
+  // Опоздания доставок (OLAP iiko)
+  const [late, setLate] = useState(null);
+  const [lateLoading, setLateLoading] = useState(false);
+  const [lateError, setLateError] = useState(null);
+  const [lateOpen, setLateOpen] = useState(false);
+
   // ── загрузка сводки за период (таблица сотрудников/зон) ───────────────────
   useEffect(() => {
     if (!orgId) return;
@@ -437,6 +451,18 @@ export default function Analytics() {
   useEffect(() => {
     if (!orgId) return;
     api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
+  }, [orgId, range.from, range.to, reloadTick]);
+
+  // ── загрузка опозданий доставок (OLAP iiko, ходит в RMS — медленно) ─────
+  useEffect(() => {
+    if (!orgId) return;
+    setLateLoading(true);
+    setLateError(null);
+    api
+      .lateDeliveries(orgId, range.from, range.to)
+      .then(setLate)
+      .catch((e) => { setLateError(e.message || String(e)); setLate(null); })
+      .finally(() => setLateLoading(false));
   }, [orgId, range.from, range.to, reloadTick]);
 
   // ── производные данные ──────────────────────────────────────────────────
@@ -663,6 +689,78 @@ export default function Analytics() {
           )}
           <Src>Просрочка = от создания заказа до «Доставлен» прошло больше 45 мин.
             Недоставленный заказ, висящий дольше 45 мин, тоже считается просрочкой.</Src>
+        </section>
+
+        {/* ── Опоздания доставок (OLAP iiko) ── */}
+        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
+          <h2 className="admin__section-title">Опоздания доставок</h2>
+          {lateLoading && <p className="admin__state">Загрузка из iiko…</p>}
+          {lateError && <p className="admin__state">Отчёт iiko недоступен: {lateError}</p>}
+          {late && !lateLoading && (
+            <>
+              <p style={{
+                fontSize: 28, fontWeight: 700, margin: "0 0 4px",
+                color: late.late_rate > 0.2 ? "#dc2626" : "#16a34a",
+              }}>
+                {Math.round(late.late_rate * 100)}% опоздали
+                <span style={{ fontSize: 15, fontWeight: 400, color: "#6b7280", marginLeft: 10 }}>
+                  ({late.late_count}/{late.total})
+                </span>
+              </p>
+              <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 16px" }}>
+                {late.late_count > 0
+                  ? <>среднее опоздание {Math.round(late.avg_delay_minutes)} мин · худшее {late.max_delay_minutes} мин</>
+                  : <>за период опозданий нет</>}
+              </p>
+
+              {late.late_count > 0 && (
+                <>
+                  <button type="button" className="seg-btn"
+                          onClick={() => setLateOpen((v) => !v)}
+                          style={{ marginBottom: 12 }}>
+                    {lateOpen ? "▲ свернуть список" : `▼ показать все ${late.late_count}`}
+                  </button>
+                  {lateOpen && (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th className="num">№</th>
+                          <th>Курьер</th>
+                          <th>Обещали</th>
+                          <th>Привезли</th>
+                          <th className="num">Опоздание</th>
+                          <th>Адрес</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {late.orders.map((o, i) => (
+                          <tr key={`${o.number}-${o.actual_at}-${i}`}>
+                            <td className="num">{o.number}</td>
+                            <td>{o.courier || "—"}</td>
+                            <td>{fmtOlapTime(o.expected_at)}</td>
+                            <td>{fmtOlapTime(o.actual_at)}</td>
+                            <td className="num" style={{
+                              fontWeight: 700,
+                              color: o.delay_minutes >= 30 ? "#dc2626" : "#f59e0b",
+                            }}>
+                              +{o.delay_minutes} мин
+                            </td>
+                            <td>{o.address || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          <Src>Источник — OLAP-отчёт iiko «доставки», колонка «Опоздание доставки»:
+            те же цифры, что в «Отчёте заказы-доставка» в iikoOffice. Филиал —
+            {late?.department ? ` ${late.department}` : " текущий"}. Самовывоз не
+            считаем: у него в iiko тоже есть опоздание, но курьер к нему отношения
+            не имеет. Доставка без опоздания приходит из iiko с пустой колонкой —
+            это «вовремя», а не «нет данных».</Src>
         </section>
 
         {/* ── Кухня по зонам ── */}
