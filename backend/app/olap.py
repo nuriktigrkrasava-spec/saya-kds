@@ -20,6 +20,18 @@ _ORG_NAMES: dict[str, str] = {}
 _ORG_NAMES_TS = 0.0
 _ORG_NAMES_TTL = 3600.0
 
+# Кэш строк отчёта: (филиал, дата с, дата по) -> (когда положили, строки).
+# Две минуты — компромисс: аналитику можно перезагружать, а свежие доставки
+# появляются в отчёте не мгновенно.
+CACHE_TTL_SECONDS = 120.0
+_ROWS_CACHE: dict[tuple[str, str, str], tuple[float, list[dict]]] = {}
+
+
+def reset_cache() -> None:
+    """Сбросить кэш (тесты, ручная перепроверка после правок в iiko)."""
+    _ROWS_CACHE.clear()
+    _ORG_NAMES.clear()
+
 # Строки отчёта: номер, курьер, времена, опоздание, тип доставки, адрес.
 _ROW_FIELDS = [
     "Delivery.Number", "Delivery.Courier", "Delivery.ExpectedTime",
@@ -85,7 +97,25 @@ async def department_name(org_id: str) -> str | None:
 
 
 async def fetch_delivery_rows(department: str, date_from: str, date_to: str) -> list[dict]:
-    """Строки отчёта «доставки» по филиалу за период (даты YYYY-MM-DD, включительно).
+    """Строки отчёта «доставки» по филиалу за период, с кэшом на CACHE_TTL_SECONDS.
+
+    Каждый заход в RMS занимает слот лицензии, а аналитику открывают часто и
+    перезагружают страницу — без кэша управляющие рискуют не попасть в
+    iikoOffice. Ошибку не кэшируем: упавший RMS не должен залипнуть на две
+    минуты, следующий показ обязан попробовать снова.
+    """
+    key = (department, date_from, date_to)
+    hit = _ROWS_CACHE.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < CACHE_TTL_SECONDS:
+        return hit[1]
+    rows = await _fetch_delivery_rows_uncached(department, date_from, date_to)
+    _ROWS_CACHE[key] = (time.monotonic(), rows)
+    return rows
+
+
+async def _fetch_delivery_rows_uncached(department: str, date_from: str,
+                                        date_to: str) -> list[dict]:
+    """Сам запрос в OLAP (даты YYYY-MM-DD, включительно).
 
     Фильтруем по названию торгового предприятия: в RMS оно совпадает с названием
     Cloud-организации — на этом же совпадении построен rms.branch_to_org_id().
