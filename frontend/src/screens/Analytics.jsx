@@ -40,6 +40,12 @@ function fmtOlapTime(s) {
   return m ? `${m[3]}.${m[2]} ${m[4]}:${m[5]}` : s;
 }
 
+// "2026-08-11" -> "11.08"
+function fmtDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  return m ? `${m[3]}.${m[2]}` : iso;
+}
+
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"];
 
 // Сравнение текущего значения с предыдущим периодом. lowerIsBetter — для времени
@@ -693,7 +699,16 @@ export default function Analytics() {
 
         {/* ── Опоздания доставок (OLAP iiko) ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-          <h2 className="admin__section-title">Опоздания доставок</h2>
+          <h2 className="admin__section-title">
+            Опоздания доставок
+            {late?.period && (
+              <small style={{ fontWeight: 400, color: "#6b7280", marginLeft: 8 }}>
+                {late.period.from === late.period.to
+                  ? `за ${fmtDay(late.period.from)}`
+                  : `${fmtDay(late.period.from)} — ${fmtDay(late.period.to)}`}
+              </small>
+            )}
+          </h2>
           {lateLoading && <p className="admin__state">Загрузка из iiko…</p>}
           {lateError && <p className="admin__state">Отчёт iiko недоступен: {lateError}</p>}
           {late && !lateLoading && (

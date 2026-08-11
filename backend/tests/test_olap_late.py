@@ -6,6 +6,27 @@
 from app import olap
 
 
+def _date_filter(date_from, date_to):
+    return olap.build_report_body("Алиева", date_from, date_to)["filters"]["OpenDate.Typed"]
+
+
+def test_upper_bound_is_shifted_a_day_because_olap_excludes_it():
+    """Наш API отдаёт период включительно, OLAP верхнюю дату не включает.
+
+    Проверено на проде: сумма [1,2)+[2,3)+[3,4) сходится с [1,4) по числу строк
+    только при исключительной границе. Без сдвига последний день (обычно
+    сегодняшний) молча терялся бы из отчёта.
+    """
+    f = _date_filter("2026-08-04", "2026-08-11")
+    assert (f["from"], f["to"]) == ("2026-08-04", "2026-08-12")
+
+
+def test_single_day_becomes_a_one_day_range():
+    """from == to — «за конкретный день». В OLAP это пустой диапазон и 409."""
+    f = _date_filter("2026-08-09", "2026-08-09")
+    assert (f["from"], f["to"]) == ("2026-08-09", "2026-08-10")
+
+
 def _row(number, delay, service="COURIER", courier="Иванов",
          expected="2026-08-09T14:00:00", actual="2026-08-09T14:30:00"):
     return {

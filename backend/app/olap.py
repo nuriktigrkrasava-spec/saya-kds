@@ -9,6 +9,7 @@ ApiLogin»), поэтому ходим тем же RMS-логином, что и
 """
 from __future__ import annotations
 import time
+from datetime import date as _date, timedelta
 import httpx
 
 from app.config import settings
@@ -113,15 +114,20 @@ async def fetch_delivery_rows(department: str, date_from: str, date_to: str) -> 
     return rows
 
 
-async def _fetch_delivery_rows_uncached(department: str, date_from: str,
-                                        date_to: str) -> list[dict]:
-    """Сам запрос в OLAP (даты YYYY-MM-DD, включительно).
+def build_report_body(department: str, date_from: str, date_to: str) -> dict:
+    """Тело запроса к OLAP. Даты снаружи — ВКЛЮЧИТЕЛЬНО, как во всей аналитике.
+
+    Верхнюю границу сдвигаем на день вперёд: OpenDate.Typed её не включает
+    (проверено на проде — сумма посуточных кусков сходится с целым периодом
+    только так). Без сдвига из отчёта молча выпадал бы последний день, обычно
+    сегодняшний, а «за конкретный день» (from == to) превращалось в пустой
+    диапазон, на который RMS отвечает 409 Conflict.
 
     Фильтруем по названию торгового предприятия: в RMS оно совпадает с названием
     Cloud-организации — на этом же совпадении построен rms.branch_to_org_id().
     """
-    base = settings.rms_base.rstrip("/")
-    body = {
+    to_exclusive = (_date.fromisoformat(date_to) + timedelta(days=1)).isoformat()
+    return {
         "reportType": "DELIVERIES",
         "buildSummary": False,
         "groupByRowFields": _ROW_FIELDS,
@@ -129,10 +135,17 @@ async def _fetch_delivery_rows_uncached(department: str, date_from: str,
         "aggregateFields": ["UniqOrderId.OrdersCount"],
         "filters": {
             "OpenDate.Typed": {"filterType": "DateRange", "periodType": "CUSTOM",
-                               "from": date_from, "to": date_to},
+                               "from": date_from, "to": to_exclusive},
             "Department": {"filterType": "IncludeValues", "values": [department]},
         },
     }
+
+
+async def _fetch_delivery_rows_uncached(department: str, date_from: str,
+                                        date_to: str) -> list[dict]:
+    """Сам запрос в OLAP (даты YYYY-MM-DD, включительно)."""
+    base = settings.rms_base.rstrip("/")
+    body = build_report_body(department, date_from, date_to)
     async with rms.session() as key:
         async with httpx.AsyncClient(timeout=180) as client:
             r = await client.post(f"{base}{OLAP_PATH}", params={"key": key}, json=body)
