@@ -292,7 +292,11 @@ def _format_address(dp: dict) -> str:
     address = ", ".join(parts)
 
     # Комментарий курьеру («во дворе», «не звонить») — отдельной припиской.
+    # iiko присылает и пустые метки вида «Примеч. к адресу:» — текста после
+    # двоеточия нет, курьеру такой хвост ничего не даёт, только мусорит адрес.
     comment = (dp.get("comment") or "").strip()
+    if comment.endswith(":"):
+        comment = ""
     if comment:
         address = f"{address} ({comment})" if address else comment
     return address

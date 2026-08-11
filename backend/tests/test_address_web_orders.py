@@ -34,6 +34,23 @@ def test_empty_address_stays_empty():
     assert _format_address({}) == ""
 
 
+def test_label_without_text_is_not_appended():
+    """iiko шлёт «Примеч. к адресу:» с пустым текстом — метка без содержания.
+
+    На проде такие хвосты висели в адресах: «…, кв 155 (Примеч. к адресу:)».
+    Курьеру это ничего не говорит, только мусорит строку.
+    """
+    got = _format_address(_dp("----------", "0",
+                              line1="г. Астана, ул. Сыганак 58",
+                              comment="Примеч. к адресу:"))
+    assert got == "г. Астана, ул. Сыганак 58"
+
+
+def test_comment_without_label_is_kept():
+    got = _format_address(_dp("Бектурова", "17/3", comment="не звонить"))
+    assert got == "Бектурова, 17/3 (не звонить)"
+
+
 def test_zero_coordinates_are_not_coordinates():
     assert _coordinates({"coordinates": {"latitude": 0.0, "longitude": 0.0}}) == {}
     assert _coordinates({"coordinates": {"latitude": 51.1, "longitude": 71.4}}) == {
