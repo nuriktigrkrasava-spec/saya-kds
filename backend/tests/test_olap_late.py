@@ -28,15 +28,17 @@ def test_single_day_becomes_a_one_day_range():
 
 
 def _row(number, delay, service="COURIER", courier="Иванов",
-         expected="2026-08-09T14:00:00", actual="2026-08-09T14:30:00"):
+         expected="2026-08-09T14:00:00", actual="2026-08-09T14:30:00",
+         address="ул. Абая 1", order_id="oid-1"):
     return {
+        "Delivery.Id": order_id,
         "Delivery.Number": number,
         "Delivery.Courier": courier,
         "Delivery.Delay": delay,
         "Delivery.ServiceType": service,
         "Delivery.ExpectedTime": expected,
         "Delivery.ActualTime": actual,
-        "Delivery.Address": "ул. Абая 1",
+        "Delivery.Address": address,
     }
 
 
@@ -105,6 +107,27 @@ def test_avg_delay_counts_only_late_ones():
     res = olap.late_deliveries([_row(1, 10), _row(2, 20), _row(3, 0)])
     assert res["avg_delay_minutes"] == 15
     assert res["max_delay_minutes"] == 20
+
+
+def test_placeholder_address_is_not_shown_as_is():
+    """Заказы с сайта и из приложения приходят в OLAP с «ул. ---------- д. 0».
+
+    Настоящий адрес iiko кладёт в line1, а OLAP собирает строку из улицы и дома
+    и про line1 не знает. Показывать эти полоски бессмысленно — отдаём None,
+    чтобы адрес подставили из нашей базы.
+    """
+    res = olap.late_deliveries([_row(1, 10, address="ул. ---------- д. 0")])
+    assert res["orders"][0]["address"] is None
+
+
+def test_real_address_is_kept():
+    res = olap.late_deliveries([_row(1, 10, address="ул. АЛМАТЫ д. 13 кв./оф. 352")])
+    assert res["orders"][0]["address"] == "ул. АЛМАТЫ д. 13 кв./оф. 352"
+
+
+def test_order_id_is_returned_for_joining_with_our_base():
+    res = olap.late_deliveries([_row(1, 10, order_id="abc-123")])
+    assert res["orders"][0]["order_id"] == "abc-123"
 
 
 def test_empty_input_gives_zeros_not_crash():

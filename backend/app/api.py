@@ -2192,7 +2192,27 @@ def _period_dates(from_: str | None, to: str | None) -> tuple[str, str]:
     return d_from.isoformat(), d_to.isoformat()
 
 
-async def _late_deliveries(org_id: str, from_: str | None, to: str | None) -> dict:
+async def _fill_addresses_from_our_base(session, orders: list[dict]) -> None:
+    """Дописывает адреса, которых нет в OLAP, из нашей базы по iiko_order_id.
+
+    Заказы с сайта и из приложения (а это большинство) приходят в OLAP с
+    «ул. ---------- д. 0»: настоящий адрес iiko держит в line1, куда OLAP не
+    смотрит. Мы его при приёмке уже разобрали — просто подставляем.
+    """
+    missing = [o["order_id"] for o in orders if not o["address"] and o.get("order_id")]
+    if not missing:
+        return
+    rows = (await session.execute(
+        _select(_Order.iiko_order_id, _Order.address)
+        .where(_Order.iiko_order_id.in_(missing)))).all()
+    by_id = {oid: addr for oid, addr in rows if addr}
+    for o in orders:
+        if not o["address"]:
+            o["address"] = by_id.get(o.get("order_id"))
+
+
+async def _late_deliveries(org_id: str, from_: str | None, to: str | None,
+                           session=None) -> dict:
     """Опоздания доставок филиала из OLAP iiko. Бросает 404, если филиал не найден."""
     department = await _olap.department_name(org_id)
     if department is None:
@@ -2200,22 +2220,25 @@ async def _late_deliveries(org_id: str, from_: str | None, to: str | None) -> di
                             detail=f"филиал {org_id} не найден среди организаций iiko")
     date_from, date_to = _period_dates(from_, to)
     rows = await _olap.fetch_delivery_rows(department, date_from, date_to)
+    result = _olap.late_deliveries(rows)
+    if session is not None:
+        await _fill_addresses_from_our_base(session, result["orders"])
     return {"org_id": org_id, "department": department,
-            "period": {"from": date_from, "to": date_to},
-            **_olap.late_deliveries(rows)}
+            "period": {"from": date_from, "to": date_to}, **result}
 
 
 @app.get("/admin/late-deliveries")
 async def admin_late_deliveries(org_id: str,
                                 from_: str | None = Query(None, alias="from"),
-                                to: str | None = None):
+                                to: str | None = None,
+                                session: AsyncSession = Depends(get_session)):
     """Сколько доставок филиала опоздало за период и каждая из них поимённо.
 
     Источник — OLAP-отчёт iiko (колонка «Опоздание доставки»), тот же, что и
     «Отчёт заказы-доставка» в iikoOffice: цифры обязаны сходиться с ним.
     Самовывоз не считаем — курьер к нему отношения не имеет.
     """
-    return await _late_deliveries(org_id, from_, to)
+    return await _late_deliveries(org_id, from_, to, session)
 
 
 async def _delivery_points(session, org_id: str, dt_from, dt_to) -> list[dict]:
@@ -2281,13 +2304,14 @@ async def admin_analytics_export(org_id: str,
             await _orders_in_period(session, org_id, dt_from, dt_to)),
         # OLAP живёт в RMS и падает отдельно от нас: его недоступность не должна
         # ронять всю выгрузку — отдаём ошибку блоком, остальное доезжает.
-        "late_deliveries": await _late_deliveries_safe(org_id, from_, to),
+        "late_deliveries": await _late_deliveries_safe(org_id, from_, to, session),
     }
 
 
-async def _late_deliveries_safe(org_id: str, from_: str | None, to: str | None) -> dict:
+async def _late_deliveries_safe(org_id: str, from_: str | None, to: str | None,
+                                session=None) -> dict:
     try:
-        return await _late_deliveries(org_id, from_, to)
+        return await _late_deliveries(org_id, from_, to, session)
     except Exception as exc:
         return {"error": str(exc)}
 

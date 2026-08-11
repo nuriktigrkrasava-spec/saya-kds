@@ -14,12 +14,13 @@ def client(session):
     app.dependency_overrides.clear()
 
 
-def _row(number, delay, service="COURIER"):
-    return {"Delivery.Number": number, "Delivery.Courier": "Иванов",
+def _row(number, delay, service="COURIER", order_id="oid-1",
+         address="ул. Абая 1"):
+    return {"Delivery.Id": order_id, "Delivery.Address": address,
+            "Delivery.Number": number, "Delivery.Courier": "Иванов",
             "Delivery.Delay": delay, "Delivery.ServiceType": service,
             "Delivery.ExpectedTime": "2026-08-09T14:00:00",
-            "Delivery.ActualTime": "2026-08-09T14:47:00",
-            "Delivery.Address": "ул. Абая 1"}
+            "Delivery.ActualTime": "2026-08-09T14:47:00"}
 
 
 @pytest.fixture
@@ -52,6 +53,45 @@ async def test_late_deliveries_for_branch(client, fake_olap):
     assert body["orders"][0]["number"] == 1
     assert body["orders"][0]["delay_minutes"] == 47
     assert fake_olap["period"] == ("2026-08-01", "2026-08-10")
+
+
+@pytest.mark.asyncio
+async def test_placeholder_address_filled_from_our_base(client, session, monkeypatch):
+    """OLAP не знает line1, а мы знаем: адрес берём из своей базы по Delivery.Id."""
+    from app.models import Order
+    session.add(Order(iiko_order_id="oid-web", org_id="org-1", number="5",
+                      address="г. Астана, ул. рыскулова 5/3, квартира 6"))
+    await session.commit()
+
+    async def rows(department, date_from, date_to):
+        return [_row(5, 20, order_id="oid-web", address="ул. ---------- д. 0")]
+
+    async def dep(org_id):
+        return "Алиева"
+
+    monkeypatch.setattr(olap, "fetch_delivery_rows", rows)
+    monkeypatch.setattr(olap, "department_name", dep)
+
+    async with client as c:
+        r = await c.get("/admin/late-deliveries?org_id=org-1")
+    assert r.json()["orders"][0]["address"] == "г. Астана, ул. рыскулова 5/3, квартира 6"
+
+
+@pytest.mark.asyncio
+async def test_address_absent_everywhere_stays_empty(client, session, monkeypatch):
+    """Заказа нет в нашей базе — честно отдаём None, а не полоски."""
+    async def rows(department, date_from, date_to):
+        return [_row(5, 20, order_id="неизвестный", address="ул. ---------- д. 0")]
+
+    async def dep(org_id):
+        return "Алиева"
+
+    monkeypatch.setattr(olap, "fetch_delivery_rows", rows)
+    monkeypatch.setattr(olap, "department_name", dep)
+
+    async with client as c:
+        r = await c.get("/admin/late-deliveries?org_id=org-1")
+    assert r.json()["orders"][0]["address"] is None
 
 
 @pytest.mark.asyncio

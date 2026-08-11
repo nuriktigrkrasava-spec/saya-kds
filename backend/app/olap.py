@@ -8,6 +8,7 @@ ApiLogin»), поэтому ходим тем же RMS-логином, что и
 разойдутся с отчётом, по которому заказчик и проверяет работу.
 """
 from __future__ import annotations
+import re
 import time
 from datetime import date as _date, timedelta
 import httpx
@@ -33,12 +34,31 @@ def reset_cache() -> None:
     _ROWS_CACHE.clear()
     _ORG_NAMES.clear()
 
-# Строки отчёта: номер, курьер, времена, опоздание, тип доставки, адрес.
+# Строки отчёта: id (ключ склейки с нашей базой), номер, курьер, времена,
+# опоздание, тип доставки, адрес.
 _ROW_FIELDS = [
-    "Delivery.Number", "Delivery.Courier", "Delivery.ExpectedTime",
+    "Delivery.Id", "Delivery.Number", "Delivery.Courier", "Delivery.ExpectedTime",
     "Delivery.ActualTime", "Delivery.Delay", "Delivery.ServiceType",
     "Delivery.Address",
 ]
+
+# Из адреса вычищаем всё служебное: подписи частей, цифры, пунктуацию и прочерки.
+# Если ничего осмысленного не осталось — это заглушка, а не адрес.
+_ADDRESS_NOISE = re.compile(r"(ул\.|д\.|кв\./оф\.|под\.|эт\.|\d|[-–—_.,/\s])+", re.I)
+
+
+def clean_address(value: str | None) -> str | None:
+    """Адрес из OLAP или None, если там заглушка вида «ул. ---------- д. 0».
+
+    Заказы с сайта и из приложения (sourceKey WEB/IOS) приходят в iiko с улицей
+    «----------» и домом «0», а настоящий адрес лежит в line1. OLAP собирает
+    строку из улицы и дома и про line1 не знает — показывать эти прочерки
+    бессмысленно, адрес подставим из своей базы.
+    """
+    value = (value or "").strip()
+    if not value or not _ADDRESS_NOISE.sub("", value):
+        return None
+    return value
 
 
 def late_deliveries(rows: list[dict], min_delay_minutes: int = 1) -> dict:
@@ -62,9 +82,10 @@ def late_deliveries(rows: list[dict], min_delay_minutes: int = 1) -> dict:
     delays = [r["Delivery.Delay"] for r in late]
 
     orders = [{
+        "order_id": r.get("Delivery.Id"),
         "number": r.get("Delivery.Number"),
         "courier": r.get("Delivery.Courier"),
-        "address": r.get("Delivery.Address"),
+        "address": clean_address(r.get("Delivery.Address")),
         "expected_at": r.get("Delivery.ExpectedTime"),
         "actual_at": r.get("Delivery.ActualTime"),
         "delay_minutes": r["Delivery.Delay"],
