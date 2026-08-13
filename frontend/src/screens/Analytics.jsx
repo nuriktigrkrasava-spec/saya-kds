@@ -46,6 +46,15 @@ function fmtDay(iso) {
   return m ? `${m[3]}.${m[2]}` : iso;
 }
 
+// Причина опоздания: какой этап сильнее вышел за свою обычную длительность.
+const REASON_LABEL = {
+  kitchen: "Долгая готовка", pickup: "Ждали курьера",
+  delivery: "Долго везли", unknown: "Нет наших отметок",
+};
+const REASON_BG = {
+  kitchen: "#fed7aa", pickup: "#fde68a", delivery: "#bfdbfe", unknown: "#e5e7eb",
+};
+
 const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 // Кухня не круглосуточная; ночные часы в сетке — пустые столбцы и лишний скролл.
 const STAFF_HOURS = Array.from({ length: 17 }, (_, i) => i + 8);
@@ -821,6 +830,20 @@ export default function Analytics() {
                   : <>за период опозданий нет</>}
               </p>
 
+              {late.reasons && late.late_count > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                  {Object.entries(late.reasons)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([key, n]) => (
+                      <span key={key} className="tg-chip"
+                            style={{ background: REASON_BG[key] || "#e5e7eb",
+                                     fontSize: 14, fontWeight: 600 }}>
+                        {REASON_LABEL[key] || key}: {n}
+                      </span>
+                    ))}
+                </div>
+              )}
+
               {late.late_count > 0 && (
                 <>
                   <button type="button" className="seg-btn"
@@ -837,6 +860,7 @@ export default function Analytics() {
                           <th>Обещали</th>
                           <th>Привезли</th>
                           <th className="num">Опоздание</th>
+                          <th>Из-за чего</th>
                           <th>Адрес</th>
                         </tr>
                       </thead>
@@ -852,6 +876,16 @@ export default function Analytics() {
                               color: o.delay_minutes >= 30 ? "#dc2626" : "#f59e0b",
                             }}>
                               +{o.delay_minutes} мин
+                            </td>
+                            <td>
+                              {o.reason ? (
+                                <>
+                                  {o.reason.label}
+                                  <small style={{ color: "#6b7280" }}>
+                                    {" "}+{Math.round(o.reason.over_seconds / 60)} мин к норме
+                                  </small>
+                                </>
+                              ) : "—"}
                             </td>
                             <td>{o.address || "—"}</td>
                           </tr>
@@ -871,7 +905,12 @@ export default function Analytics() {
             это «вовремя», а не «нет данных». Заказы с сайта и из приложения
             приходят в отчёт с адресом «ул. ---------- д. 0» (настоящий адрес iiko
             хранит отдельным полем, в отчёт он не попадает) — такие адреса
-            подставляем из нашей базы, той же строкой, что видит курьер.</Src>
+            подставляем из нашей базы, той же строкой, что видит курьер.
+            Причину берём из своих отметок: сравниваем готовку, ожидание курьера
+            и дорогу с их обычной длительностью за период и называем участок,
+            который сильнее вышел за норму. Не самый длинный: дорога почти всегда
+            дольше готовки, но это не делает курьера виноватым. «Нет наших
+            отметок» — заказ старее, чем мы собираем историю.</Src>
         </section>
 
         {/* ── Кухня по зонам ── */}

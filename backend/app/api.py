@@ -2193,6 +2193,7 @@ def _period_dates(from_: str | None, to: str | None) -> tuple[str, str]:
 
 
 from app import staffing as _staffing
+from app import late_reasons as _late_reasons
 
 
 async def _branch_code_for_org(org_id: str) -> str:
@@ -2288,6 +2289,11 @@ async def _late_deliveries(org_id: str, from_: str | None, to: str | None,
     result = _olap.late_deliveries(rows)
     if session is not None:
         await _fill_addresses_from_our_base(session, result["orders"])
+        # Причину ищем по нашим отметкам: iiko знает про опоздание, но не знает,
+        # какой этап его съел. Норма считается по заказам того же периода.
+        dt_from, dt_to = _parse_period(date_from, date_to)
+        ours = await _orders_in_period(session, org_id, dt_from, dt_to)
+        result["reasons"] = _late_reasons.attach_reasons(result["orders"], ours)
     return {"org_id": org_id, "department": department,
             "period": {"from": date_from, "to": date_to}, **result}
 

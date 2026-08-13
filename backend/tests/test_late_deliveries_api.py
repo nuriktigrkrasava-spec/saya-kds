@@ -95,6 +95,51 @@ async def test_address_absent_everywhere_stays_empty(client, session, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_reason_is_reported_next_to_each_late_order(client, session, monkeypatch):
+    """Управляющему нужен виновник этапа, а не только факт опоздания."""
+    from datetime import datetime, timedelta
+    from app.models import Order, OrderItem
+
+    base = datetime.utcnow() - timedelta(hours=3)
+    order = Order(iiko_order_id="oid-late", org_id="org-1", number="7",
+                  created_at=base)
+    item = OrderItem(product_id="p", name="Ролл", station="rolls",
+                     station_accepted_at=base + timedelta(minutes=1),
+                     station_ready_at=base + timedelta(minutes=50))
+    order.items = [item]
+    order.assembled_at = base + timedelta(minutes=52)
+    order.on_way_at = base + timedelta(minutes=55)
+    order.delivered_at = base + timedelta(minutes=70)
+    session.add(order)
+    await session.commit()
+
+    async def rows(department, date_from, date_to):
+        return [_row(7, 25, order_id="oid-late")]
+
+    async def dep(org_id):
+        return "Алиева"
+
+    monkeypatch.setattr(olap, "fetch_delivery_rows", rows)
+    monkeypatch.setattr(olap, "department_name", dep)
+
+    async with client as c:
+        r = await c.get("/admin/late-deliveries?org_id=org-1")
+    body = r.json()
+    assert body["orders"][0]["reason"] is None or "label" in body["orders"][0]["reason"]
+    assert sum(body["reasons"].values()) == body["late_count"]
+
+
+@pytest.mark.asyncio
+async def test_orders_missing_from_our_base_are_counted_as_unknown(client, fake_olap):
+    """Заказ старее нашей истории — причина неизвестна, но из сводки не исчезает."""
+    async with client as c:
+        r = await c.get("/admin/late-deliveries?org_id=org-1")
+    body = r.json()
+    assert body["reasons"] == {"unknown": 1}
+    assert body["orders"][0]["reason"] is None
+
+
+@pytest.mark.asyncio
 async def test_unknown_branch_is_reported_not_silently_empty(client, monkeypatch):
     async def no_department(org_id):
         return None
