@@ -254,6 +254,51 @@ def order_path(orders) -> dict:
             "unit_label": "мин до клиента"}
 
 
+# Тип заказа iiko → как мы его называем. «Обычный заказ» с кассы и заказ со
+# стола — оба зал: и там, и там кухня работает одинаково.
+_KIND_BY_SERVICE_TYPE = {
+    "DineIn": "hall", "Common": "hall",
+    "DeliveryByClient": "pickup",
+    "DeliveryByCourier": "delivery",
+}
+_KIND_LABEL = {"hall": "Зал", "pickup": "Вынос", "delivery": "Доставка"}
+
+
+def kitchen_time_by_kind(orders) -> dict:
+    """Время готовки по типам заказа: от появления до готовности ПОСЛЕДНЕЙ позиции.
+
+    Для зала это единственная измеримая метрика: в iiko у зальных заказов нет
+    ни «готово», ни «подали», есть только открытие и закрытие чека. Наши
+    отметки на планшете — единственный источник.
+
+    Заказ, у которого готовы не все позиции, в счёт не идёт: время готовки
+    такого заказа ещё неизвестно.
+    """
+    buckets: dict[str, list[float]] = {k: [] for k in _KIND_LABEL}
+    for order in orders:
+        kind = _KIND_BY_SERVICE_TYPE.get((order.service_type or "").strip())
+        if kind is None:
+            continue
+        ready = _ready_max(order)
+        if ready is None or any(i.station_ready_at is None for i in order.items):
+            continue
+        seconds = _dur(order.created_at, ready)
+        if seconds is not None:
+            buckets[kind].append(seconds)
+
+    out = {}
+    for kind, label in _KIND_LABEL.items():
+        vals = sorted(buckets[kind])
+        out[kind] = {
+            "label": label,
+            "count": len(vals),
+            "avg_seconds": (sum(vals) / len(vals)) if vals else None,
+            "median_seconds": statistics.median(vals) if vals else None,
+            "p95_seconds": pctl(vals, 95),
+        }
+    return out
+
+
 def zone_load(orders, tz_offset_hours: int = 0,
               zones: tuple[str, ...] = ("pizza", "rolls", "hot", "other")) -> dict:
     """Нагрузка кухни по часам: для каждой зоны и локального часа — число готовых

@@ -2240,6 +2240,17 @@ async def _staffing_grid(org_id: str, weeks: int) -> dict:
             **grid}
 
 
+@app.get("/admin/kitchen-time")
+async def admin_kitchen_time(org_id: str,
+                             from_: str | None = Query(None, alias="from"),
+                             to: str | None = None,
+                             session: AsyncSession = Depends(get_session)):
+    """Время готовки отдельно по залу, выносу и доставке — по нашим отметкам."""
+    dt_from, dt_to = _parse_period(from_, to)
+    orders = await _orders_in_period(session, org_id, dt_from, dt_to)
+    return _stages.kitchen_time_by_kind(orders)
+
+
 @app.get("/admin/order-mix")
 async def admin_order_mix(org_id: str,
                           from_: str | None = Query(None, alias="from"),
@@ -2423,6 +2434,8 @@ async def admin_analytics_export(org_id: str,
         "journal": await admin_journal(org_id, from_, to, None, None, None, 1000, 0, session),
         "delivery_points": await _delivery_points(session, org_id, dt_from, dt_to),
         "order_path": _stages.order_path(
+            await _orders_in_period(session, org_id, dt_from, dt_to)),
+        "kitchen_time_by_kind": _stages.kitchen_time_by_kind(
             await _orders_in_period(session, org_id, dt_from, dt_to)),
         # OLAP живёт в RMS и падает отдельно от нас: его недоступность не должна
         # ронять всю выгрузку — отдаём ошибку блоком, остальное доезжает.

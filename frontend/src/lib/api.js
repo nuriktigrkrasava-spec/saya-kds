@@ -126,6 +126,9 @@ export const api = {
     get(`/admin/anomalies?org_id=${orgId}`),
   zoneLoad: (orgId, from, to) =>
     get(`/admin/zone-load?org_id=${orgId}&from=${from}&to=${to}`),
+  // Время готовки по типам заказа — по нашим отметкам на планшетах.
+  kitchenTime: (orgId, from, to) =>
+    get(`/admin/kitchen-time?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
   // Разрез заказов по типам: сколько в iiko против того, что дошло к нам.
   orderMix: (orgId, from, to) =>
     get(`/admin/order-mix?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),

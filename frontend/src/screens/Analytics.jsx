@@ -396,6 +396,9 @@ export default function Analytics() {
   // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
 
+  // Время готовки по типам заказа
+  const [kTime, setKTime] = useState(null);
+
   // Разрез заказов по типам (iiko против нашей базы)
   const [mix, setMix] = useState(null);
   const [mixErr, setMixErr] = useState(null);
@@ -480,6 +483,12 @@ export default function Analytics() {
   useEffect(() => {
     if (!orgId) return;
     api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
+  }, [orgId, range.from, range.to, reloadTick]);
+
+  // ── время готовки по типам заказа ───────────────────────────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    api.kitchenTime(orgId, range.from, range.to).then(setKTime).catch(() => setKTime(null));
   }, [orgId, range.from, range.to, reloadTick]);
 
   // ── загрузка разреза по типам заказов ───────────────────────────────────
@@ -741,6 +750,46 @@ export default function Analytics() {
           <Src>Просрочка = от создания заказа до «Доставлен» прошло больше 45 мин.
             Недоставленный заказ, висящий дольше 45 мин, тоже считается просрочкой.</Src>
         </section>
+
+        {/* ── Время готовки по типам заказа ── */}
+        {kTime && (
+          <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
+            <h2 className="admin__section-title">Готовка по типам заказа</h2>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Тип</th>
+                  <th className="num">Заказов</th>
+                  <th className="num">В среднем</th>
+                  <th className="num">Медиана</th>
+                  <th className="num">Худшие 5%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {["hall", "pickup", "delivery"].map((key) => {
+                  const k = kTime[key];
+                  if (!k) return null;
+                  return (
+                    <tr key={key}>
+                      <td style={{ fontWeight: 600 }}>{k.label}</td>
+                      <td className="num">{k.count}</td>
+                      <td className="num">{sec2min(k.avg_seconds)} мин</td>
+                      <td className="num">{sec2min(k.median_seconds)} мин</td>
+                      <td className="num">{sec2min(k.p95_seconds)} мин</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Src>Время от появления заказа до момента, когда готова ПОСЛЕДНЯЯ его
+              позиция — по отметкам на планшетах кухни. Заказы, где готовы не все
+              позиции, не считаются: их время ещё неизвестно. Для зала это
+              единственная измеримая метрика — в iiko у зальных заказов нет ни
+              «готово», ни «подали». Осторожно со сравнением: зал доезжает до нас
+              не весь (см. «Заказы по типам»), и в выборку попадают в основном
+              заказы со столов, а не быстрые кассовые.</Src>
+          </section>
+        )}
 
         {/* ── Разрез заказов по типам ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
