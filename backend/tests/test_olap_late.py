@@ -120,6 +120,19 @@ def test_placeholder_address_is_not_shown_as_is():
     assert res["orders"][0]["address"] is None
 
 
+def test_placeholder_with_house_home_is_also_recognized():
+    """Второй вид заглушки с прода: дом приходит словом «home».
+
+    Прочерки вместо улицы — достаточный признак: осмысленного адреса там нет,
+    что бы ни стояло в доме.
+    """
+    res = olap.late_deliveries([
+        _row(1, 10, address="ул. ---------- д. home"),
+        _row(2, 10, address="ул. ---------- д. home кв./оф. Блок С"),
+    ])
+    assert [o["address"] for o in res["orders"]] == [None, None]
+
+
 def test_real_address_is_kept():
     res = olap.late_deliveries([_row(1, 10, address="ул. АЛМАТЫ д. 13 кв./оф. 352")])
     assert res["orders"][0]["address"] == "ул. АЛМАТЫ д. 13 кв./оф. 352"

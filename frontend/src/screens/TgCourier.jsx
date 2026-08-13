@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
+import { addressParts, hasAddressParts } from "../lib/address.js";
 import "../tg.css";
 
 const BOT = "@finansistwire_bot";
@@ -9,6 +10,21 @@ const MONEY = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 
 function formatMoney(sum) {
   return `${MONEY.format(sum)} ₸`;
+}
+
+// 2ГИС довозит до дома, а дальше курьер ищет подъезд и этаж в длинной строке
+// адреса. Вытаскиваем их и показываем крупно отдельной строкой.
+function AddressDetails({ address }) {
+  const parts = addressParts(address);
+  if (!hasAddressParts(parts)) return null;
+  return (
+    <div className="tg-card__addr-parts">
+      {parts.entrance && <span className="tg-chip">🚪 подъезд {parts.entrance}</span>}
+      {parts.floor && <span className="tg-chip">🛗 этаж {parts.floor}</span>}
+      {parts.flat && <span className="tg-chip">🔑 кв. {parts.flat}</span>}
+      {parts.doorphone && <span className="tg-chip">📟 домофон {parts.doorphone}</span>}
+    </div>
+  );
 }
 
 function routeUrl(order) {
@@ -536,6 +552,7 @@ export default function TgCourier() {
                 <div className="tg-card__addr">
                   📍 {o.address || "Адрес не указан"}
                 </div>
+                <AddressDetails address={o.address} />
                 {o.phone && (
                   <a className="tg-card__phone" href={`tel:${o.phone}`}>
                     📞 {o.phone}
@@ -614,6 +631,7 @@ export default function TgCourier() {
             <p className="tg-detail__row">
               📍 {detailOrder.address || "Адрес не указан"}
             </p>
+            <AddressDetails address={detailOrder.address} />
             {Array.isArray(detailOrder.items) && detailOrder.items.length > 0 && (
               <ul className="tg-card__items tg-detail__items">
                 {detailOrder.items.map((it, i) => (

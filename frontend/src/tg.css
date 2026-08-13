@@ -414,6 +414,26 @@
   color: var(--tg-text);
 }
 
+/* Подъезд, этаж, квартира — крупно и отдельно от строки адреса: курьер читает их
+   на бегу, в подъезде, часто одной рукой. */
+.tg-card__addr-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tg-chip {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tg-accent) 14%, transparent);
+  color: var(--tg-text);
+  white-space: nowrap;
+}
+
 .tg-card__phone {
   font-size: 15px;
   font-weight: 600;

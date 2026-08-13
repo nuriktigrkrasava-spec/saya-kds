@@ -42,8 +42,12 @@ _ROW_FIELDS = [
     "Delivery.Address",
 ]
 
+# Улица-заглушка из справочника iiko — сплошные прочерки. Дом при этом бывает
+# и «0», и «home», и с довеском «кв./оф. Блок С», поэтому смотрим на улицу.
+_DASH_STREET = re.compile(r"-{3,}")
+
 # Из адреса вычищаем всё служебное: подписи частей, цифры, пунктуацию и прочерки.
-# Если ничего осмысленного не осталось — это заглушка, а не адрес.
+# Если ничего осмысленного не осталось — это тоже заглушка, а не адрес.
 _ADDRESS_NOISE = re.compile(r"(ул\.|д\.|кв\./оф\.|под\.|эт\.|\d|[-–—_.,/\s])+", re.I)
 
 
@@ -56,7 +60,7 @@ def clean_address(value: str | None) -> str | None:
     бессмысленно, адрес подставим из своей базы.
     """
     value = (value or "").strip()
-    if not value or not _ADDRESS_NOISE.sub("", value):
+    if not value or _DASH_STREET.search(value) or not _ADDRESS_NOISE.sub("", value):
         return None
     return value
 
