@@ -126,6 +126,9 @@ export const api = {
     get(`/admin/anomalies?org_id=${orgId}`),
   zoneLoad: (orgId, from, to) =>
     get(`/admin/zone-load?org_id=${orgId}&from=${from}&to=${to}`),
+  // Разрез заказов по типам: сколько в iiko против того, что дошло к нам.
+  orderMix: (orgId, from, to) =>
+    get(`/admin/order-mix?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
   // Смены: нагрузка кухни по дням недели против людей на смене (OLAP + явки RMS).
   staffing: (orgId, weeks = 4) =>
     get(`/admin/staffing?org_id=${encodeURIComponent(orgId)}&weeks=${weeks}`),

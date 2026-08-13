@@ -2240,6 +2240,57 @@ async def _staffing_grid(org_id: str, weeks: int) -> dict:
             **grid}
 
 
+@app.get("/admin/order-mix")
+async def admin_order_mix(org_id: str,
+                          from_: str | None = Query(None, alias="from"),
+                          to: str | None = None,
+                          session: AsyncSession = Depends(get_session)):
+    """Заказы по типам: сколько их в iiko и сколько дошло до нас.
+
+    Зал — три четверти заказов филиала, а наша аналитика строилась на доставке.
+    Разрез сразу показывает и структуру заказов, и дыры в приёме: если зал у
+    нас втрое меньше, чем в iiko, строить по нему отчёты нельзя.
+    """
+    department = await _olap.department_name(org_id)
+    if department is None:
+        raise HTTPException(status_code=404,
+                            detail=f"филиал {org_id} не найден среди организаций iiko")
+    date_from, date_to = _period_dates(from_, to)
+    iiko_mix = await _olap.fetch_order_mix(department, date_from, date_to)
+
+    dt_from, dt_to = _parse_period(from_, to)
+    rows = (await session.execute(
+        _select(_Order.service_type, _func.count())
+        .where(_Order.org_id == org_id,
+               _Order.created_at >= dt_from, _Order.created_at < dt_to)
+        .group_by(_Order.service_type))).all()
+    ours: dict[str, int] = {}
+    for service_type, count in rows:
+        key = _olap.mix_key_for_service_type(service_type)
+        ours[key] = ours.get(key, 0) + count
+
+    # «Вынос» у нас неотличим от агрегаторов — сравниваем с их суммой в iiko.
+    compare = {
+        "hall": iiko_mix.get("hall", 0),
+        "delivery": iiko_mix.get("delivery", 0),
+        "pickup": iiko_mix.get("pickup", 0) + iiko_mix.get("aggregator", 0),
+    }
+    categories = []
+    for key, in_iiko in compare.items():
+        got = ours.get(key, 0)
+        categories.append({
+            "key": key, "label": _olap.MIX_LABELS[key],
+            "iiko": in_iiko, "ours": got,
+            "coverage": (got / in_iiko) if in_iiko else None,
+        })
+
+    return {"org_id": org_id, "department": department,
+            "period": {"from": date_from, "to": date_to},
+            "categories": categories,
+            "iiko_detail": iiko_mix,
+            "ours_total": sum(ours.values()), "iiko_total": sum(compare.values())}
+
+
 @app.get("/admin/staffing")
 async def admin_staffing(org_id: str, weeks: int = 4):
     """Нагрузка кухни по дням недели и часам против числа людей на смене."""

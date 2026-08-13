@@ -166,6 +166,81 @@ def build_report_body(department: str, date_from: str, date_to: str) -> dict:
     }
 
 
+# Агрегаторы забирают заказ своим курьером, но в iiko это «самовывоз».
+# Без разделения «вынос» филиала больше чем наполовину состоял бы из чужих
+# курьеров: за неделю Wolt 52 против 38 настоящих самовывозов.
+AGGREGATOR_NAMES = ("wolt", "glovo", "яндекс", "yandex", "chocofood", "choco",
+                    "delivery club", "bolt")
+
+MIX_LABELS = {"hall": "Зал", "delivery": "Доставка", "pickup": "Вынос",
+              "aggregator": "Агрегаторы", "other": "Прочее"}
+
+
+def _mix_key(service_type: str | None, order_type: str | None) -> str:
+    st = (service_type or "").upper()
+    if st == "COMMON":
+        return "hall"
+    if st == "DELIVERY_BY_COURIER":
+        return "delivery"
+    if st == "DELIVERY_PICKUP":
+        name = (order_type or "").lower()
+        return "aggregator" if any(a in name for a in AGGREGATOR_NAMES) else "pickup"
+    return "other"
+
+
+def mix_key_for_service_type(service_type: str | None) -> str:
+    """Наш Order.service_type в те же корзины, что и режим обслуживания iiko.
+
+    Агрегаторы в нашей базе неотличимы от самовывоза: и те, и другие приходят
+    как DeliveryByClient. Поэтому «вынос» у нас сравнивается с суммой выноса и
+    агрегаторов в iiko.
+    """
+    st = (service_type or "").strip()
+    if st in ("DineIn", "Common"):
+        return "hall"
+    if st == "DeliveryByCourier":
+        return "delivery"
+    if st == "DeliveryByClient":
+        return "pickup"
+    return "other"
+
+
+def order_mix(rows: list[dict]) -> dict[str, int]:
+    """Сколько заказов каждого типа в iiko за период."""
+    mix = {"hall": 0, "delivery": 0, "pickup": 0, "aggregator": 0}
+    for row in rows:
+        key = _mix_key(row.get("OrderServiceType"), row.get("OrderType"))
+        mix[key] = mix.get(key, 0) + int(row.get("UniqOrderId.OrdersCount") or 0)
+    return mix
+
+
+def build_order_mix_body(department: str, date_from: str, date_to: str) -> dict:
+    """Запрос «сколько заказов какого типа» — по чекам, а не по блюдам."""
+    body = build_sales_body(department, date_from, date_to)
+    body["groupByRowFields"] = ["OrderServiceType", "OrderType"]
+    body["aggregateFields"] = ["UniqOrderId.OrdersCount"]
+    return body
+
+
+async def fetch_order_mix(department: str, date_from: str, date_to: str) -> dict[str, int]:
+    """Разрез заказов филиала по типам за период, с общим кэшом."""
+    key = ("mix", department, date_from, date_to)
+    hit = _ROWS_CACHE.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < CACHE_TTL_SECONDS:
+        return hit[1]
+    base = settings.rms_base.rstrip("/")
+    body = build_order_mix_body(department, date_from, date_to)
+    async with rms.session() as rms_key:
+        async with httpx.AsyncClient(timeout=180) as client:
+            r = await client.post(f"{base}{OLAP_PATH}", params={"key": rms_key},
+                                  json=body)
+            r.raise_for_status()
+            rows = r.json().get("data", [])
+    mix = order_mix(rows)
+    _ROWS_CACHE[key] = (time.monotonic(), mix)
+    return mix
+
+
 def build_sales_body(department: str, date_from: str, date_to: str) -> dict:
     """Продажи блюд по часам — на них считаем нагрузку кухни по зонам.
 
