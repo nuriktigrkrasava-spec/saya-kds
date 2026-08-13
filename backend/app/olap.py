@@ -26,7 +26,7 @@ _ORG_NAMES_TTL = 3600.0
 # Две минуты — компромисс: аналитику можно перезагружать, а свежие доставки
 # появляются в отчёте не мгновенно.
 CACHE_TTL_SECONDS = 120.0
-_ROWS_CACHE: dict[tuple[str, str, str], tuple[float, list[dict]]] = {}
+_ROWS_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
 
 
 def reset_cache() -> None:
@@ -164,6 +164,49 @@ def build_report_body(department: str, date_from: str, date_to: str) -> dict:
             "Department": {"filterType": "IncludeValues", "values": [department]},
         },
     }
+
+
+def build_sales_body(department: str, date_from: str, date_to: str) -> dict:
+    """Продажи блюд по часам — на них считаем нагрузку кухни по зонам.
+
+    Наша история заказов стёрта 09.08.2026, а планировать смены надо по неделям,
+    поэтому спрос берём из iiko. Блюдо раскладываем по зонам своим
+    классификатором, для этого просим название и корневую группу меню.
+    """
+    to_exclusive = (_date.fromisoformat(date_to) + timedelta(days=1)).isoformat()
+    return {
+        "reportType": "SALES",
+        "buildSummary": False,
+        "groupByRowFields": ["OpenDate.Typed", "HourOpen", "DishName",
+                             "DishGroup", "DishGroup.TopParent"],
+        "groupByColFields": [],
+        "aggregateFields": ["DishAmountInt"],
+        "filters": {
+            "OpenDate.Typed": {"filterType": "DateRange", "periodType": "CUSTOM",
+                               "from": date_from, "to": to_exclusive},
+            "Department": {"filterType": "IncludeValues", "values": [department]},
+            "DeletedWithWriteoff": {"filterType": "IncludeValues",
+                                    "values": ["NOT_DELETED"]},
+        },
+    }
+
+
+async def fetch_sales_rows(department: str, date_from: str, date_to: str) -> list[dict]:
+    """Строки продаж по часам, с тем же кэшом, что и отчёт по доставкам."""
+    key = ("sales", department, date_from, date_to)
+    hit = _ROWS_CACHE.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < CACHE_TTL_SECONDS:
+        return hit[1]
+    base = settings.rms_base.rstrip("/")
+    body = build_sales_body(department, date_from, date_to)
+    async with rms.session() as rms_key:
+        async with httpx.AsyncClient(timeout=180) as client:
+            r = await client.post(f"{base}{OLAP_PATH}", params={"key": rms_key},
+                                  json=body)
+            r.raise_for_status()
+            rows = r.json().get("data", [])
+    _ROWS_CACHE[key] = (time.monotonic(), rows)
+    return rows
 
 
 async def _fetch_delivery_rows_uncached(department: str, date_from: str,

@@ -2192,6 +2192,71 @@ def _period_dates(from_: str | None, to: str | None) -> tuple[str, str]:
     return d_from.isoformat(), d_to.isoformat()
 
 
+from app import staffing as _staffing
+
+
+async def _branch_code_for_org(org_id: str) -> str:
+    """Код филиала RMS по Cloud org_id — явки адресуются кодом, а не GUID.
+
+    Берём из той же карты, что и роутинг заказов; BRANCH_CODE из окружения —
+    только запасной вариант, чтобы аналитика не зависела от глобальной
+    настройки одного филиала.
+    """
+    mapping = await _rms.branch_to_org_id()
+    for code, mapped in mapping.items():
+        if mapped == org_id:
+            return code
+    return settings.branch_code
+
+
+async def _staffing_grid(org_id: str, weeks: int) -> dict:
+    """Сетка «день недели × час × зона»: спрос из OLAP, люди из явок RMS.
+
+    Спрос берём в iiko, а не у себя: наша история заказов стёрта 09.08.2026, а
+    планировать смены надо по неделям. Люди — из явок, а не из входов на
+    планшет: планшета на кухне два, а людей в зоне больше.
+    """
+    department = await _olap.department_name(org_id)
+    if department is None:
+        raise HTTPException(status_code=404,
+                            detail=f"филиал {org_id} не найден среди организаций iiko")
+    weeks = max(1, min(int(weeks), 12))
+    off = _td(hours=settings.iiko_tz_offset_hours)
+    date_to = (_dt.utcnow() + off).date()
+    date_from = date_to - _td(days=weeks * 7 - 1)
+
+    sales = await _olap.fetch_sales_rows(department, date_from.isoformat(),
+                                         date_to.isoformat())
+    attendances = await _rms.attendances_for_period(date_from.isoformat(),
+                                                    date_to.isoformat(),
+                                                    await _branch_code_for_org(org_id))
+    roles = await _rms.role_by_employee_id()
+
+    grid = _staffing.build_grid(_staffing.demand_by_hour(sales),
+                                _staffing.people_by_hour(attendances, roles))
+    return {"org_id": org_id, "department": department, "weeks": weeks,
+            "period": {"from": date_from.isoformat(), "to": date_to.isoformat()},
+            **grid}
+
+
+@app.get("/admin/staffing")
+async def admin_staffing(org_id: str, weeks: int = 4):
+    """Нагрузка кухни по дням недели и часам против числа людей на смене."""
+    return await _staffing_grid(org_id, weeks)
+
+
+@app.get("/admin/staffing/shift-plan")
+async def admin_shift_plan(org_id: str, date: str | None = None, weeks: int = 4):
+    """Где не хватит рук в конкретный день (по умолчанию — завтра)."""
+    off = _td(hours=settings.iiko_tz_offset_hours)
+    day = (_dt.fromisoformat(date).date() if date
+           else (_dt.utcnow() + off).date() + _td(days=1))
+    grid = await _staffing_grid(org_id, weeks)
+    return {"date": day.isoformat(), "weekday": day.weekday(),
+            "department": grid["department"], "zones": grid["zones"],
+            "plan": _staffing.shift_plan(grid, day.weekday())}
+
+
 async def _fill_addresses_from_our_base(session, orders: list[dict]) -> None:
     """Дописывает адреса, которых нет в OLAP, из нашей базы по iiko_order_id.
 

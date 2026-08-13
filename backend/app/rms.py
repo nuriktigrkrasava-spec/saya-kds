@@ -379,6 +379,32 @@ def reset_attendance_cache() -> None:
     _SHIFT_CACHE, _SHIFT_CACHE_TS = None, 0.0
 
 
+async def attendances_for_period(date_from: str, date_to: str,
+                                 branch_code: str = "") -> list[dict]:
+    """Явки филиала за период (YYYY-MM-DD) — для планирования смен.
+
+    В отличие от shift_employees_today() отдаёт СЫРЫЕ явки, включая закрытые:
+    нужно знать, кто сколько часов отстоял, а не кто на смене прямо сейчас.
+    """
+    branch = (branch_code or settings.branch_code or "").strip()
+    if not branch:
+        raise ValueError("BRANCH_CODE не настроен")
+    base = settings.rms_base.rstrip("/")
+    async with session() as token:
+        async with httpx.AsyncClient(timeout=120) as client:
+            r = await client.get(
+                f"{base}/api/employees/attendance/byDepartment/{branch}",
+                params={"key": token, "from": date_from, "to": date_to})
+            r.raise_for_status()
+            return _parse_attendances(r.text)
+
+
+async def role_by_employee_id() -> dict[str, str]:
+    """Карта «id сотрудника → код должности» из кэша сотрудников."""
+    employees, _ = await _employees_and_departments_cached()
+    return {e["id"]: e.get("role") or "" for e in employees if e.get("id")}
+
+
 async def shift_employees_today() -> list[dict]:
     """Сотрудники с ОТКРЫТОЙ сменой на филиале settings.branch_code, без кухни,
     кассы и прочих не относящихся к делу ролей. Кэш ~60с (бережём слот лицензии RMS).
