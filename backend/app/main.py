@@ -13,6 +13,7 @@ from app.realtime import sio
 from app.db import engine, Base
 from app.poller import start_poller, stop_poller, start_hall_poller
 from app.alerts import start_alerts, stop_alerts
+from app.staffing_alerts import start_staffing_alerts
 from app.preorder import start_releaser, stop_releaser
 import app.models  # noqa: F401
 
@@ -83,6 +84,9 @@ async def _create_tables():
     # Алерты менеджерам в Telegram: фоновая проверка просроченных заказов и
     # аномалий времени готовки. Отключены по умолчанию (ALERTS_INTERVAL_SECONDS<=0).
     fastapi_app.state.alerts_task = start_alerts()
+    # Предупреждение управляющим о наплыве заказов: вечером на завтра, утром
+    # на сегодня. Выключено, пока не заданы STAFFING_ALERT_ORG_ID и часы.
+    fastapi_app.state.staffing_alerts_task = start_staffing_alerts()
     # Релизер предзаказов: снимает флаг preorder_held за lead-минут до срока.
     # Включён по умолчанию (preorder_check_seconds=60).
     fastapi_app.state.preorder_task = start_releaser()
@@ -109,6 +113,7 @@ async def _stop_poller():
     await stop_poller(getattr(fastapi_app.state, "poller_task", None))
     await stop_poller(getattr(fastapi_app.state, "hall_poller_task", None))
     await stop_alerts(getattr(fastapi_app.state, "alerts_task", None))
+    await stop_alerts(getattr(fastapi_app.state, "staffing_alerts_task", None))
     await stop_releaser(getattr(fastapi_app.state, "preorder_task", None))
 
 

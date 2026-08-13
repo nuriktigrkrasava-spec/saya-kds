@@ -126,6 +126,11 @@ export const api = {
     get(`/admin/anomalies?org_id=${orgId}`),
   zoneLoad: (orgId, from, to) =>
     get(`/admin/zone-load?org_id=${orgId}&from=${from}&to=${to}`),
+  // Смены: нагрузка кухни по дням недели против людей на смене (OLAP + явки RMS).
+  staffing: (orgId, weeks = 4) =>
+    get(`/admin/staffing?org_id=${encodeURIComponent(orgId)}&weeks=${weeks}`),
+  shiftPlan: (orgId) =>
+    get(`/admin/staffing/shift-plan?org_id=${encodeURIComponent(orgId)}`),
   // Опоздания — из OLAP-отчёта iiko, а не из наших отметок.
   lateDeliveries: (orgId, from, to) =>
     get(`/admin/late-deliveries?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),

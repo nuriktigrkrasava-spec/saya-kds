@@ -46,6 +46,10 @@ function fmtDay(iso) {
   return m ? `${m[3]}.${m[2]}` : iso;
 }
 
+const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+// Кухня не круглосуточная; ночные часы в сетке — пустые столбцы и лишний скролл.
+const STAFF_HOURS = Array.from({ length: 17 }, (_, i) => i + 8);
+
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2"];
 
 // Сравнение текущего значения с предыдущим периодом. lowerIsBetter — для времени
@@ -383,6 +387,12 @@ export default function Analytics() {
   // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
 
+  // Смены: нагрузка против людей (OLAP + явки iiko)
+  const [staffing, setStaffing] = useState(null);
+  const [staffingLoading, setStaffingLoading] = useState(false);
+  const [staffingErr, setStaffingErr] = useState(null);
+  const [staffZone, setStaffZone] = useState("japan");
+
   // Опоздания доставок (OLAP iiko)
   const [late, setLate] = useState(null);
   const [lateLoading, setLateLoading] = useState(false);
@@ -458,6 +468,18 @@ export default function Analytics() {
     if (!orgId) return;
     api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
   }, [orgId, range.from, range.to, reloadTick]);
+
+  // ── загрузка смен: не зависит от выбранного периода, всегда 4 недели ────
+  useEffect(() => {
+    if (!orgId) return;
+    setStaffingLoading(true);
+    setStaffingErr(null);
+    api
+      .staffing(orgId, 4)
+      .then(setStaffing)
+      .catch((e) => { setStaffingErr(e.message || String(e)); setStaffing(null); })
+      .finally(() => setStaffingLoading(false));
+  }, [orgId, reloadTick]);
 
   // ── загрузка опозданий доставок (OLAP iiko, ходит в RMS — медленно) ─────
   useEffect(() => {
@@ -695,6 +717,77 @@ export default function Analytics() {
           )}
           <Src>Просрочка = от создания заказа до «Доставлен» прошло больше 45 мин.
             Недоставленный заказ, висящий дольше 45 мин, тоже считается просрочкой.</Src>
+        </section>
+
+        {/* ── Смены: нагрузка против людей ── */}
+        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
+          <h2 className="admin__section-title">
+            Смены и всплески
+            <small style={{ fontWeight: 400, color: "#6b7280", marginLeft: 8 }}>
+              4 недели, по дням недели
+            </small>
+          </h2>
+          {staffingLoading && <p className="admin__state">Считаем по iiko…</p>}
+          {staffingErr && <p className="admin__state">Не удалось: {staffingErr}</p>}
+          {staffing && !staffingLoading && (
+            <>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                {Object.entries(staffing.zones).map(([key, z]) => (
+                  <button key={key} type="button"
+                          className={"seg-btn" + (staffZone === key ? " seg-btn--on" : "")}
+                          onClick={() => setStaffZone(key)}>
+                    {z.label} · норма {z.norm_per_person ?? "—"}/чел·час
+                  </button>
+                ))}
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>День</th>
+                      {STAFF_HOURS.map((h) => (
+                        <th key={h} className="num">{String(h).padStart(2, "0")}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {WEEKDAY_SHORT.map((label, wd) => (
+                      <tr key={wd}>
+                        <td style={{ fontWeight: 600 }}>{label}</td>
+                        {STAFF_HOURS.map((h) => {
+                          const cell = staffing.cells.find(
+                            (c) => c.weekday === wd && c.hour === h && c.zone === staffZone);
+                          if (!cell || !cell.demand) return <td key={h} className="num">·</td>;
+                          const short = cell.recommended_people - cell.people;
+                          return (
+                            <td key={h} className="num"
+                                title={`${cell.demand} позиций · на смене ${cell.people}`
+                                       + ` · нужно ${cell.recommended_people}`}
+                                style={{
+                                  background: cell.is_peak && short > 0 ? "#fee2e2"
+                                    : cell.is_peak ? "#fef3c7" : "transparent",
+                                  fontWeight: cell.is_peak ? 700 : 400,
+                                }}>
+                              {cell.demand}
+                              {short > 0 && (
+                                <span style={{ color: "#dc2626" }}> +{short}</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          <Src>В клетке — сколько позиций этой зоны кухня делает в такой час
+            (медиана по четырём таким дням недели), красным «+N» — скольких людей
+            не хватало. Жёлтым отмечены всплески, красным — всплески, где не
+            хватало рук. Спрос берём из отчёта iiko, людей — из явок, а не из
+            входов на планшет: планшета на кухне два, а людей в зоне больше.
+            Пицца и горячее — одна зона, у них общий планшет.</Src>
         </section>
 
         {/* ── Опоздания доставок (OLAP iiko) ── */}
