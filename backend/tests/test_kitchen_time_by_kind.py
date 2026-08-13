@@ -54,6 +54,34 @@ def test_counts_until_last_item_is_ready():
     assert res["hall"]["median_seconds"] == 25 * 60
 
 
+def test_drinks_and_sauces_do_not_block_the_order():
+    """Напитки и доп. порции соусов на кухне не готовят и «готовыми» не отмечают.
+
+    Пока метрика требовала отметки у ВСЕХ позиций, любой заказ с колой выпадал
+    из статистики: на проде из 111 доставок в счёт попадали 28.
+    """
+    base = datetime(2026, 8, 12, 13, 0)
+    o = Order(iiko_order_id="d", org_id="org", number="5", service_type="DineIn")
+    o.created_at = base
+    roll = OrderItem(product_id="a", name="Ролл", station="rolls",
+                     station_accepted_at=base,
+                     station_ready_at=base + timedelta(minutes=12))
+    cola = OrderItem(product_id="b", name="Кола", station="other")
+    o.items = [roll, cola]
+    res = A.kitchen_time_by_kind([o])
+    assert res["hall"]["count"] == 1
+    assert res["hall"]["median_seconds"] == 12 * 60
+
+
+def test_order_without_kitchen_items_is_not_counted():
+    """Заказ из одних напитков кухню не занимал — времени готовки у него нет."""
+    base = datetime(2026, 8, 12, 13, 0)
+    o = Order(iiko_order_id="e", org_id="org", number="6", service_type="DineIn")
+    o.created_at = base
+    o.items = [OrderItem(product_id="b", name="Кола", station="other")]
+    assert A.kitchen_time_by_kind([o])["hall"]["count"] == 0
+
+
 def test_unfinished_orders_do_not_count():
     """Пока не все позиции готовы, время готовки неизвестно."""
     res = A.kitchen_time_by_kind([_order("DineIn", 10, "1", ready=False)])

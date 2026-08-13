@@ -271,17 +271,23 @@ def kitchen_time_by_kind(orders) -> dict:
     ни «готово», ни «подали», есть только открытие и закрытие чека. Наши
     отметки на планшете — единственный источник.
 
-    Заказ, у которого готовы не все позиции, в счёт не идёт: время готовки
-    такого заказа ещё неизвестно.
+    Считаем только КУХОННЫЕ позиции: напитки и доп. порции соусов попадают в
+    станцию «other», на кухне их не готовят и готовыми не отмечают. Пока
+    метрика требовала отметки у всех позиций подряд, любой заказ с колой
+    выпадал — на проде из 111 доставок в счёт шли 28.
+
+    Заказ, где готовы не все кухонные позиции, в счёт не идёт: его время ещё
+    неизвестно. Заказ вообще без кухонных позиций — тоже: кухню он не занимал.
     """
     buckets: dict[str, list[float]] = {k: [] for k in _KIND_LABEL}
     for order in orders:
         kind = _KIND_BY_SERVICE_TYPE.get((order.service_type or "").strip())
         if kind is None:
             continue
-        ready = _ready_max(order)
-        if ready is None or any(i.station_ready_at is None for i in order.items):
+        cooked = [i for i in order.items if (i.station or "other") != "other"]
+        if not cooked or any(i.station_ready_at is None for i in cooked):
             continue
+        ready = max(i.station_ready_at for i in cooked)
         seconds = _dur(order.created_at, ready)
         if seconds is not None:
             buckets[kind].append(seconds)
