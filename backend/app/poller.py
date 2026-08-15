@@ -167,12 +167,19 @@ async def hall_poll_once(org_id: str) -> None:
                 log.exception("hall init_by_table failed org=%s tg=%s", org_id, tg)
         # Забрать открытые заказы зала.
         wrappers = await iiko_cloud.order_by_table([org_id], tables, ["New", "Bill"])
-        seen: set[str] = set()
+        # present — ВСЁ, что iiko вернул, включая пустые столы. seen — то, что
+        # мы показали кухне. Различать обязательно: iiko отдаёт только что
+        # открытый стол с items: [] и наполняет его позже. Если считать такой
+        # заказ отсутствующим, следующий проход снимет его с планшета, хотя
+        # касса его не закрывала.
+        present: set[str] = set()
         for w in wrappers:
             normalized = iiko_cloud.normalize_table_order(w, org_id)
-            if not normalized.iiko_order_id or not normalized.items:
+            if not normalized.iiko_order_id:
                 continue
-            seen.add(normalized.iiko_order_id)
+            present.add(normalized.iiko_order_id)
+            if not normalized.items:
+                continue
             async with SessionLocal() as session:
                 order = await ingest.ingest_order(session, normalized)
                 await realtime.broadcast_order(order)
@@ -181,8 +188,8 @@ async def hall_poll_once(org_id: str) -> None:
         previous = _hall_active.get(org_id)
         if previous is None:
             previous = await _hall_active_from_db(org_id)
-        await _close_vanished(org_id, previous - seen)
-        _hall_active[org_id] = seen
+        await _close_vanished(org_id, previous - present)
+        _hall_active[org_id] = present
     except Exception:  # noqa: BLE001 — устойчивость важнее точечной обработки
         log.exception("hall poller: hall_poll_once failed for org %s", org_id)
 

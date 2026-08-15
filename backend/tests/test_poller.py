@@ -150,5 +150,43 @@ async def test_hall_closes_orders_opened_before_restart(memory_maker, monkeypatc
         assert order.status == "Closed"
 
 
+async def test_hall_order_returned_empty_is_not_closed(memory_maker, monkeypatch):
+    """Заказ, который iiko вернул БЕЗ позиций, не закрыт — он ещё на столе.
+
+    iiko отдаёт только что открытый стол с items: [] и наполняет его позже.
+    Такой заказ мы пропускали мимо seen, и следующий проход считал его
+    «пропавшим» — заказ снимался с планшета, хотя касса его не закрывала.
+    """
+    from app import iiko_cloud
+
+    poller._hall_active.clear()
+    poller._hall_cache.clear()
+
+    async with memory_maker() as s:
+        s.add(Order(iiko_order_id="h2", org_id="org-1", number="36",
+                    status="New", service_type="Common"))
+        await s.commit()
+
+    empty_from_iiko = [{"id": "h2", "order": {
+        "number": 36, "status": "New", "items": [],
+        "orderType": {"name": "Обычный заказ", "orderServiceType": "Common"}}}]
+
+    monkeypatch.setattr(iiko_cloud, "fetch_terminal_groups",
+                        lambda org: _async_value(["tg1"]))
+    monkeypatch.setattr(iiko_cloud, "fetch_sections",
+                        lambda tgs: _async_value(["t1"]))
+    monkeypatch.setattr(iiko_cloud, "order_init_by_table",
+                        lambda *a, **k: _async_value(None))
+    monkeypatch.setattr(iiko_cloud, "order_by_table",
+                        lambda *a, **k: _async_value(empty_from_iiko))
+
+    await poller.hall_poll_once("org-1")
+
+    async with memory_maker() as s:
+        order = (await s.execute(
+            select(Order).where(Order.iiko_order_id == "h2"))).scalar_one()
+        assert order.status == "New", "пустой ответ iiko — не повод закрывать заказ"
+
+
 async def _async_value(value):
     return value
