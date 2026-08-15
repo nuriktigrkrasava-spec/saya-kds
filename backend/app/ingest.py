@@ -47,6 +47,15 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     existing = (await session.execute(
         select(Order).where(Order.iiko_order_id == data.iiko_order_id))).scalar_one_or_none()
 
+    # Пустышку не заводим: ни позиций, ни номера — показывать нечего, а на
+    # планшете такая карточка оседает навсегда, её не закрыть и не убрать. На
+    # проде так набралось пять штук за два дня.
+    #
+    # Проверяем И номер тоже: заказ без позиций, но с номером — нормальный
+    # случай (позиции доедут следующим событием), такой заводим.
+    if existing is None and not data.items and not (data.number or "").strip():
+        return None
+
     # Снимаем прогресс готовки со старых позиций ДО удаления (плоскими значениями,
     # чтобы не читать атрибуты с уже удалённых ORM-объектов).
     prev: dict[tuple, dict] = {}

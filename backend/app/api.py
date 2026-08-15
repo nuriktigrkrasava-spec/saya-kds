@@ -2240,6 +2240,29 @@ async def _staffing_grid(org_id: str, weeks: int) -> dict:
             **grid}
 
 
+@app.post("/admin/cleanup-empty-orders")
+async def admin_cleanup_empty_orders(org_id: str, minutes: int = 30,
+                                     session: AsyncSession = Depends(get_session)):
+    """Сносит зависшие пустые заказы — без позиций и старше `minutes`.
+
+    Такие карточки нельзя ни закрыть, ни убрать, они просто занимают экран у
+    поваров. Свежие не трогаем: заказ мог только что открыться, и состав ещё
+    едет следующим событием.
+    """
+    cutoff = _dt.utcnow() - _td(minutes=max(1, minutes))
+    orders = (await session.execute(
+        _select(_Order).where(_Order.org_id == org_id,
+                              _Order.created_at < cutoff))).scalars().all()
+    junk = [o for o in orders if not o.items]
+    for o in junk:
+        await session.execute(_sl_delete(_OrderEvent).where(_OrderEvent.order_id == o.id))
+        await session.execute(_sl_delete(_Order).where(_Order.id == o.id))
+    if junk:
+        await session.commit()
+    return {"deleted": len(junk),
+            "numbers": [o.number or "(без номера)" for o in junk]}
+
+
 @app.get("/admin/kitchen-time")
 async def admin_kitchen_time(org_id: str,
                              from_: str | None = Query(None, alias="from"),
