@@ -766,7 +766,7 @@ export default function Analytics() {
                 </tr>
               </thead>
               <tbody>
-                {["hall", "pickup", "delivery"].map((key) => {
+                {["hall", "togo", "pickup", "delivery"].map((key) => {
                   const k = kTime[key];
                   if (!k) return null;
                   return (

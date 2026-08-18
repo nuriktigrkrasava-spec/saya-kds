@@ -57,3 +57,12 @@ class TestFromOurBase:
         # приезжают как DeliveryByClient. Сравниваем их с суммой в iiko.
         assert olap.mix_key_for_service_type("DeliveryByClient") == "pickup"
         assert olap.mix_key_for_service_type(None) == "other"
+
+
+def test_our_takeaway_counts_as_hall_for_comparison():
+    """Кассовый вынос iiko считает залом (COMMON) — иначе покрытие разъедется.
+
+    Мы помечаем такой заказ ToGo, чтобы кухня видела разницу, но при сверке с
+    iiko он должен попадать в ту же корзину, что и там.
+    """
+    assert olap.mix_key_for_service_type("ToGo") == "hall"

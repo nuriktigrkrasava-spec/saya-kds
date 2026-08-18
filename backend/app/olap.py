@@ -196,7 +196,10 @@ def mix_key_for_service_type(service_type: str | None) -> str:
     агрегаторов в iiko.
     """
     st = (service_type or "").strip()
-    if st in ("DineIn", "Common"):
+    # Кассовый вынос мы помечаем ToGo, чтобы кухня видела разницу, но в iiko он
+    # проходит как COMMON — при сверке кладём его в ту же корзину, иначе
+    # покрытие разъедется.
+    if st in ("DineIn", "Common", "ToGo"):
         return "hall"
     if st == "DeliveryByCourier":
         return "delivery"

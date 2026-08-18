@@ -258,10 +258,12 @@ def order_path(orders) -> dict:
 # стола — оба зал: и там, и там кухня работает одинаково.
 _KIND_BY_SERVICE_TYPE = {
     "DineIn": "hall", "Common": "hall",
-    "DeliveryByClient": "pickup",
+    "ToGo": "togo",                      # вынос с кассы: гость стоит и ждёт
+    "DeliveryByClient": "pickup",        # самовывоз с сайта и агрегаторы
     "DeliveryByCourier": "delivery",
 }
-_KIND_LABEL = {"hall": "Зал", "pickup": "Вынос", "delivery": "Доставка"}
+_KIND_LABEL = {"hall": "Зал", "togo": "Вынос", "pickup": "Самовывоз",
+               "delivery": "Доставка"}
 
 
 def kitchen_time_by_kind(orders) -> dict:

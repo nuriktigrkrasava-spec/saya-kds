@@ -92,10 +92,19 @@ def test_unfinished_orders_do_not_count():
 def test_labels_are_human_readable():
     res = A.kitchen_time_by_kind([])
     assert res["hall"]["label"] == "Зал"
-    assert res["pickup"]["label"] == "Вынос"
+    assert res["togo"]["label"] == "Вынос"          # вынос с кассы
+    assert res["pickup"]["label"] == "Самовывоз"    # заказан заранее с сайта
     assert res["delivery"]["label"] == "Доставка"
 
 
 def test_unknown_service_type_is_ignored_not_counted_as_hall():
     res = A.kitchen_time_by_kind([_order("СтранныйТип", 10, "1")])
-    assert all(res[k]["count"] == 0 for k in ("hall", "pickup", "delivery"))
+    assert all(res[k]["count"] == 0 for k in ("hall", "togo", "pickup", "delivery"))
+
+
+def test_takeaway_is_its_own_kind():
+    """Вынос считаем отдельно от зала: гость стоит и ждёт, время критичнее."""
+    res = A.kitchen_time_by_kind([_order("ToGo", 9, "1")])
+    assert res["togo"]["label"] == "Вынос"
+    assert res["togo"]["count"] == 1
+    assert res["hall"]["count"] == 0
