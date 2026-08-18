@@ -1339,3 +1339,34 @@ button {
   0%, 100% { background: #c0392b; }
   50% { background: #e74c3c; }
 }
+
+/* Выбор типа оплаты у сборщика — только для зала и выноса: их закрываем в iiko
+   мы, и без типа оплаты закрытие не проходит. Кнопки крупные: планшет на кухне,
+   руки в перчатках. */
+.asm-pay {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.asm-pay__title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.asm-pay__hint {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.asm-pay__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.asm-pay__cancel {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 600;
+}

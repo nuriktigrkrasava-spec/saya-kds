@@ -71,6 +71,16 @@ export function orderChannel(order) {
   return { type: "other", label: "", badge: null, needsCourier: false };
 }
 
+/** Спрашивать ли у сборщика тип оплаты перед закрытием.
+ *
+ * Только зал и вынос: их заказ закрываем в iiko мы, и без типа оплаты закрытие
+ * не пройдёт. Самовывоз с сайта и агрегаторы оплачены заранее, у доставки
+ * деньги принимает курьер в своём приложении.
+ */
+export function needsPaymentChoice(channel) {
+  return channel.type === "dinein" || channel.type === "togo";
+}
+
 /** {icon, text} для плашки типа заказа, либо null. */
 export function channelBadge(order) {
   return orderChannel(order).badge;

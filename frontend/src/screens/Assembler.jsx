@@ -9,7 +9,8 @@ import { useOrders } from "../lib/orders.js";
 import { getOperatorName, getSession } from "../lib/auth.js";
 import { api } from "../lib/api.js";
 import { zoneColor, zoneLabel } from "../lib/zones.js";
-import { orderChannel, channelBadge, completeLabel } from "../lib/orderType.js";
+import { orderChannel, channelBadge, completeLabel, needsPaymentChoice }
+  from "../lib/orderType.js";
 import { splitPreorders, isPreorder, dueLabel } from "../lib/preorder.js";
 import {
   useTick,
@@ -39,6 +40,10 @@ function groupByZone(items) {
 function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // Выбор типа оплаты перед закрытием зала/выноса.
+  const [payOpen, setPayOpen] = useState(false);
+  const [payTypes, setPayTypes] = useState([]);
+  const [payLoading, setPayLoading] = useState(false);
   const [courierCode, setCourierCode] = useState("");
 
   // Канал заказа решает, нужна ли курьерская панель.
@@ -109,16 +114,34 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
 
   // Некурьерские заказы (зал/вынос/самовывоз/агрегатор) закрываются здесь же:
   // помечаем собранным и сразу выданным — заказ уходит из списка сборщика.
-  async function handout() {
+  //
+  // Зал и вынос мы закрываем в iiko сами, и без типа оплаты закрытие не пройдёт,
+  // поэтому сначала спрашиваем, чем расплатились.
+  async function handout(paymentType) {
     setBusy(true);
     setErr(null);
     try {
       await api.assembleOrder(order.id, name || "—");
-      await api.deliverOrder(order.id, name || "—");
+      await api.deliverOrder(order.id, name || "—",
+                             paymentType?.kind, paymentType?.id);
+      setPayOpen(false);
     } catch (e) {
       setErr(e.message || String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function openPayment() {
+    setPayOpen(true);
+    if (payTypes.length) return;
+    setPayLoading(true);
+    try {
+      setPayTypes(await api.paymentTypes(order.org_id));
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setPayLoading(false);
     }
   }
 
@@ -278,13 +301,37 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
         </div>
       ) : !channel.needsCourier ? (
         // Зал / вынос / самовывоз / агрегатор: курьер не нужен — закрываем «Выдан».
-        <button
-          className="btn btn--big btn--assemble"
-          onClick={handout}
-          disabled={!canAssemble || busy}
-        >
-          {busy ? "…" : completeLabel(channel)}
-        </button>
+        // У зала и выноса сначала спрашиваем тип оплаты: закрывать их в iiko
+        // будем мы, а без типа оплаты закрытие не пройдёт.
+        payOpen ? (
+          <div className="asm-pay">
+            <div className="asm-pay__title">Чем расплатились?</div>
+            {payLoading && <div className="asm-pay__hint">Загрузка…</div>}
+            {!payLoading && payTypes.length === 0 && (
+              <div className="asm-pay__hint">Типы оплаты не загрузились</div>
+            )}
+            <div className="asm-pay__grid">
+              {payTypes.map((pt) => (
+                <button key={pt.id} className="btn btn--big btn--assemble"
+                        disabled={busy} onClick={() => handout(pt)}>
+                  {pt.name}
+                </button>
+              ))}
+            </div>
+            <button className="btn asm-pay__cancel" disabled={busy}
+                    onClick={() => setPayOpen(false)}>
+              Отмена
+            </button>
+          </div>
+        ) : (
+          <button
+            className="btn btn--big btn--assemble"
+            onClick={() => (needsPaymentChoice(channel) ? openPayment() : handout())}
+            disabled={!canAssemble || busy}
+          >
+            {busy ? "…" : completeLabel(channel)}
+          </button>
+        )
       ) : !couriersReady ? (
         <button className="btn btn--big btn--assemble" disabled>
           Загрузка курьеров…

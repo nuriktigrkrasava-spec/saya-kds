@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { orderChannel, completeLabel } from "./orderType.js";
+import { orderChannel, completeLabel, needsPaymentChoice } from "./orderType.js";
 
 describe("orderChannel", () => {
   it("курьерская доставка требует нашего курьера", () => {
@@ -47,5 +47,21 @@ describe("вынос с кассы", () => {
 
   it("кнопка называет действие", () => {
     expect(completeLabel(orderChannel({ service_type: "ToGo" }))).toBe("Выдан на вынос");
+  });
+});
+
+describe("выбор типа оплаты", () => {
+  it("зал и вынос закрываем мы — спрашиваем оплату", () => {
+    expect(needsPaymentChoice(orderChannel({ service_type: "Common" }))).toBe(true);
+    expect(needsPaymentChoice(orderChannel({ service_type: "ToGo" }))).toBe(true);
+  });
+
+  it("самовывоз с сайта и агрегаторы оплачены заранее — не спрашиваем", () => {
+    expect(needsPaymentChoice(orderChannel({ service_type: "DeliveryByClient" }))).toBe(false);
+    expect(needsPaymentChoice(orderChannel({ customer: "Wolt" }))).toBe(false);
+  });
+
+  it("у доставки оплату берёт курьер, а не сборщик", () => {
+    expect(needsPaymentChoice(orderChannel({ service_type: "DeliveryByCourier" }))).toBe(false);
   });
 });
