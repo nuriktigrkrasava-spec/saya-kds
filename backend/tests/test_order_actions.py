@@ -595,6 +595,40 @@ async def test_delivered_pickup_order_skips_delivery_status(client):
 
 
 @respx.mock
+async def test_delivery_never_falls_into_the_hall_branch(client):
+    """Не прочиталось состояние доставки — это сбой, а не повод считать её залом.
+
+    Иначе временная ошибка чтения увела бы курьерский заказ в методы зала и
+    оплатила его не тем способом. Тип заказа знаем сами — на него и смотрим.
+    """
+    from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
+    c, maker = client; _token()
+    respx.post(f"{_IIKO}/api/1/deliveries/by_id").mock(
+        return_value=httpx.Response(500, json={}))
+    # Сегодня order/by_id курьерский заказ не находит (проверено на проде), но
+    # закладываться на это нельзя: пусть в тесте находит — мы всё равно не
+    # должны туда идти.
+    respx.post(f"{_IIKO}/api/1/order/by_id").mock(return_value=httpx.Response(
+        200, json={"orders": [{"order": {"sum": 9000, "status": "New",
+                                         "payments": None}}]}))
+    tpay = respx.post(f"{_IIKO}/api/1/order/add_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    tclose = respx.post(f"{_IIKO}/api/1/order/close").mock(
+        return_value=httpx.Response(200, json={}))
+    async with maker() as s:
+        order = (await s.execute(select(Order))).scalar_one()
+        order.service_type = "DeliveryByCourier"
+        await s.commit()
+        oid = order.id
+
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Сборщик", "payment_type_id": "pt-1"})
+    assert r.status_code == 200
+    assert not tpay.called and not tclose.called, "доставку методами зала не трогаем"
+    assert r.json()["iiko_sync_error"] is not None, "сбой чтения нельзя прятать"
+
+
+@respx.mock
 async def test_delivered_hall_order_is_paid_and_closed_by_us(client):
     """Заказ зала закрываем мы, своими методами: у него другие эндпоинты Cloud.
 

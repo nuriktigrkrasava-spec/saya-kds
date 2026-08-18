@@ -474,6 +474,11 @@ async def order_take(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
+# Типы, которые в iiko живут как заказы зала (табличные). Всё остальное —
+# доставка и самовывоз — закрывается методами deliveries/*.
+TABLE_SERVICE_TYPES = ("Common", "DineIn", "ToGo")
+
+
 async def _close_table_order_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
     """Оплатить и закрыть заказ зала/выноса тем типом оплаты, что выбрал сборщик.
 
@@ -523,7 +528,15 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
       ЕЁ ЖЕ типом (чужим нельзя) и закрываем снова.
     """
     state = await _iiko_write.read_order_state(order.org_id, order.iiko_order_id)
-    if state is None or not state["is_delivery"]:
+    is_table = (order.service_type or "") in TABLE_SERVICE_TYPES
+    if state is None:
+        # Не прочиталось. Для зала пробуем его методами — там своё чтение.
+        # Для доставки это сбой: увести курьерский заказ в методы зала и
+        # оплатить его чужим способом хуже, чем не закрыть.
+        if is_table:
+            return await _close_table_order_in_iiko(order, body)
+        return False, {"error": "order_state_unavailable"}
+    if not state["is_delivery"]:
         # Заказ зала или выноса: у него свои методы, deliveries/* его не видят.
         return await _close_table_order_in_iiko(order, body)
 
