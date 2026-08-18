@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { orderChannel } from "./orderType.js";
+import { orderChannel, completeLabel } from "./orderType.js";
 
 describe("orderChannel", () => {
   it("курьерская доставка требует нашего курьера", () => {
@@ -30,5 +30,22 @@ describe("orderChannel", () => {
       payment_type_name: "КАСПИ онлайн",
     });
     expect(ch.needsCourier).toBe(true);
+  });
+});
+
+describe("вынос с кассы", () => {
+  it("ToGo — это вынос, а не самовывоз", () => {
+    const ch = orderChannel({ service_type: "ToGo" });
+    expect(ch.type).toBe("togo");
+    expect(ch.label).toBe("Вынос");
+    expect(ch.needsCourier).toBe(false);
+  });
+
+  it("заказ с сайта остаётся самовывозом", () => {
+    expect(orderChannel({ service_type: "DeliveryByClient" }).label).toBe("Самовывоз");
+  });
+
+  it("кнопка называет действие", () => {
+    expect(completeLabel(orderChannel({ service_type: "ToGo" }))).toBe("Выдан на вынос");
   });
 });

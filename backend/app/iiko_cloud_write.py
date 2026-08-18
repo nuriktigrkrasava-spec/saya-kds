@@ -90,6 +90,64 @@ async def close_order(org_id: str, order_id: str) -> tuple[bool, dict]:
         {"organizationId": org_id, "orderId": order_id})))
 
 
+# ── Заказы зала и выноса ─────────────────────────────────────────────────────
+# У них своя пара методов: deliveries/* табличные заказы не принимают. Проверено
+# на проде: order/close отвечает «Table order with Id=… doesn't exist» (то есть
+# ищет именно табличный заказ), а order/pay нашему ключу запрещён — оплату
+# проводим через order/add_payments.
+
+def table_order_state(payload: dict) -> dict | None:
+    """Сумма, оплачено и остаток по заказу зала из ответа order/by_id.
+
+    Остаток нужен потому, что add_payments ДОБАВЛЯЕТ оплату, а не заменяет:
+    если касса уже пробила деньги, вторая наша оплата даст двойной чек.
+    """
+    orders = (payload or {}).get("orders") or []
+    if not orders:
+        return None
+    order = (orders[0] or {}).get("order") or {}
+    total = float(order.get("sum") or 0)
+    paid = sum(float(p.get("sum") or 0) for p in (order.get("payments") or []))
+    return {"total": total, "paid": paid, "due": max(0.0, total - paid),
+            "closed": (order.get("status") or "") in ("Closed", "Deleted"),
+            "number": order.get("number")}
+
+
+async def read_table_order_state(org_id: str, order_id: str) -> dict | None:
+    """Состояние заказа зала прямо сейчас. None — прочитать не удалось."""
+    ok, detail = await _post("order/by_id",
+                             {"organizationIds": [org_id], "orderIds": [order_id]})
+    if not ok:
+        return None
+    return table_order_state(detail)
+
+
+async def add_table_order_payment(org_id: str, order_id: str,
+                                  payments: list[dict]) -> tuple[bool, dict]:
+    return await _await_command(org_id, *(await _post(
+        "order/add_payments",
+        {"organizationId": org_id, "orderId": order_id, "payments": payments})))
+
+
+async def close_table_order(org_id: str, order_id: str) -> tuple[bool, dict]:
+    return await _await_command(org_id, *(await _post(
+        "order/close",
+        {"organizationId": org_id, "orderId": order_id})))
+
+
+async def pay_and_close_table_order(org_id: str, order_id: str,
+                                    payments: list[dict]) -> tuple[bool, dict]:
+    """Оплатить и закрыть заказ зала/выноса. Оплата строго первой.
+
+    Если оплата не прошла — заказ НЕ закрываем: закрытый без оплаты заказ потом
+    руками не починить, а незакрытый кассир закроет сам.
+    """
+    ok, detail = await add_table_order_payment(org_id, order_id, payments)
+    if not ok:
+        return False, detail
+    return await close_table_order(org_id, order_id)
+
+
 async def set_delivery_status(org_id: str, order_id: str, status: str) -> tuple[bool, dict]:
     return await _await_command(org_id, *(await _post(
         "deliveries/update_order_delivery_status",

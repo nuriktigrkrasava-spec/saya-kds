@@ -8,6 +8,19 @@ from app.stations import build_resolver
 from app.config import settings
 
 
+# Зал и вынос приходят из iiko одинаково — Common / «Обычный заказ». Различает
+# их только служебная позиция «Вынос», которую кассир добавляет в заказ: на
+# проде за четыре дня она стоит в 35 заказах из 132.
+TAKEAWAY_MARKER = "вынос"
+
+
+def is_takeaway(items) -> bool:
+    """Заказ с кассы на вынос? Ищем ровно позицию «Вынос», а не слово в названии:
+    «Коробка для выноса» — это упаковка, а не признак выноса."""
+    return any((getattr(i, "name", "") or "").strip().lower() == TAKEAWAY_MARKER
+               for i in items)
+
+
 def is_held(complete_before, now: datetime, lead_minutes: int) -> bool:
     return complete_before is not None and complete_before > now + timedelta(minutes=lead_minutes)
 
@@ -83,7 +96,11 @@ async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
     order.address_lat = data.lat
     order.address_lon = data.lon
     order.total = data.total
+    # Зал или вынос: в iiko оба Common, различает только служебная позиция.
+    # Доставку не трогаем — там «Вынос» в составе ничего не значит.
     order.service_type = data.service_type
+    if data.service_type in ("Common", "DineIn") and is_takeaway(data.items):
+        order.service_type = "ToGo"
     order.comment = data.comment
     order.payment_type_id = data.payment_type_id
     order.payment_type_kind = data.payment_type_kind

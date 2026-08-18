@@ -44,10 +44,20 @@ export function orderChannel(order) {
       needsCourier: false,
     };
   }
+  // Вынос с кассы: гость стоит рядом и ждёт. Отличается от самовывоза, который
+  // заказали заранее с сайта, — по нему торопиться некуда. Тип проставляется на
+  // приёме по служебной позиции «Вынос» в составе заказа.
+  if (st === "ToGo") {
+    return {
+      type: "togo",
+      label: "Вынос",
+      badge: { icon: "pickup", text: "Вынос" },
+      needsCourier: false,
+    };
+  }
   if (
     st === "DeliveryByClient" ||
     st === "PickUp" ||
-    st === "ToGo" ||
     st === "DeliveryByPickUp"
   ) {
     return {
@@ -69,6 +79,7 @@ export function channelBadge(order) {
 // Подпись кнопки завершения для не-курьерских заказов.
 export function completeLabel(channel) {
   if (channel.type === "dinein") return "Выдан в зал";
+  if (channel.type === "togo") return "Выдан на вынос";
   if (channel.type === "aggregator") return `Передан · ${channel.label}`;
   return "Выдан клиенту";
 }

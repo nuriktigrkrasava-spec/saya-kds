@@ -595,27 +595,40 @@ async def test_delivered_pickup_order_skips_delivery_status(client):
 
 
 @respx.mock
-async def test_delivered_hall_order_is_not_a_delivery(client):
-    """Заказ зала/выноса закрывает касса — в deliveries его вообще нет.
+async def test_delivered_hall_order_is_paid_and_closed_by_us(client):
+    """Заказ зала закрываем мы, своими методами: у него другие эндпоинты Cloud.
 
-    Прод 07.08.2026, заказ №86 (service_type Common): проверка состояния честно
-    не нашла доставку и повесила сборщику красное «не ушло в iiko». Это не
-    ошибка — по такому заказу писать в iiko просто нечего."""
+    Раньше такие заказы мы не трогали вовсе («пусть закрывает касса»), и заказ
+    висел на планшете, пока кассир до него не дойдёт. Теперь сборщик выбирает
+    тип оплаты и заказ закрывается сразу.
+
+    deliveries/* тут не годятся: они табличный заказ не находят.
+    """
     from app import iiko_cloud_write; iiko_cloud_write.reset_caches()
     c, maker = client; _token()
     respx.post(f"{_IIKO}/api/1/deliveries/by_id").mock(
         return_value=httpx.Response(200, json={"orders": []}))
-    pay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
+    dpay = respx.post(f"{_IIKO}/api/1/deliveries/update_order_payments").mock(
         return_value=httpx.Response(200, json={}))
-    cl = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+    dclose = respx.post(f"{_IIKO}/api/1/deliveries/close").mock(
+        return_value=httpx.Response(200, json={}))
+    respx.post(f"{_IIKO}/api/1/order/by_id").mock(return_value=httpx.Response(
+        200, json={"orders": [{"order": {"sum": 4500, "status": "New",
+                                         "payments": None}}]}))
+    tpay = respx.post(f"{_IIKO}/api/1/order/add_payments").mock(
+        return_value=httpx.Response(200, json={}))
+    tclose = respx.post(f"{_IIKO}/api/1/order/close").mock(
         return_value=httpx.Response(200, json={}))
     async with maker() as s:
         oid = (await s.execute(select(Order.id))).scalar_one()
 
-    r = await c.post(f"/orders/{oid}/delivered", json={"by": "Сборщик"})
+    r = await c.post(f"/orders/{oid}/delivered",
+                     json={"by": "Сборщик", "payment_type_id": "pt-1",
+                           "payment_kind": "Cash"})
     assert r.status_code == 200 and r.json()["delivered"] is True
-    assert not pay.called and not cl.called
-    assert r.json()["iiko_sync_error"] is None, "зал — это не сбой синхронизации"
+    assert tpay.called and tclose.called, "зал закрываем табличными методами"
+    assert not dpay.called and not dclose.called, "deliveries/* тут не при чём"
+    assert r.json()["iiko_sync_error"] is None
 
 
 @respx.mock

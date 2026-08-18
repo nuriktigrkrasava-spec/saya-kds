@@ -474,8 +474,40 @@ async def order_take(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
+async def _close_table_order_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
+    """Оплатить и закрыть заказ зала/выноса тем типом оплаты, что выбрал сборщик.
+
+    Раньше мы такие заказы не трогали вовсе — «пусть закрывает касса». Из-за
+    этого заказ пропадал с планшета только когда кассир до него доходил.
+
+    Платим РОВНО остаток и только если он есть: order/add_payments добавляет
+    оплату, а не заменяет, и вторая оплата поверх кассовой даёт двойной чек.
+    """
+    state = await _iiko_write.read_table_order_state(order.org_id, order.iiko_order_id)
+    if state is None:
+        # Вслепую платить нельзя: промахнуться суммой дороже, чем не закрыть.
+        return False, {"error": "table_order_state_unavailable"}
+    if state["closed"]:
+        return True, {"skipped": "already_closed"}
+
+    if state["due"] > 0.01:
+        pt_id = body.payment_type_id or order.payment_type_id
+        if not pt_id:
+            return False, {"error": "no_payment_type"}
+        kind = (body.payment_kind if body.payment_type_id else None) \
+            or order.payment_type_kind
+        item = _iiko_write.payment_item_by_id(order.org_id, pt_id, kind, state["due"])
+        return await _iiko_write.pay_and_close_table_order(
+            order.org_id, order.iiko_order_id, [item])
+
+    return await _iiko_write.close_table_order(order.org_id, order.iiko_order_id)
+
+
 async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
     """Довести заказ в iiko до закрытого: оплата → Delivered → close.
+
+    Для зала и выноса — своя ветка (_close_table_order_in_iiko): у табличных
+    заказов другие методы Cloud, deliveries/* их не находят.
 
     Каждый шаг делается только если он вообще нужен и разрешён — состояние
     заказа читаем из iiko, а не из своей БД:
@@ -491,12 +523,9 @@ async def _close_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
       ЕЁ ЖЕ типом (чужим нельзя) и закрываем снова.
     """
     state = await _iiko_write.read_order_state(order.org_id, order.iiko_order_id)
-    if state is None:
-        # Вслепую платить нельзя: промахнуться суммой дороже, чем не закрыть.
-        return False, {"error": "order_state_unavailable"}
-    if not state["is_delivery"]:
-        # Зал/вынос: доставки не существует, заказ закрывает касса. Не сбой.
-        return True, {"skipped": "not_a_delivery"}
+    if state is None or not state["is_delivery"]:
+        # Заказ зала или выноса: у него свои методы, deliveries/* его не видят.
+        return await _close_table_order_in_iiko(order, body)
 
     prepaid = state.get("prepaid", False)
     due = state.get("due", 0.0)
