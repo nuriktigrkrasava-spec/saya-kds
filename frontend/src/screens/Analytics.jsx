@@ -404,13 +404,6 @@ export default function Analytics() {
   // zonal load heatmap (кухня). Спрос по районам вынесен в «Карту спроса».
   const [zoneLoadData, setZoneLoadData] = useState(null);
 
-  // Время готовки по типам заказа
-  const [kTime, setKTime] = useState(null);
-
-  // Разрез заказов по типам (iiko против нашей базы)
-  const [mix, setMix] = useState(null);
-  const [mixErr, setMixErr] = useState(null);
-
   // Смены: нагрузка против людей (OLAP + явки iiko)
   const [staffing, setStaffing] = useState(null);
   const [staffingLoading, setStaffingLoading] = useState(false);
@@ -491,22 +484,6 @@ export default function Analytics() {
   useEffect(() => {
     if (!orgId) return;
     api.zoneLoad(orgId, range.from, range.to).then(setZoneLoadData).catch(() => setZoneLoadData(null));
-  }, [orgId, range.from, range.to, reloadTick]);
-
-  // ── время готовки по типам заказа ───────────────────────────────────────
-  useEffect(() => {
-    if (!orgId) return;
-    api.kitchenTime(orgId, range.from, range.to).then(setKTime).catch(() => setKTime(null));
-  }, [orgId, range.from, range.to, reloadTick]);
-
-  // ── загрузка разреза по типам заказов ───────────────────────────────────
-  useEffect(() => {
-    if (!orgId) return;
-    setMixErr(null);
-    api
-      .orderMix(orgId, range.from, range.to)
-      .then(setMix)
-      .catch((e) => { setMixErr(e.message || String(e)); setMix(null); });
   }, [orgId, range.from, range.to, reloadTick]);
 
   // ── загрузка смен: не зависит от выбранного периода, всегда 4 недели ────
@@ -759,103 +736,6 @@ export default function Analytics() {
             Недоставленный заказ, висящий дольше 45 мин, тоже считается просрочкой.</Src>
         </section>
 
-        {/* ── Время готовки по типам заказа ── */}
-        {kTime && (
-          <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-            <h2 className="admin__section-title">Готовка по типам заказа</h2>
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Тип</th>
-                  <th className="num">Заказов</th>
-                  <th className="num">В среднем</th>
-                  <th className="num">Медиана</th>
-                  <th className="num">Худшие 5%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {["hall", "togo", "pickup", "delivery"].map((key) => {
-                  const k = kTime[key];
-                  if (!k) return null;
-                  return (
-                    <tr key={key}>
-                      <td style={{ fontWeight: 600 }}>{k.label}</td>
-                      <td className="num">{k.count}</td>
-                      <td className="num">{sec2min(k.avg_seconds)} мин</td>
-                      <td className="num">{sec2min(k.median_seconds)} мин</td>
-                      <td className="num">{sec2min(k.p95_seconds)} мин</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <Src>Время от появления заказа до момента, когда готова ПОСЛЕДНЯЯ его
-              кухонная позиция — по отметкам на планшетах. «Заказов» тут меньше,
-              чем в таблице ниже, и это не потеря: в счёт идут только те, где
-              кухня отметила готовым ВСЁ. Где отметили не всё, время готовки
-              неизвестно. Напитки и соусы не в счёт — их не готовят.
-              «Вынос» — кассовый, гость стоит и ждёт; «Самовывоз» — заказ с сайта,
-              его заберут позже. Для зала это единственная измеримая метрика: в
-              iiko у зальных заказов нет ни «готово», ни «подали». Сравнивать зал
-              с доставкой осторожно — зал доезжает до нас не весь, и в выборку
-              попадают заказы со столов, а не быстрые кассовые.</Src>
-          </section>
-        )}
-
-        {/* ── Разрез заказов по типам ── */}
-        <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
-          <h2 className="admin__section-title">Заказы по типам</h2>
-          {mixErr && <p className="admin__state">Не удалось: {mixErr}</p>}
-          {mix && (
-            <>
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Тип</th>
-                    <th className="num">В iiko</th>
-                    <th className="num">Дошло к нам</th>
-                    <th className="num">Покрытие</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mix.categories.map((c) => {
-                    const pct = c.coverage == null ? null : Math.round(c.coverage * 100);
-                    return (
-                      <tr key={c.key}>
-                        <td style={{ fontWeight: 600 }}>{c.label}</td>
-                        <td className="num">{c.iiko}</td>
-                        <td className="num">{c.ours}</td>
-                        <td className="num" style={{
-                          fontWeight: 700,
-                          color: pct == null ? "#6b7280"
-                            : pct >= 90 ? "#16a34a" : pct >= 50 ? "#f59e0b" : "#dc2626",
-                        }}>
-                          {pct == null ? "—" : `${pct}%`}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {mix.iiko_detail?.aggregator > 0 && (
-                <p style={{ fontSize: 13, color: "#6b7280", marginTop: 10 }}>
-                  Внутри «Выноса» — {mix.iiko_detail.aggregator} заказов агрегаторов
-                  (Wolt, Glovo) и {mix.iiko_detail.pickup} настоящих самовывозов.
-                </p>
-              )}
-            </>
-          )}
-          <Src>Эта таблица про ПРИЁМ данных, а не про кухню: слева сколько заказов
-            провёл филиал по версии iiko, справа сколько из них доехало до наших
-            планшетов. Покрытие ниже 100% значит, что часть заказов кухня не
-            видела, и отчёты по этому типу считаются по неполным данным. Чуть
-            больше 100% — нормально: заказ, открытый до полуночи и закрытый после,
-            мы и iiko относим к разным дням. Деление здесь такое же, как в самом
-            iiko: кассовый вынос он считает залом, поэтому строка называется «Зал
-            и вынос с кассы», а самовывоз с сайта и агрегаторы сложены вместе — в
-            нашей базе они неотличимы. В таблице «Готовка по типам» деление
-            подробнее: там вынос отделён от зала.</Src>
-        </section>
 
         {/* ── Смены: нагрузка против людей ── */}
         <section className="admin__table-wrap" style={{ padding: 24, marginBottom: 24 }}>
