@@ -645,3 +645,18 @@
   font-size: 13px;
   line-height: 1.4;
 }
+
+/* Сумма заказа: курьер везёт деньги, и знать их до подъезда важнее, чем
+   открывать деталку. Держим рядом с номером и таким же весом. */
+.tg-card__sum {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--tg-accent);
+  white-space: nowrap;
+}
+
+.tg-detail__sum {
+  font-size: 18px;
+  font-weight: 700;
+}

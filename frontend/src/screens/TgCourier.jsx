@@ -545,6 +545,9 @@ export default function TgCourier() {
               <section key={o.id} className="tg-card">
                 <div className="tg-card__head">
                   <span className="tg-card__num">№ {o.number}</span>
+                  {o.total != null && (
+                    <span className="tg-card__sum">{formatMoney(o.total)}</span>
+                  )}
                   {o.customer && (
                     <span className="tg-card__cust">{o.customer}</span>
                   )}
@@ -625,6 +628,11 @@ export default function TgCourier() {
                 ? `🛵 Везёт: ${detailOrder.assigned_courier_name}`
                 : "⏳ Курьер не назначен"}
             </p>
+            {detailOrder.total != null && (
+              <p className="tg-detail__row tg-detail__sum">
+                💰 {formatMoney(detailOrder.total)}
+              </p>
+            )}
             {detailOrder.customer && (
               <p className="tg-detail__row">👤 {detailOrder.customer}</p>
             )}

@@ -46,6 +46,10 @@ def order_payload(order: Order) -> dict:
         "lat": order.address_lat,
         "lon": order.address_lon,
         "service_type": order.service_type,
+        # Сумма заказа: курьер везёт ещё и деньги. Раньше её в выдаче не было
+        # вовсе, и мини-апп узнавал сумму только в окне закрытия, отдельным
+        # запросом в iiko.
+        "total": order.total,
         "comment": order.comment or "",
         "created_at": _iso(order.created_at),
         # Предзаказ: висит на экране с меткой «к 16:00», в работу входит сам за

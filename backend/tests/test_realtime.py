@@ -30,3 +30,24 @@ def test_order_payload_exposes_courier_and_assembled_at():
     assert p["assigned_courier_name"] == "Адильхан"
     assert p["assigned_courier_code"] == "77"
     assert p["assembled_at"] == "2026-07-06T12:00:00Z"
+
+
+def test_payload_carries_the_order_total():
+    """Курьеру нужна сумма заказа: он везёт деньги, а не только еду.
+
+    В выдаче её не было вовсе — мини-апп показывал сумму только в окне
+    закрытия, и то из отдельного запроса в iiko.
+    """
+    from app.models import Order
+    from app import realtime
+    order = Order(iiko_order_id="x", org_id="org-1", number="7", total=12500.0)
+    order.items = []
+    assert realtime.order_payload(order)["total"] == 12500.0
+
+
+def test_payload_total_may_be_absent():
+    from app.models import Order
+    from app import realtime
+    order = Order(iiko_order_id="y", org_id="org-1", number="8")
+    order.items = []
+    assert realtime.order_payload(order)["total"] is None
