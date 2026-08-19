@@ -65,19 +65,23 @@ def clean_address(value: str | None) -> str | None:
     return value
 
 
-def late_deliveries(rows: list[dict], min_delay_minutes: int = 1) -> dict:
+def late_deliveries(rows: list[dict], min_delay_minutes: int = 1,
+                    include_pickup: bool = False) -> dict:
     """Сводка опозданий по строкам OLAP: сколько всего, сколько опоздали, список.
 
-    Самовывоз (ServiceType != COURIER) отбрасываем: iiko проставляет ему Delay,
-    но курьер к нему отношения не имеет.
+    Самовывоз по умолчанию отбрасываем: iiko проставляет ему Delay, но курьер к
+    нему отношения не имеет. include_pickup=True возвращает его в счёт — на
+    проде за 18.08 курьерских опозданий было 2, а самовывозных 10, и цифра «2»
+    без объяснения выглядела как потеря данных.
 
     ВАЖНО: Delay=null означает «приехали вовремя», а не «нет данных» — iiko
     заполняет колонку только у опоздавших (на проде у таких строк ActualTime
     раньше ExpectedTime). Считать их пропусками нельзя: тогда в total попадут
     одни опоздавшие и процент опозданий всегда будет 100.
     """
+    kinds = ("COURIER", "PICKUP") if include_pickup else ("COURIER",)
     deliveries = [r for r in rows
-                  if r.get("Delivery.ServiceType") == "COURIER"
+                  if r.get("Delivery.ServiceType") in kinds
                   and r.get("Delivery.ActualTime")]
 
     late = [r for r in deliveries
@@ -93,6 +97,7 @@ def late_deliveries(rows: list[dict], min_delay_minutes: int = 1) -> dict:
         "expected_at": r.get("Delivery.ExpectedTime"),
         "actual_at": r.get("Delivery.ActualTime"),
         "delay_minutes": r["Delivery.Delay"],
+        "is_pickup": r.get("Delivery.ServiceType") == "PICKUP",
     } for r in sorted(late, key=lambda x: -x["Delivery.Delay"])]
 
     return {

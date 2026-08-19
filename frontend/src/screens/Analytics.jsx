@@ -33,11 +33,19 @@ function fmtSeconds(seconds) {
 }
 
 // Время из OLAP приходит строкой локального времени филиала ("2026-08-10T22:56:46.572").
-// Показываем «10.08 22:56» — секунды и миллисекунды в таблице только мешают.
+// Дата вынесена в отдельную колонку, поэтому здесь только часы и минуты —
+// секунды и миллисекунды в таблице лишние.
 function fmtOlapTime(s) {
   if (!s) return "—";
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
-  return m ? `${m[3]}.${m[2]} ${m[4]}:${m[5]}` : s;
+  const m = /^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/.exec(s);
+  return m ? `${m[1]}:${m[2]}` : s;
+}
+
+// "2026-08-18T23:19:41.801" -> "18.08"
+function fmtOlapDate(s) {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[3]}.${m[2]}` : s;
 }
 
 // "2026-08-11" -> "11.08"
@@ -969,6 +977,7 @@ export default function Analytics() {
                     <table className="admin-table">
                       <thead>
                         <tr>
+                          <th>Дата</th>
                           <th className="num">№</th>
                           <th>Курьер</th>
                           <th>Обещали</th>
@@ -981,6 +990,9 @@ export default function Analytics() {
                       <tbody>
                         {late.orders.map((o, i) => (
                           <tr key={`${o.number}-${o.actual_at}-${i}`}>
+                            <td style={{ whiteSpace: "nowrap" }}>
+                              {fmtOlapDate(o.actual_at || o.expected_at)}
+                            </td>
                             <td className="num">{o.number}</td>
                             <td>{o.courier || "—"}</td>
                             <td>{fmtOlapTime(o.expected_at)}</td>

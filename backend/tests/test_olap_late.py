@@ -148,3 +148,25 @@ def test_empty_input_gives_zeros_not_crash():
     assert res == {"total": 0, "late_count": 0, "late_rate": 0.0,
                    "avg_delay_minutes": None, "max_delay_minutes": None,
                    "orders": []}
+
+
+def test_pickup_can_be_included_on_demand():
+    """Самовывоз тоже опаздывает — управляющему это видно в отчёте iiko.
+
+    По умолчанию не считаем (курьер к нему отношения не имеет), но прятать
+    совсем нельзя: на проде за 18.08 курьерских опозданий 2, а самовывозных 10,
+    и цифра «2» выглядела как потеря данных.
+    """
+    rows = [_row(1, 10), _row(2, 40, service="PICKUP")]
+    only_courier = olap.late_deliveries(rows)
+    with_pickup = olap.late_deliveries(rows, include_pickup=True)
+    assert only_courier["late_count"] == 1
+    assert with_pickup["late_count"] == 2
+    assert with_pickup["total"] == 2
+
+
+def test_included_pickup_is_marked_in_the_row():
+    """В списке должно быть видно, что это самовывоз, а не работа курьера."""
+    res = olap.late_deliveries([_row(2, 40, service="PICKUP")], include_pickup=True)
+    assert res["orders"][0]["is_pickup"] is True
+    assert olap.late_deliveries([_row(1, 10)])["orders"][0]["is_pickup"] is False

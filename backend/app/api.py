@@ -2405,7 +2405,7 @@ async def _fill_addresses_from_our_base(session, orders: list[dict]) -> None:
 
 
 async def _late_deliveries(org_id: str, from_: str | None, to: str | None,
-                           session=None) -> dict:
+                           session=None, include_pickup: bool = False) -> dict:
     """Опоздания доставок филиала из OLAP iiko. Бросает 404, если филиал не найден."""
     department = await _olap.department_name(org_id)
     if department is None:
@@ -2413,7 +2413,7 @@ async def _late_deliveries(org_id: str, from_: str | None, to: str | None,
                             detail=f"филиал {org_id} не найден среди организаций iiko")
     date_from, date_to = _period_dates(from_, to)
     rows = await _olap.fetch_delivery_rows(department, date_from, date_to)
-    result = _olap.late_deliveries(rows)
+    result = _olap.late_deliveries(rows, include_pickup=include_pickup)
     if session is not None:
         await _fill_addresses_from_our_base(session, result["orders"])
         # Причину ищем по нашим отметкам: iiko знает про опоздание, но не знает,
@@ -2422,13 +2422,15 @@ async def _late_deliveries(org_id: str, from_: str | None, to: str | None,
         ours = await _orders_in_period(session, org_id, dt_from, dt_to)
         result["reasons"] = _late_reasons.attach_reasons(result["orders"], ours)
     return {"org_id": org_id, "department": department,
-            "period": {"from": date_from, "to": date_to}, **result}
+            "period": {"from": date_from, "to": date_to},
+            "include_pickup": include_pickup, **result}
 
 
 @app.get("/admin/late-deliveries")
 async def admin_late_deliveries(org_id: str,
                                 from_: str | None = Query(None, alias="from"),
                                 to: str | None = None,
+                                include_pickup: bool = False,
                                 session: AsyncSession = Depends(get_session)):
     """Сколько доставок филиала опоздало за период и каждая из них поимённо.
 
@@ -2436,7 +2438,7 @@ async def admin_late_deliveries(org_id: str,
     «Отчёт заказы-доставка» в iikoOffice: цифры обязаны сходиться с ним.
     Самовывоз не считаем — курьер к нему отношения не имеет.
     """
-    return await _late_deliveries(org_id, from_, to, session)
+    return await _late_deliveries(org_id, from_, to, session, include_pickup)
 
 
 async def _delivery_points(session, org_id: str, dt_from, dt_to) -> list[dict]:
