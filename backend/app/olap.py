@@ -177,8 +177,13 @@ def build_report_body(department: str, date_from: str, date_to: str) -> dict:
 AGGREGATOR_NAMES = ("wolt", "glovo", "яндекс", "yandex", "chocofood", "choco",
                     "delivery club", "bolt")
 
-MIX_LABELS = {"hall": "Зал", "delivery": "Доставка", "pickup": "Вынос",
-              "aggregator": "Агрегаторы", "other": "Прочее"}
+# Названия ровно те, что в iiko: «Зал» тут включает кассовый вынос, потому что
+# сам iiko считает его как COMMON. Слово «Вынос» здесь не используем — в карте
+# готовки оно означает другое (кассовый вынос), и две соседние таблицы читались
+# бы по-разному.
+MIX_LABELS = {"hall": "Зал и вынос с кассы", "delivery": "Доставка",
+              "pickup": "Самовывоз и агрегаторы", "aggregator": "Агрегаторы",
+              "other": "Прочее"}
 
 
 def _mix_key(service_type: str | None, order_type: str | None) -> str:
