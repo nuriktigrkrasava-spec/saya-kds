@@ -70,6 +70,9 @@ export default function TgCourier() {
   const [paymentOrder, setPaymentOrder] = useState(null); // order awaiting payment-kind pick
   const [paymentTypesList, setPaymentTypesList] = useState([]); // real payment types for overlay
   const [paymentTypesLoading, setPaymentTypesLoading] = useState(false);
+  // Курьер нажал «оплатили другим способом»: тип в заказе не совпал с тем, чем
+  // клиент реально расплатился.
+  const [forceChoice, setForceChoice] = useState(false);
   const [closeInfo, setCloseInfo] = useState(null); // сколько осталось получить, из iiko
 
   // --- Telegram init + theme --------------------------------------------------
@@ -271,6 +274,7 @@ export default function TgCourier() {
     setPaymentOrder(order);
     setPaymentTypesList([]);
     setCloseInfo(null);
+    setForceChoice(false);
     setPaymentTypesLoading(true);
     // Правда об оплате — только в iiko и только сейчас. Тип из заказа может
     // оказаться бонусной частью сплита: заказ №36 от 09.08.2026 показывал
@@ -289,15 +293,26 @@ export default function TgCourier() {
       .finally(() => setPaymentTypesLoading(false));
   }
 
+  async function chooseAnotherType() {
+    setForceChoice(true);
+    if (paymentTypesList.length || !paymentOrder?.org_id) return;
+    setPaymentTypesLoading(true);
+    const list = await api.paymentTypes(paymentOrder.org_id).catch(() => []);
+    setPaymentTypesList(Array.isArray(list) ? list : []);
+    setPaymentTypesLoading(false);
+  }
+
   function cancelDeliver() {
     setPaymentOrder(null);
     setCloseInfo(null);
+    setForceChoice(false);
   }
 
   async function confirmDeliver(paymentKind, paymentTypeId) {
     const order = paymentOrder;
     setPaymentOrder(null);
     setPaymentTypesList([]);
+    setForceChoice(false);
     setCloseInfo(null);
     setActingId(order.id);
     setOrdersErr("");
@@ -433,6 +448,12 @@ export default function TgCourier() {
   const needsChoice = closeInfo
     ? Boolean(closeInfo.needs_choice)
     : Boolean(paymentOrder && !paymentOrder.payment_type_name);
+  // Заказ реально оплачен в iiko: тип менять бессмысленно — при закрытии мы
+  // оплату вообще не шлём, платить нечего. В остальных случаях курьер должен
+  // иметь возможность закрыть другим типом: в заказе может стоять один способ,
+  // а клиент расплатился другим.
+  const fullyPaid = Boolean(closeInfo?.known && (closeInfo.due ?? 0) <= 0.01);
+  const showChoice = needsChoice || forceChoice;
   return (
     <div className="tg">
       <header className="tg__header">
@@ -687,17 +708,17 @@ export default function TgCourier() {
         <div className="tg-payment-overlay" role="dialog" aria-modal="true" aria-label="Закрыть заказ">
           <div className="tg-payment-sheet">
             <p className="tg-payment-sheet__title">
-              {needsChoice ? "Чем оплатил клиент?" : "Закрыть заказ?"}
+              {showChoice ? "Чем оплатил клиент?" : "Закрыть заказ?"}
             </p>
             <p className="tg-payment-sheet__sub">Заказ № {paymentOrder.number}</p>
-            {needsChoice && closeInfo?.due > 0 && (
+            {showChoice && closeInfo?.due > 0 && (
               <p className="tg-payment-sheet__due">
                 Получить с клиента: <b>{formatMoney(closeInfo.due)}</b>
               </p>
             )}
             {paymentTypesLoading ? (
               <p className="tg-payment-sheet__sub">Проверяем оплату…</p>
-            ) : !needsChoice ? (
+            ) : !showChoice ? (
               // Заказ уже оплачен (онлайн, Kaspi, бонусы или их сумма) — просто
               // закрываем: доплачивать нечего, выбирать нечего.
               <>
@@ -718,6 +739,15 @@ export default function TgCourier() {
                   >
                     Закрыть заказ
                   </button>
+                  {!fullyPaid && (
+                    <button
+                      type="button"
+                      className="tg-btn tg-btn--ghost"
+                      onClick={chooseAnotherType}
+                    >
+                      Оплатили другим способом
+                    </button>
+                  )}
                 </div>
               </>
             ) : paymentTypesList.length > 0 ? (
