@@ -2295,13 +2295,18 @@ async def _staffing_grid(org_id: str, weeks: int) -> dict:
 
 @app.post("/admin/cleanup-empty-orders")
 async def admin_cleanup_empty_orders(org_id: str, minutes: int = 30,
+                                     key: str = Query(default=""),
                                      session: AsyncSession = Depends(get_session)):
     """Сносит зависшие пустые заказы — без позиций и старше `minutes`.
 
     Такие карточки нельзя ни закрыть, ни убрать, они просто занимают экран у
     поваров. Свежие не трогаем: заказ мог только что открыться, и состав ещё
-    едет следующим событием.
+    едет следующим событием. Защищено секретом: ручка удаляет данные.
     """
+    # Ручка удаляет данные — закрываем тем же секретом, что /debug/* и сброс
+    # аналитики. Знать org_id для этого недостаточно.
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
     cutoff = _dt.utcnow() - _td(minutes=max(1, minutes))
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id,

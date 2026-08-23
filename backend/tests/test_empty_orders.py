@@ -15,6 +15,14 @@ from app.models import Order, OrderItem
 from app.schemas import NormalizedOrder
 
 
+@pytest.fixture(autouse=True)
+def no_secret(monkeypatch):
+    """Тесты ниже про поведение уборки, а не про доступ: секрет проверяет
+    отдельный тест, остальным он только мешает (в .env он задан)."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "webhook_secret", "")
+
+
 @pytest.fixture
 def client(session):
     app.dependency_overrides[get_session] = lambda: session
@@ -147,3 +155,21 @@ async def test_cleanup_spares_orders_that_have_a_number(client, session):
 
     left = (await session.execute(select(Order.iiko_order_id))).scalars().all()
     assert left == ["waiting"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_requires_the_secret(client, session, monkeypatch):
+    """Ручка удаляет данные — знать org_id для этого мало."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "webhook_secret", "s3cret")
+
+    old = datetime.utcnow() - timedelta(hours=5)
+    session.add(Order(iiko_order_id="junk2", org_id="org-1", number="",
+                      status="", created_at=old))
+    await session.commit()
+
+    async with client as c:
+        denied = await c.post("/admin/cleanup-empty-orders?org_id=org-1")
+        allowed = await c.post("/admin/cleanup-empty-orders?org_id=org-1&key=s3cret")
+    assert denied.status_code == 403
+    assert allowed.json()["deleted"] == 1
