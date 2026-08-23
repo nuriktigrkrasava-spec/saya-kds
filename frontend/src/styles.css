@@ -1370,3 +1370,25 @@ button {
   color: #0f172a;
   font-weight: 600;
 }
+
+/* Состав сета под названием блюда: то, что повар раньше читал с бумажного чека.
+   Отдельной отметки готовности у вложенных позиций нет — это подсказка. */
+.kitem__mods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+
+.kitem__mod {
+  font-size: 15px;
+  line-height: 1.25;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+}
+
+.kitem__mod b {
+  font-weight: 700;
+}

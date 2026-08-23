@@ -70,6 +70,8 @@ def order_payload(order: Order) -> dict:
                 "id": i.id, "product_id": i.product_id, "name": i.name,
                 "amount": i.amount, "station": i.station,
                 "comment": i.comment or "",
+                # Состав сета: повар видит роллы внутри, а не одно название.
+                "modifiers": i.modifiers or [],
                 "is_checked": i.is_checked,
                 "accepted": i.station_accepted_at is not None,
                 "ready": i.station_ready_at is not None,

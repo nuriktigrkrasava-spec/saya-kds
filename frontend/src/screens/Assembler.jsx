@@ -263,6 +263,19 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
                 <span className="asm-item__name">
                   {it.name}
                   <span className="kitem__amount"> ×{it.amount}</span>
+          {(it.modifiers || []).length > 0 && (
+            // Состав сета: раньше повар читал его с бумажного чека, теперь он
+            // здесь. Отдельных отметок готовности у вложенных позиций нет —
+            // готовность ставится по блюду целиком.
+            <span className="kitem__mods">
+              {(it.modifiers || []).map((m, i) => (
+                <span key={i} className="kitem__mod">
+                  {m.name}
+                  {m.amount > 1 && <b> ×{m.amount}</b>}
+                </span>
+              ))}
+            </span>
+          )}
                   {it.comment && (
                     <span className="kitem__note">
                       <Icon name="note" size={15} />

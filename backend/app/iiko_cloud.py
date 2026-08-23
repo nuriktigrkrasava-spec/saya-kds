@@ -228,6 +228,21 @@ async def order_by_table(organization_ids: list[str], table_ids: list[str],
         return r.json().get("orders", []) or []
 
 
+def _modifiers(item: dict) -> list[dict]:
+    """Состав блюда из модификаторов заказа.
+
+    У сетов iiko кладёт сюда роллы: «-Филадельфия жареная 4 шт». Ведущий дефис
+    — его пометка вложенности, на экране он лишний.
+    """
+    out = []
+    for m in (item.get("modifiers") or []):
+        name = ((m.get("product") or {}).get("name") or "").strip().lstrip("-").strip()
+        if not name:
+            continue
+        out.append({"name": name, "amount": float(m.get("amount") or 1)})
+    return out
+
+
 def _is_placeholder(value: str) -> bool:
     """«----------», «0», «-», пусто — заглушка вместо адреса, а не адрес."""
     stripped = (value or "").strip(" -–—_.")
@@ -336,6 +351,7 @@ def normalize_full_order(wrapper: dict, organization_id: str) -> NormalizedOrder
             amount=float(it.get("amount", 1) or 1),
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
             comment=(it.get("comment") or "").strip(),
+            modifiers=_modifiers(it),
         ))
     pays = o.get("payments") or []
     pt = settlement_payment_type(pays)
@@ -421,6 +437,7 @@ def normalize_table_order(event_or_wrapper: dict, organization_id: str) -> Norma
             amount=float(it.get("amount", 1) or 1),
             combo_id=(str(combo.get("comboId")) if combo.get("comboId") else None),
             comment=(it.get("comment") or "").strip(),
+            modifiers=_modifiers(it),
         ))
 
     # iiko_order_id: eventInfo.id -> order.id -> order.number (что есть первым).

@@ -35,6 +35,7 @@ _ADDED_COLUMNS = [
     ("orders", "complete_before", "TIMESTAMP"),
     ("orders", "preorder_held", "BOOLEAN DEFAULT FALSE"),
     ("order_items", "kitchen_zone", "VARCHAR"),
+    ("order_items", "modifiers", "JSON"),
     ("delivery_zones", "auto_generated", "BOOLEAN DEFAULT FALSE"),
     ("telegram_links", "employee_id", "VARCHAR"),
     ("telegram_links", "claimed_on", "VARCHAR"),

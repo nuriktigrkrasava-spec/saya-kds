@@ -66,6 +66,8 @@ class OrderItem(Base):
     station: Mapped[str] = mapped_column(String, default="other")
     kitchen_zone: Mapped[str | None] = mapped_column(String, nullable=True)
     comment: Mapped[str] = mapped_column(String, default="")
+    # Состав блюда (у сетов — роллы внутри): [{"name": ..., "amount": ...}].
+    modifiers: Mapped[list] = mapped_column(JSON, default=list)
     combo_id: Mapped[str | None] = mapped_column(String, nullable=True)
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False)
     station_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

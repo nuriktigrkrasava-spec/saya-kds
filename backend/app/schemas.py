@@ -3,6 +3,13 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class ItemModifier(BaseModel):
+    """Вложенная позиция блюда. У сетов в них лежит состав — те самые роллы,
+    которые повар раньше читал с бумажного чека."""
+    name: str = ""
+    amount: float = 1
+
+
 class WebhookItem(BaseModel):
     product_id: str = ""
     category_id: str | None = None
@@ -11,6 +18,7 @@ class WebhookItem(BaseModel):
     amount: float = 1
     combo_id: str | None = None
     comment: str = ""  # пожелание по блюду («без лука»)
+    modifiers: list[ItemModifier] = Field(default_factory=list)
 
 
 class NormalizedOrder(BaseModel):

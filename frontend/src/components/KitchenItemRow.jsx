@@ -68,6 +68,19 @@ export default function KitchenItemRow({ item, name, orderCreatedAt }) {
               {item.comment}
             </span>
           )}
+          {(item.modifiers || []).length > 0 && (
+            // Состав сета: раньше повар читал его с бумажного чека, теперь он
+            // здесь. Отдельных отметок готовности у вложенных позиций нет —
+            // готовность ставится по блюду целиком.
+            <span className="kitem__mods">
+              {(item.modifiers || []).map((m, i) => (
+                <span key={i} className="kitem__mod">
+                  {m.name}
+                  {m.amount > 1 && <b> ×{m.amount}</b>}
+                </span>
+              ))}
+            </span>
+          )}
         </span>
 
         <div className="kitem__action">
