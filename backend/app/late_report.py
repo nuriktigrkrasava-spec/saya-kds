@@ -59,6 +59,10 @@ def short_branch(name: str) -> str:
 def format_network_report(date: str, branches: list[dict]) -> str:
     """Сводка по филиалам: строка на точку, худшие сверху.
 
+    Строки — моноширинным блоком: иначе Telegram схлопывает пробелы, столбик
+    цифр плывёт и сводку приходится читать по слогам. Кружок слева, чтобы
+    проблемные точки было видно, не вчитываясь в проценты.
+
     Филиал, по которому данные не собрались, показываем строкой «нет данных»:
     тихо пропасть из отчёта он не должен, иначе сеть выглядит благополучнее,
     чем есть.
@@ -70,35 +74,56 @@ def format_network_report(date: str, branches: list[dict]) -> str:
     late = sum(b.get("late_count") or 0 for b in ok)
     rate = round(late / total * 100) if total else 0
 
-    head = f"📦 Опоздания за {_day(date)} · Астана"
+    head = f"📦 <b>Опоздания за {_day(date)}</b> · Астана"
     if not late:
-        lines = [head, "", f"Доставок {total}, опозданий нет."]
-    else:
-        lines = [head, "", f"По сети: доставок {total}, опоздали {late} — {rate}%"]
-        reasons: dict[str, int] = {}
-        for b in ok:
-            for k, v in (b.get("reasons") or {}).items():
-                reasons[k] = reasons.get(k, 0) + v
-        # «unknown» — это не причина, а отсутствие наших отметок: заказы того
-        # филиала просто не заведены в КДС. В списке причин это шум (на проде
-        # 25 из 27), поэтому выносим отдельной сноской.
-        unknown = reasons.pop("unknown", 0)
-        if reasons:
-            lines.append("Причины: " + " · ".join(
-                f"{REASON_LABEL.get(k, k)} {v}"
-                for k, v in sorted(reasons.items(), key=lambda x: -x[1])))
-        if unknown:
-            lines.append(f"У {unknown} причина не видна — филиал не на КДС")
-        lines.append("")
+        return f"{head}\n\nДоставок {total}, опозданий нет."
 
+    lines = [head, "", f"Доставок <b>{total}</b> · опоздали <b>{late}</b> · {rate}%"]
+
+    rows = []
     for b in sorted(ok, key=lambda x: -(x.get("late_rate") or 0)):
-        name = short_branch(b.get("department") or "")
         pct = round((b.get("late_rate") or 0) * 100)
-        lines.append(f"{name} — {b.get('total') or 0} → "
-                     f"{b.get('late_count') or 0}  {pct}%")
+        rows.append((_mark(pct), short_branch(b.get("department") or ""),
+                     f"{b.get('late_count') or 0}/{b.get('total') or 0}", f"{pct}%"))
     for b in failed:
-        lines.append(f"{short_branch(b.get('department') or '')} — нет данных")
+        rows.append(("⚪", short_branch(b.get("department") or ""), "—", "нет данных"))
+
+    if rows:
+        width = max(len(r[1]) for r in rows)
+        counts = max(len(r[2]) for r in rows)
+        body = "\n".join(f"{m} {_esc(name):<{width}}  {cnt:>{counts}}  {pct:>5}"
+                          for m, name, cnt, pct in rows)
+        lines += ["", f"<pre>{body}</pre>"]
+
+    reasons: dict[str, int] = {}
+    for b in ok:
+        for k, v in (b.get("reasons") or {}).items():
+            reasons[k] = reasons.get(k, 0) + v
+    # «unknown» — это не причина, а отсутствие наших отметок: заказы того
+    # филиала просто не заведены в КДС. В списке причин это шум (на проде
+    # 25 из 27), поэтому выносим отдельной сноской.
+    unknown = reasons.pop("unknown", 0)
+    if reasons:
+        lines.append("Причины: " + " · ".join(
+            f"{REASON_LABEL.get(k, k)} {v}"
+            for k, v in sorted(reasons.items(), key=lambda x: -x[1])))
+    if unknown:
+        lines.append(f"У {unknown} причина не видна — филиал не на КДС")
     return "\n".join(lines)
+
+
+def _esc(text: str) -> str:
+    """Название филиала уезжает в HTML-разметку сообщения."""
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _mark(pct: int) -> str:
+    """Кружок по тяжести: красный — точка, к которой идти сегодня."""
+    if pct >= 30:
+        return "🔴"
+    if pct >= 10:
+        return "🟡"
+    return "🟢"
 
 
 def chat_ids() -> list[str]:

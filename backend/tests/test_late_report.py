@@ -296,3 +296,42 @@ class TestUnknownReasons:
     def test_no_footnote_when_every_cause_is_known(self):
         rows = [r for r in self._rows() if "unknown" not in r["reasons"]]
         assert "на КДС" not in lr.format_network_report("2026-08-23", rows)
+
+
+class TestReadability:
+    """Сводку читают с телефона: цифры должны стоять в столбик, а взгляд —
+    сразу попадать на проблемные точки."""
+
+    ROWS = [
+        {"department": "Астана, ул. Калдаякова 23а", "total": 13, "late_count": 9,
+         "late_rate": 9 / 13, "reasons": {"unknown": 9}, "orders": [],
+         "avg_delay_minutes": 10, "max_delay_minutes": 20},
+        {"department": "Астана, ул. Кумисбекова 9а", "total": 16, "late_count": 3,
+         "late_rate": 3 / 16, "reasons": {"kitchen": 3}, "orders": [],
+         "avg_delay_minutes": 8, "max_delay_minutes": 12},
+        {"department": "Астана, ул. Бухар Жырау 36", "total": 10, "late_count": 0,
+         "late_rate": 0.0, "reasons": {}, "orders": [],
+         "avg_delay_minutes": None, "max_delay_minutes": None},
+    ]
+
+    def test_rows_are_in_a_monospace_block(self):
+        """Без моноширинного блока Telegram съедает пробелы и столбик плывёт."""
+        text = lr.format_network_report("2026-08-23", self.ROWS)
+        assert "<pre>" in text and "</pre>" in text
+
+    def test_severity_is_visible_without_reading_numbers(self):
+        text = lr.format_network_report("2026-08-23", self.ROWS)
+        assert "🔴" in text     # 69%
+        assert "🟢" in text     # 0%
+
+    def test_columns_line_up(self):
+        text = lr.format_network_report("2026-08-23", self.ROWS)
+        body = text.split("<pre>")[1].split("</pre>")[0].strip().splitlines()
+        assert len({len(line.rstrip()) - len(line.rstrip().lstrip()) for line in body}) == 1
+        assert all(line.rstrip().endswith("%") for line in body)
+
+    def test_html_is_escaped(self):
+        """Название филиала уедет в HTML — угловые скобки сломали бы сообщение."""
+        rows = [dict(self.ROWS[0], department="Астана, ул. <Тест> & Ко")]
+        text = lr.format_network_report("2026-08-23", rows)
+        assert "&lt;Тест&gt;" in text and "&amp;" in text
