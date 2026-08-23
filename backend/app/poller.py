@@ -85,7 +85,11 @@ async def poll_once(org_id: str) -> None:
             normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
             async with SessionLocal() as session:
                 order = await ingest.ingest_order(session, normalized)
-                await realtime.broadcast_order(order)
+                # None — пустышку не заводили (нет ни позиций, ни номера).
+                # Рассылать нечего, а падать тут нельзя: проход оборвётся и
+                # курсор не сдвинется.
+                if order is not None:
+                    await realtime.broadcast_order(order)
         max_rev = data.get("maxRevision")
         if isinstance(max_rev, int):
             _revisions[org_id] = max(max_rev, current or 0)
@@ -209,7 +213,11 @@ async def hall_poll_once(org_id: str) -> None:
                 continue
             async with SessionLocal() as session:
                 order = await ingest.ingest_order(session, normalized)
-                await realtime.broadcast_order(order)
+                # None — пустышку не заводили (нет ни позиций, ни номера).
+                # Рассылать нечего, а падать тут нельзя: проход оборвётся и
+                # курсор не сдвинется.
+                if order is not None:
+                    await realtime.broadcast_order(order)
         # Закрытие: было в прошлом проходе, пропало сейчас. На первом проходе
         # после старта «прошлый проход» берём из БД (см. _hall_active_from_db).
         previous = _hall_active.get(org_id)

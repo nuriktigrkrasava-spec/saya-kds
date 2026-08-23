@@ -139,6 +139,8 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
                 _wlog.warning("table order SKIPPED (no items) number=%s", normalized.number)
                 continue
             order = await ingest.ingest_order(session, normalized)
+            if order is None:      # пустышку не заводили — рассылать нечего
+                continue
             await realtime.broadcast_order(order)
             handled += 1
             continue
@@ -153,6 +155,8 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
             continue
         normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
         order = await ingest.ingest_order(session, normalized)
+        if order is None:          # пустышку не заводили — рассылать нечего
+            continue
         await realtime.broadcast_order(order)
         handled += 1
     return {"ok": True, "handled": handled}
@@ -232,6 +236,10 @@ async def ingest_front(body: FrontOrderIn, key: str = Query(default=""),
                for i, it in enumerate(body.items)],
     )
     order = await ingest.ingest_order(session, normalized)
+    if order is None:
+        # Ни позиций, ни номера — заводить нечего. Отвечаем 200: терминал не
+        # виноват и повторять ему незачем.
+        return {"skipped": "empty_order"}
     await realtime.broadcast_order(order)
     return realtime.order_payload(order)
 
@@ -285,6 +293,9 @@ async def debug_pull(org_id: str, order_id: str,
         raise HTTPException(status_code=404, detail="order not found")
     normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
     order = await ingest.ingest_order(session, normalized)
+    if order is None:
+        raise HTTPException(status_code=422,
+                            detail="в заказе нет ни позиций, ни номера")
     await realtime.broadcast_order(order)
     return realtime.order_payload(order)
 

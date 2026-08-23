@@ -81,3 +81,49 @@ async def test_cleanup_spares_orders_from_the_last_minutes(client, session):
     async with client as c:
         r = await c.post("/admin/cleanup-empty-orders?org_id=org-1")
     assert r.json()["deleted"] == 0
+
+
+@pytest.mark.asyncio
+async def test_broadcast_is_skipped_when_nothing_was_created(session, monkeypatch):
+    """Пустышку не завели — рассылать нечего, и падать тоже нельзя.
+
+    23.08.2026: ingest вернул None, поллер сунул его в broadcast_order, тот упал
+    на order.id — проход обрывался, курсор не двигался, заказы приходили с
+    задержкой до 20 минут вместо минуты.
+    """
+    from app import poller, iiko_cloud, realtime
+
+    poller._revisions["org-1"] = 10
+    sent = []
+
+    async def fake_rows(org_id, start_revision):
+        return {"orders": [{"id": "junk"}, {"id": "good"}], "maxRevision": 42}
+
+    def fake_normalize(wrapper, org_id):
+        empty = wrapper["id"] == "junk"
+        return NormalizedOrder(iiko_order_id=wrapper["id"], org_id=org_id,
+                               number="" if empty else "9", status="New",
+                               items=[] if empty else [
+                                   __import__("app.schemas", fromlist=["WebhookItem"])
+                                   .WebhookItem(product_id="p", name="Ролл")])
+
+    async def fake_broadcast(order):
+        sent.append(order.number)
+
+    monkeypatch.setattr(iiko_cloud, "fetch_deliveries_by_revision", fake_rows)
+    monkeypatch.setattr(iiko_cloud, "normalize_full_order", fake_normalize)
+    monkeypatch.setattr(realtime, "broadcast_order", fake_broadcast)
+
+    class _Maker:
+        def __call__(self):
+            return self
+        async def __aenter__(self):
+            return session
+        async def __aexit__(self, *a):
+            return False
+    monkeypatch.setattr(poller, "SessionLocal", _Maker())
+
+    await poller.poll_once("org-1")
+
+    assert sent == ["9"], "рассылаем только заведённый заказ"
+    assert poller._revisions["org-1"] == 42, "проход должен дойти до конца"
