@@ -159,7 +159,7 @@ async def _hall_active_from_db(org_id: str) -> set[str]:
         rows = (await session.execute(
             select(Order.iiko_order_id).where(
                 Order.org_id == org_id,
-                Order.service_type.in_(("Common", "DineIn")),
+                Order.service_type.in_(ingest.HALL_SERVICE_TYPES),
                 Order.status.in_(("New", "Bill"))))).scalars().all()
     return set(rows)
 

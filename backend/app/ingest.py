@@ -13,6 +13,12 @@ from app.config import settings
 # проде за четыре дня она стоит в 35 заказах из 132.
 TAKEAWAY_MARKER = "вынос"
 
+# Типы заказов, которые в iiko живут как заказы зала (табличные). ToGo — наш
+# кассовый вынос: iiko отдаёт его тем же Common, отличаем по позиции «Вынос».
+# Список общий, чтобы не разъезжался по файлам: стоит забыть про ToGo в одном
+# месте — и такой заказ, например, некому будет закрыть после рестарта.
+HALL_SERVICE_TYPES = ("Common", "DineIn", "ToGo")
+
 
 def is_takeaway(items) -> bool:
     """Заказ с кассы на вынос? Ищем ровно позицию «Вынос», а не слово в названии:
@@ -47,8 +53,13 @@ def _item_key(product_id: str | None, combo_id: str | None,
     return (product_id or "", combo_id or "", name or "", comment or "")
 
 
-async def ingest_order(session: AsyncSession, data: NormalizedOrder) -> Order:
+async def ingest_order(session: AsyncSession,
+                       data: NormalizedOrder) -> Order | None:
     """Идемпотентно по iiko_order_id: создаёт или обновляет заказ.
+
+    None означает «заводить было нечего» (пустышка без позиций и номера).
+    Вызывающие ОБЯЗАНЫ это проверить: 23.08.2026 None ушёл в рассылку, упал на
+    order.id и оборвал проход поллера на середине пачки.
 
     iiko шлёт по одному заказу несколько вебхуков (New -> Bill -> Closed). Раньше
     позиции пересоздавались с нуля на каждый вебхук, и прогресс готовки

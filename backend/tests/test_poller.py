@@ -248,3 +248,37 @@ async def test_other_errors_do_not_trigger_catchup(memory_maker, monkeypatch):
 
     assert calls == ["by_revision"]
     assert poller._revisions["org-1"] == 500
+
+
+async def test_takeaway_order_is_also_seeded_as_open_hall(memory_maker, monkeypatch):
+    """Кассовый вынос тоже надо закрывать после рестарта.
+
+    Досев открытых заказов зала искал только Common/DineIn. Как только вынос
+    стал отдельным типом ToGo, такие заказы перестали попадать в «прошлый
+    проход» — и висели на планшете вечно, даже когда касса их закрыла.
+    """
+    from app import iiko_cloud
+
+    poller._hall_active.clear()
+    poller._hall_cache.clear()
+
+    async with memory_maker() as s:
+        s.add(Order(iiko_order_id="t1", org_id="org-1", number="41",
+                    status="New", service_type="ToGo"))
+        await s.commit()
+
+    monkeypatch.setattr(iiko_cloud, "fetch_terminal_groups",
+                        lambda org: _async_value(["tg1"]))
+    monkeypatch.setattr(iiko_cloud, "fetch_sections",
+                        lambda tgs: _async_value(["t1"]))
+    monkeypatch.setattr(iiko_cloud, "order_init_by_table",
+                        lambda *a, **k: _async_value(None))
+    monkeypatch.setattr(iiko_cloud, "order_by_table",
+                        lambda *a, **k: _async_value([]))   # касса закрыла
+
+    await poller.hall_poll_once("org-1")
+
+    async with memory_maker() as s:
+        order = (await s.execute(
+            select(Order).where(Order.iiko_order_id == "t1"))).scalar_one()
+        assert order.status == "Closed"

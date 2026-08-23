@@ -485,9 +485,9 @@ async def order_take(order_id: int, body: ActionIn,
     return await _order_action_and_broadcast(session, order_id)
 
 
-# Типы, которые в iiko живут как заказы зала (табличные). Всё остальное —
-# доставка и самовывоз — закрывается методами deliveries/*.
-TABLE_SERVICE_TYPES = ("Common", "DineIn", "ToGo")
+# Заказы зала закрываются своими методами Cloud; всё остальное — доставка и
+# самовывоз — через deliveries/*. Список один на весь проект (см. ingest).
+TABLE_SERVICE_TYPES = ingest.HALL_SERVICE_TYPES
 
 
 async def _close_table_order_in_iiko(order, body: "ActionIn") -> tuple[bool, dict]:
