@@ -116,13 +116,19 @@ async def run_once(org_id: str, now_local: str | None = None) -> dict:
         data = await _late_deliveries(org_id, date, date, session)
     text = format_report(date, data.get("department") or "", data)
 
+    # У отчёта свой бот: получатели — управляющие, а не курьеры. Не задан —
+    # шлём основным, лучше прежним ботом, чем молчать.
+    token = settings.report_bot_token or None
+
     sent = 0
     for chat_id in recipients:
-        try:
-            await telegram.send_message(chat_id, text)
+        # send_message не бросает, а возвращает False: считать отправку по
+        # факту вызова нельзя, иначе неотправленный отчёт пометит день и
+        # пропадёт насовсем.
+        if await telegram.send_message(chat_id, text, token):
             sent += 1
-        except Exception as exc:                      # noqa: BLE001
-            log.warning("отчёт не ушёл в %s: %s", chat_id, exc)
+        else:
+            log.warning("отчёт не ушёл в %s", chat_id)
     if not sent:
         # Telegram лежал — день не помечаем, попробуем на следующей проверке.
         return {"sent": 0, "reason": "не доставлено, повторим"}

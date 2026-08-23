@@ -103,3 +103,70 @@ class TestSuspiciousDelays:
     def test_normal_delay_is_not_marked(self):
         text = lr.format_report("2026-08-22", "Филиал", self._one(37))
         assert "задним числом" not in text
+
+
+class TestSending:
+    @pytest.fixture
+    def outbox(self, monkeypatch):
+        monkeypatch.setenv("LATE_REPORT_CHAT_IDS", "1,2")
+        sent = []
+
+        async def fake_late(org_id, date_from, date_to, session=None):
+            return {"department": "Филиал", "total": 10, "late_count": 0,
+                    "late_rate": 0, "avg_delay_minutes": None,
+                    "max_delay_minutes": None, "reasons": {}, "orders": []}
+
+        import app.api
+        monkeypatch.setattr(app.api, "_late_deliveries", fake_late)
+
+        class _S:
+            async def __aenter__(self): return None
+            async def __aexit__(self, *a): return False
+        import app.db
+        monkeypatch.setattr(app.db, "SessionLocal", lambda: _S())
+        lr.reset_sent()
+        return sent
+
+    @pytest.mark.asyncio
+    async def test_refused_send_is_not_counted(self, outbox, monkeypatch):
+        """send_message не бросает исключение, а возвращает False.
+
+        Раньше мы увеличивали счётчик независимо от ответа: неотправленный
+        отчёт считался отправленным, день помечался — и сводка пропадала
+        насовсем.
+        """
+        async def refuses(chat_id, text, token=None):
+            return False
+        monkeypatch.setattr(lr.telegram, "send_message", refuses)
+
+        result = await lr.run_once("org-1", now_local="2026-08-24T00:05:00")
+        assert result["sent"] == 0
+        assert "повтор" in result["reason"]
+
+    @pytest.mark.asyncio
+    async def test_report_goes_from_its_own_bot(self, outbox, monkeypatch):
+        """Отчёт шлёт отдельный бот, а не тот, через который входят курьеры."""
+        used = []
+
+        async def spy(chat_id, text, token=None):
+            used.append(token)
+            return True
+        monkeypatch.setattr(lr.telegram, "send_message", spy)
+        monkeypatch.setattr(lr.settings, "report_bot_token", "REPORT-TOKEN")
+
+        await lr.run_once("org-1", now_local="2026-08-24T00:05:00")
+        assert used == ["REPORT-TOKEN", "REPORT-TOKEN"]
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_the_main_bot(self, outbox, monkeypatch):
+        """Свой токен не задан — шлём прежним ботом, а не молчим."""
+        used = []
+
+        async def spy(chat_id, text, token=None):
+            used.append(token)
+            return True
+        monkeypatch.setattr(lr.telegram, "send_message", spy)
+        monkeypatch.setattr(lr.settings, "report_bot_token", "")
+
+        await lr.run_once("org-1", now_local="2026-08-24T00:05:00")
+        assert used == [None, None]

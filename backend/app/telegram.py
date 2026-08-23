@@ -59,13 +59,15 @@ async def set_webhook(url: str, secret_token: str = "") -> dict:
             return {"ok": False, "status": r.status_code}
 
 
-async def send_message(chat_id: str, text: str) -> bool:
+async def send_message(chat_id: str, text: str, token: str | None = None) -> bool:
     """Отправляет сообщение в Telegram через Bot API sendMessage.
+
+    token — если нужно отправить не основным ботом (у отчётов управляющим свой).
 
     Возвращает True при HTTP 200, иначе False. Любая сетевая ошибка
     проглатывается (возвращает False), чтобы рассылка алертов не падала.
     """
-    token = settings.telegram_bot_token
+    token = token or settings.telegram_bot_token
     if not token or not chat_id:
         return False
     try:

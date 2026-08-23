@@ -137,8 +137,12 @@ async def run_once(org_id: str, now_local: str | None = None) -> dict:
             if not link.telegram_id:
                 continue
             try:
-                await telegram.send_message(link.telegram_id, text)
-                sent += 1
+                # send_message возвращает False, а не бросает: считать по факту
+                # вызова нельзя — иначе неотправленное уведомление пометит день.
+                if await telegram.send_message(link.telegram_id, text):
+                    sent += 1
+                else:
+                    log.warning("не отправилось управляющему %s", link.telegram_id)
             except Exception as exc:                      # noqa: BLE001
                 log.warning("не отправилось управляющему %s: %s", link.telegram_id, exc)
     if not sent:

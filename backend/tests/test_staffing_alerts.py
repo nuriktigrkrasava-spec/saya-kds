@@ -118,8 +118,42 @@ class TestDelivery:
         sent = []
         async def ok_send(chat_id, text):
             sent.append(chat_id)
+            return True
         monkeypatch.setattr(sa.telegram, "send_message", ok_send)
 
         second = await sa.run_once("org-1", now_local="2026-08-13T21:06:00")
         assert second["sent"] == 1, "после неудачи должны попробовать снова"
         assert sent == ["42"]
+
+    @pytest.mark.asyncio
+    async def test_refused_send_does_not_count_as_delivered(self, monkeypatch):
+        """Telegram ответил отказом — это не доставка, день не помечаем."""
+        sa.reset_sent()
+        monkeypatch.setenv("STAFFING_ALERT_EVENING_HOUR", "21")
+
+        async def grid(org_id, weeks=4):
+            return {"cells": [{"weekday": 4, "hour": 20, "zone": "japan",
+                               "demand": 74, "people": 3, "per_person": 24.7,
+                               "is_peak": True, "recommended_people": 6}],
+                    "zones": ZONES}
+        import app.api
+        monkeypatch.setattr(app.api, "_staffing_grid", grid)
+
+        class _Link:
+            telegram_id = "42"
+
+        async def managers(session, org_id):
+            return [_Link()]
+        monkeypatch.setattr(sa, "_managers", managers)
+
+        class _Session:
+            async def __aenter__(self): return None
+            async def __aexit__(self, *a): return False
+        monkeypatch.setattr(sa, "SessionLocal", lambda: _Session())
+
+        async def refuses(chat_id, text):
+            return False
+        monkeypatch.setattr(sa.telegram, "send_message", refuses)
+
+        result = await sa.run_once("org-1", now_local="2026-08-13T21:05:00")
+        assert result["sent"] == 0 and "повтор" in result["reason"]
