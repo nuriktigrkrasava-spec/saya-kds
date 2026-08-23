@@ -109,6 +109,7 @@ class TestSending:
     @pytest.fixture
     def outbox(self, monkeypatch):
         monkeypatch.setenv("LATE_REPORT_CHAT_IDS", "1,2")
+        monkeypatch.setenv("LATE_REPORT_ORG_IDS", "org-1")
         sent = []
 
         async def fake_late(org_id, date_from, date_to, session=None):
@@ -170,3 +171,128 @@ class TestSending:
 
         await lr.run_once("org-1", now_local="2026-08-24T00:05:00")
         assert used == [None, None]
+
+
+NETWORK = [
+    {"department": "Астана, ул. Кажымукана 16", "total": 42, "late_count": 12,
+     "late_rate": 12 / 42, "avg_delay_minutes": 20, "max_delay_minutes": 60,
+     "reasons": {"kitchen": 8, "delivery": 4}, "orders": []},
+    {"department": "Астана, ул. Г.Алиева 10 (EXPO)", "total": 25, "late_count": 2,
+     "late_rate": 0.08, "avg_delay_minutes": 6, "max_delay_minutes": 11,
+     "reasons": {"delivery": 1, "pickup": 1}, "orders": []},
+    {"department": "Астана, ул. Бухар Жырау 36", "total": 9, "late_count": 0,
+     "late_rate": 0.0, "avg_delay_minutes": None, "max_delay_minutes": None,
+     "reasons": {}, "orders": []},
+]
+
+
+class TestNetworkReport:
+    def _text(self, branches=None):
+        return lr.format_network_report("2026-08-23", branches or NETWORK)
+
+    def test_totals_are_summed_across_branches(self):
+        text = self._text()
+        assert "76" in text        # 42 + 25 + 9 доставок
+        assert "14" in text        # 12 + 2 опозданий
+
+    def test_worst_branch_comes_first(self):
+        """Управляющий должен видеть, где горит, не читая весь список."""
+        text = self._text()
+        assert text.index("Кажымукана") < text.index("Г.Алиева")
+        assert text.index("Г.Алиева") < text.index("Бухар Жырау")
+
+    def test_branch_name_is_short(self):
+        """«Астана, ул.» в каждой строке только мешает."""
+        text = self._text()
+        assert "Кажымукана 16" in text
+        assert "Астана, ул. Кажымукана" not in text
+
+    def test_reasons_are_summed_across_the_network(self):
+        text = self._text()
+        assert "кухня 8" in text
+        assert "дорога 5" in text     # 4 + 1
+
+    def test_branch_without_data_is_shown_not_dropped(self):
+        """RMS моргнул по одной точке — остальные всё равно уходят, а эта
+        честно помечается: тихо пропасть из отчёта она не должна."""
+        text = self._text(NETWORK + [{"department": "Астана, ул. Сыганак 11",
+                                      "error": "rms down"}])
+        assert "Сыганак 11" in text
+        assert "нет данных" in text
+
+    def test_quiet_network_still_reports(self):
+        quiet = [{"department": "Астана, ул. Абая", "total": 12, "late_count": 0,
+                  "late_rate": 0, "avg_delay_minutes": None,
+                  "max_delay_minutes": None, "reasons": {}, "orders": []}]
+        text = lr.format_network_report("2026-08-23", quiet)
+        assert "опозданий нет" in text.lower()
+
+
+class TestBranchList:
+    def test_ids_come_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv("LATE_REPORT_ORG_IDS", "a, b ,c")
+        assert lr.org_ids() == ["a", "b", "c"]
+
+    def test_single_org_still_works(self, monkeypatch):
+        """Старая переменная остаётся: не ломаем то, что уже настроено."""
+        monkeypatch.delenv("LATE_REPORT_ORG_IDS", raising=False)
+        monkeypatch.setenv("LATE_REPORT_ORG_ID", "one")
+        assert lr.org_ids() == ["one"]
+
+
+class TestCollect:
+    @pytest.mark.asyncio
+    async def test_one_broken_branch_does_not_kill_the_report(self, monkeypatch):
+        async def flaky(org_id, date_from, date_to, session=None):
+            if org_id == "bad":
+                raise RuntimeError("rms down")
+            return {"department": f"Астана, ул. {org_id}", "total": 10,
+                    "late_count": 1, "late_rate": 0.1, "reasons": {},
+                    "orders": [], "avg_delay_minutes": 5, "max_delay_minutes": 5}
+
+        import app.api, app.db, app.olap
+        monkeypatch.setattr(app.api, "_late_deliveries", flaky)
+
+        class _S:
+            async def __aenter__(self): return None
+            async def __aexit__(self, *a): return False
+        monkeypatch.setattr(app.db, "SessionLocal", lambda: _S())
+
+        async def name(org): return f"Астана, ул. {org}"
+        monkeypatch.setattr(app.olap, "department_name", name)
+
+        rows = await lr.collect_branches(["good", "bad"], "2026-08-23")
+        assert len(rows) == 2
+        assert rows[1]["error"]
+        text = lr.format_network_report("2026-08-23", rows)
+        assert "good" in text and "нет данных" in text
+
+
+class TestUnknownReasons:
+    """Причины видны только по филиалам, заведённым в КДС. Сейчас это Алиева,
+    остальные восемь точек дают «без наших отметок» — на проде так вышло 25 из
+    27, и строка причин превращалась в шум."""
+
+    def _rows(self):
+        return [
+            {"department": "Астана, ул. Калдаякова 23а", "total": 13,
+             "late_count": 9, "late_rate": 0.69, "reasons": {"unknown": 9},
+             "orders": [], "avg_delay_minutes": 10, "max_delay_minutes": 20},
+            {"department": "Астана, ул. Г.Алиева 10 (EXPO)", "total": 26,
+             "late_count": 2, "late_rate": 0.08,
+             "reasons": {"delivery": 1, "pickup": 1}, "orders": [],
+             "avg_delay_minutes": 6, "max_delay_minutes": 11},
+        ]
+
+    def test_unknown_is_not_listed_among_causes(self):
+        text = lr.format_network_report("2026-08-23", self._rows())
+        assert "без наших отметок" not in text
+        assert "дорога 1" in text
+
+    def test_footnote_explains_where_causes_come_from(self):
+        text = lr.format_network_report("2026-08-23", self._rows())
+        assert "на КДС" in text
+
+    def test_no_footnote_when_every_cause_is_known(self):
+        rows = [r for r in self._rows() if "unknown" not in r["reasons"]]
+        assert "на КДС" not in lr.format_network_report("2026-08-23", rows)

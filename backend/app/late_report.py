@@ -33,6 +33,74 @@ SUSPICIOUS_DELAY_MINUTES = 180
 _sent: set[str] = set()
 
 
+def org_ids() -> list[str]:
+    """Филиалы отчёта. Список задаём явно, а не подбором по названию: точку
+    переименуют в iiko — и она молча выпадет из сводки, никто не заметит."""
+    raw = os.environ.get("LATE_REPORT_ORG_IDS", "") or ""
+    ids = [o.strip() for o in raw.split(",") if o.strip()]
+    if ids:
+        return ids
+    single = (os.environ.get("LATE_REPORT_ORG_ID") or "").strip()
+    return [single] if single else []
+
+
+def short_branch(name: str) -> str:
+    """«Астана, ул. Кажымукана 16» -> «Кажымукана 16»: город и «ул.» в каждой
+    строке сводки только мешают."""
+    out = (name or "").strip()
+    for prefix in ("Астана,", "Астана"):
+        if out.startswith(prefix):
+            out = out[len(prefix):].strip()
+    if out.startswith("ул."):
+        out = out[3:].strip()
+    return out or name
+
+
+def format_network_report(date: str, branches: list[dict]) -> str:
+    """Сводка по филиалам: строка на точку, худшие сверху.
+
+    Филиал, по которому данные не собрались, показываем строкой «нет данных»:
+    тихо пропасть из отчёта он не должен, иначе сеть выглядит благополучнее,
+    чем есть.
+    """
+    ok = [b for b in branches if not b.get("error")]
+    failed = [b for b in branches if b.get("error")]
+
+    total = sum(b.get("total") or 0 for b in ok)
+    late = sum(b.get("late_count") or 0 for b in ok)
+    rate = round(late / total * 100) if total else 0
+
+    head = f"📦 Опоздания за {_day(date)} · Астана"
+    if not late:
+        lines = [head, "", f"Доставок {total}, опозданий нет."]
+    else:
+        lines = [head, "", f"По сети: доставок {total}, опоздали {late} — {rate}%"]
+        reasons: dict[str, int] = {}
+        for b in ok:
+            for k, v in (b.get("reasons") or {}).items():
+                reasons[k] = reasons.get(k, 0) + v
+        # «unknown» — это не причина, а отсутствие наших отметок: заказы того
+        # филиала просто не заведены в КДС. В списке причин это шум (на проде
+        # 25 из 27), поэтому выносим отдельной сноской.
+        unknown = reasons.pop("unknown", 0)
+        if reasons:
+            lines.append("Причины: " + " · ".join(
+                f"{REASON_LABEL.get(k, k)} {v}"
+                for k, v in sorted(reasons.items(), key=lambda x: -x[1])))
+        if unknown:
+            lines.append(f"У {unknown} причина не видна — филиал не на КДС")
+        lines.append("")
+
+    for b in sorted(ok, key=lambda x: -(x.get("late_rate") or 0)):
+        name = short_branch(b.get("department") or "")
+        pct = round((b.get("late_rate") or 0) * 100)
+        lines.append(f"{name} — {b.get('total') or 0} → "
+                     f"{b.get('late_count') or 0}  {pct}%")
+    for b in failed:
+        lines.append(f"{short_branch(b.get('department') or '')} — нет данных")
+    return "\n".join(lines)
+
+
 def chat_ids() -> list[str]:
     """Кому слать. Пусто -> отчёт выключен."""
     raw = os.environ.get("LATE_REPORT_CHAT_IDS", "") or ""
@@ -94,11 +162,39 @@ REASON_LABEL = {"kitchen": "кухня", "delivery": "дорога",
                 "pickup": "ждали курьера", "unknown": "без наших отметок"}
 
 
-async def run_once(org_id: str, now_local: str | None = None) -> dict:
+async def collect_branches(orgs: list[str], date: str) -> list[dict]:
+    """Считает опоздания по каждому филиалу за день.
+
+    Сбой по одному филиалу не роняет отчёт: RMS моргнул — эта точка уходит
+    строкой «нет данных», остальные считаются как обычно.
+    """
+    from app.api import _late_deliveries          # поздний импорт: api тянет пол-мира
+    from app.db import SessionLocal
+    from app import olap
+
+    out = []
+    for org in orgs:
+        try:
+            async with SessionLocal() as session:
+                out.append(await _late_deliveries(org, date, date, session))
+        except Exception as exc:                      # noqa: BLE001
+            log.warning("филиал %s не посчитался: %s", org, exc)
+            name = ""
+            try:
+                name = await olap.department_name(org) or ""
+            except Exception:                         # noqa: BLE001
+                pass
+            out.append({"department": name or org, "error": str(exc)})
+    return out
+
+
+async def run_once(org_id: str = "", now_local: str | None = None) -> dict:
     """Одна проверка: пора ли слать отчёт и, если да, отправить."""
     recipients = chat_ids()
     if not recipients:
         return {"sent": 0, "reason": "выключено: нет LATE_REPORT_CHAT_IDS"}
+    if not org_ids():
+        return {"sent": 0, "reason": "выключено: нет филиалов"}
 
     now = now_local or (datetime.utcnow()
                         + timedelta(hours=settings.iiko_tz_offset_hours)).isoformat()
@@ -109,12 +205,9 @@ async def run_once(org_id: str, now_local: str | None = None) -> dict:
     if date in _sent:
         return {"sent": 0, "reason": "уже отправлено"}
 
-    from app.api import _late_deliveries          # поздний импорт: api тянет пол-мира
-    from app.db import SessionLocal
-
-    async with SessionLocal() as session:
-        data = await _late_deliveries(org_id, date, date, session)
-    text = format_report(date, data.get("department") or "", data)
+    branches = await collect_branches(org_ids(), date)
+    text = (format_network_report(date, branches) if len(branches) > 1
+            else format_report(date, branches[0].get("department") or "", branches[0]))
 
     # У отчёта свой бот: получатели — управляющие, а не курьеры. Не задан —
     # шлём основным, лучше прежним ботом, чем молчать.
@@ -146,13 +239,12 @@ CHECK_INTERVAL_SECONDS = 600
 async def run_late_reports() -> None:
     """Фоновый цикл: раз в десять минут смотрит, не пора ли отчитаться."""
     import asyncio
-    org_id = (os.environ.get("LATE_REPORT_ORG_ID") or "").strip()
-    if not org_id or not chat_ids():
+    if not org_ids() or not chat_ids():
         log.info("ежедневный отчёт об опозданиях выключен")
         return
     while True:
         try:
-            result = await run_once(org_id)
+            result = await run_once()
             if result.get("sent"):
                 log.info("отчёт об опозданиях: %s", result)
         except asyncio.CancelledError:
