@@ -11,6 +11,8 @@ import math
 import statistics
 from datetime import datetime, timedelta
 
+from app.config import settings
+
 # Должности RMS → зона кухни. Коды сети Saya Sushi.
 ZONE_BY_ROLE = {
     "СУШ": "japan", "СЭКСПО12": "japan", "СЭКСПО13": "japan",
@@ -62,8 +64,15 @@ def people_by_hour(attendances: list[dict], role_by_employee: dict[str, str],
     Час засчитывается, если смена его начала: с 11:25 до 14:00 — это часы 11,
     12 и 13. Смена через полночь раскладывается на две даты.
     """
-    now = _parse_local(now_local) if now_local else datetime.utcnow()
-    counts: dict[tuple[str, int, str], int] = {}
+    # Время явки — местное время филиала, поэтому и «сейчас» берём местное.
+    # С utcnow() открытая смена получала конец РАНЬШЕ начала (разница в 5 часов)
+    # и отбрасывалась целиком: зона показывала ноль людей, а отчёт требовал
+    # поставить ещё троих.
+    now = (_parse_local(now_local) if now_local
+           else datetime.utcnow() + timedelta(hours=settings.iiko_tz_offset_hours))
+    # Копим id сотрудников, а не счётчик: перерыв даёт две явки на одного
+    # человека, и по записям он считался бы за двоих — нехватка рук пряталась.
+    seen: dict[tuple[str, int, str], set[str]] = {}
 
     for att in attendances:
         zone = zone_of_role(role_by_employee.get(att.get("employee_id")))
@@ -84,11 +93,11 @@ def people_by_hour(attendances: list[dict], role_by_employee: dict[str, str],
         cursor = start.replace(minute=0, second=0, microsecond=0)
         while cursor < end:
             key = (cursor.strftime("%Y-%m-%d"), cursor.hour, zone)
-            counts[key] = counts.get(key, 0) + 1
+            seen.setdefault(key, set()).add(att.get("employee_id"))
             cursor += timedelta(hours=1)
 
-    return [{"date": d, "hour": h, "zone": z, "people": n}
-            for (d, h, z), n in sorted(counts.items())]
+    return [{"date": d, "hour": h, "zone": z, "people": len(who)}
+            for (d, h, z), who in sorted(seen.items())]
 
 
 # Станция блюда → зона кухни. Пицца и горячее сидят за одним планшетом.

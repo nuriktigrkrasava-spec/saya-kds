@@ -308,7 +308,24 @@ function AssemblerCard({ order, name, isNew, couriers, couriersReady }) {
             <div className="asm-pay__title">Чем расплатились?</div>
             {payLoading && <div className="asm-pay__hint">Загрузка…</div>}
             {!payLoading && payTypes.length === 0 && (
-              <div className="asm-pay__hint">Типы оплаты не загрузились</div>
+              // iiko не ответил. Раньше тут оставалась одна «Отмена», и заказ
+              // нельзя было выдать вообще — кухня вставала из-за чужого сбоя.
+              // Закрытие в нашей базе от типа не зависит, поэтому даём выдать.
+              <>
+                <div className="asm-pay__hint">
+                  Типы оплаты не загрузились — можно выдать без выбора
+                </div>
+                <div className="asm-pay__grid">
+                  <button className="btn btn--big btn--assemble" disabled={busy}
+                          onClick={() => handout({ kind: "Cash" })}>
+                    Наличные
+                  </button>
+                  <button className="btn btn--big btn--assemble" disabled={busy}
+                          onClick={() => handout({ kind: "Card" })}>
+                    Карта
+                  </button>
+                </div>
+              </>
             )}
             <div className="asm-pay__grid">
               {payTypes.map((pt) => (

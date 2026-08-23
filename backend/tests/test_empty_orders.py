@@ -127,3 +127,23 @@ async def test_broadcast_is_skipped_when_nothing_was_created(session, monkeypatc
 
     assert sent == ["9"], "рассылаем только заведённый заказ"
     assert poller._revisions["org-1"] == 42, "проход должен дойти до конца"
+
+
+@pytest.mark.asyncio
+async def test_cleanup_spares_orders_that_have_a_number(client, session):
+    """Заказ с номером, но без позиций, приём оставляет намеренно — позиции
+    доедут следующим событием. Уборка не имеет права его сносить.
+
+    Иначе из аналитики молча исчезает реальная доставка вместе с журналом.
+    """
+    old = datetime.utcnow() - timedelta(hours=5)
+    session.add(Order(iiko_order_id="waiting", org_id="org-1", number="88",
+                      status="New", created_at=old))
+    await session.commit()
+
+    async with client as c:
+        r = await c.post("/admin/cleanup-empty-orders?org_id=org-1")
+    assert r.json()["deleted"] == 0
+
+    left = (await session.execute(select(Order.iiko_order_id))).scalars().all()
+    assert left == ["waiting"]

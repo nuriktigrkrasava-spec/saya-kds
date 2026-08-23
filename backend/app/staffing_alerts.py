@@ -127,8 +127,8 @@ async def run_once(org_id: str, now_local: str | None = None) -> dict:
     grid = await _staffing_grid(org_id, weeks=4)
     weekday = datetime.fromisoformat(date).weekday()
     text = format_message(date, staffing.shift_plan(grid, weekday), grid["zones"], kind)
-    _sent.add(key)
     if text is None:
+        _sent.add(key)          # тревожить не о чем — второй раз не считаем
         return {"sent": 0, "reason": "спокойный день"}
 
     sent = 0
@@ -141,6 +141,11 @@ async def run_once(org_id: str, now_local: str | None = None) -> dict:
                 sent += 1
             except Exception as exc:                      # noqa: BLE001
                 log.warning("не отправилось управляющему %s: %s", link.telegram_id, exc)
+    if not sent:
+        # Telegram лежал — не помечаем день отправленным, попробуем на
+        # следующей проверке. Иначе уведомление терялось на весь день.
+        return {"sent": 0, "reason": "не доставлено, повторим"}
+    _sent.add(key)
     return {"sent": sent, "reason": "отправлено", "kind": kind, "date": date}
 
 

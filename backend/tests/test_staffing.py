@@ -212,3 +212,43 @@ class TestShiftPlan:
 
     def test_plan_carries_zone_label_for_the_message(self):
         assert staffing.shift_plan(self._grid(), weekday=4)[0]["zone_label"] == "Япония"
+
+
+class TestOpenShiftClock:
+    """Открытая смена и «сейчас» должны меряться одними часами."""
+
+    def _open_shift_started_hours_ago(self, hours):
+        from datetime import datetime, timedelta
+        from app.config import settings
+        off = settings.iiko_tz_offset_hours
+        local_now = datetime.utcnow() + timedelta(hours=off)
+        start = (local_now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
+        return _att("суш1", f"{start}+{off:02d}:00")
+
+    def test_shift_open_right_now_is_counted(self):
+        """Время явки локальное, а «сейчас» бралось в UTC.
+
+        Из-за разницы в 5 часов конец смены оказывался РАНЬШЕ начала, и вся
+        смена отбрасывалась: зона показывала ноль людей, а отчёт требовал
+        поставить ещё троих.
+        """
+        rows = staffing.people_by_hour([self._open_shift_started_hours_ago(2)], ROLES)
+        assert rows, "смена, открытая два часа назад, должна считаться"
+        assert all(r["zone"] == "japan" for r in rows)
+
+    def test_open_shift_covers_hours_since_it_started(self):
+        rows = staffing.people_by_hour([self._open_shift_started_hours_ago(3)], ROLES)
+        assert 3 <= len(rows) <= 4      # границы часа дают +-1
+
+
+def test_one_person_with_two_records_is_still_one_person():
+    """Перерыв даёт две явки на одного человека — это не двое на смене.
+
+    Иначе нехватка рук прячется: в час, где реально один человек, отчёт видит
+    двоих и молчит.
+    """
+    rows = staffing.people_by_hour([
+        _att("суш1", "2026-08-05T12:00:00+05:00", "2026-08-05T13:00:00+05:00"),
+        _att("суш1", "2026-08-05T12:30:00+05:00", "2026-08-05T13:00:00+05:00"),
+    ], ROLES)
+    assert [r["people"] for r in rows] == [1]

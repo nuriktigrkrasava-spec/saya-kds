@@ -1,3 +1,4 @@
+import pytest
 """Уведомление управляющему о наплыве: что написать и когда отправить."""
 from app import staffing_alerts as sa
 
@@ -73,3 +74,52 @@ class TestSchedule:
 
     def test_disabled_when_hours_not_set(self):
         assert sa.due_kind("2026-08-13T21:05:00", evening=None, morning=None) is None
+
+
+class TestDelivery:
+    @pytest.mark.asyncio
+    async def test_day_is_marked_sent_only_after_a_real_send(self, monkeypatch):
+        """Telegram лежал в момент отправки — уведомление терялось на весь день.
+
+        Ключ помечался отправленным до рассылки, и следующая проверка через
+        десять минут отвечала «уже отправлено».
+        """
+        sa.reset_sent()
+        monkeypatch.setenv("STAFFING_ALERT_EVENING_HOUR", "21")
+
+        async def grid(org_id, weeks=4):
+            return {"cells": [{"weekday": 4, "hour": 20, "zone": "japan",
+                               "demand": 74, "people": 3, "per_person": 24.7,
+                               "is_peak": True, "recommended_people": 6}],
+                    "zones": ZONES}
+
+        import app.api
+        monkeypatch.setattr(app.api, "_staffing_grid", grid)
+
+        class _Link:
+            telegram_id = "42"
+
+        async def managers(session, org_id):
+            return [_Link()]
+        monkeypatch.setattr(sa, "_managers", managers)
+
+        class _Session:
+            async def __aenter__(self): return None
+            async def __aexit__(self, *a): return False
+        monkeypatch.setattr(sa, "SessionLocal", lambda: _Session())
+
+        async def failing_send(chat_id, text):
+            raise RuntimeError("telegram лежит")
+        monkeypatch.setattr(sa.telegram, "send_message", failing_send)
+
+        first = await sa.run_once("org-1", now_local="2026-08-13T21:05:00")
+        assert first["sent"] == 0
+
+        sent = []
+        async def ok_send(chat_id, text):
+            sent.append(chat_id)
+        monkeypatch.setattr(sa.telegram, "send_message", ok_send)
+
+        second = await sa.run_once("org-1", now_local="2026-08-13T21:06:00")
+        assert second["sent"] == 1, "после неудачи должны попробовать снова"
+        assert sent == ["42"]

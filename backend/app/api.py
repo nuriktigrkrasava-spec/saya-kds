@@ -2306,7 +2306,12 @@ async def admin_cleanup_empty_orders(org_id: str, minutes: int = 30,
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id,
                               _Order.created_at < cutoff))).scalars().all()
-    junk = [o for o in orders if not o.items]
+    # Тот же признак, что и у приёма: ни позиций, НИ номера. Заказ с номером
+    # приём оставляет намеренно (позиции доедут следующим событием) — снести
+    # его значило бы стереть реальную доставку вместе с журналом событий.
+    junk = [o for o in orders
+            if not o.items and not (o.number or "").strip()
+            and not (o.status or "").strip()]
     for o in junk:
         await session.execute(_sl_delete(_OrderEvent).where(_OrderEvent.order_id == o.id))
         await session.execute(_sl_delete(_Order).where(_Order.id == o.id))
