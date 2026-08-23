@@ -83,3 +83,25 @@ class TestCondiments:
         """«Ролл с соусом спайси» — это блюдо, а не порция соуса."""
         rows = pf.dishes_by_hour([_row("Ролл с соусом спайси", 19, 2)])
         assert rows and rows[0]["dish"] == "Ролл с соусом спайси"
+
+
+class TestPreview:
+    """Плашку нужно уметь показать по требованию — проверить её на планшете,
+    не дожидаясь часа пик."""
+
+    def _rows(self):
+        rows = []
+        for week in range(4):
+            day = f"2026-08-04"  # вторник
+            for hour in range(12, 22):
+                rows.append(_row("Филадельфия", hour, 2, date=day))
+            rows.append(_row("Филадельфия", 19, 12, date=day))
+        return pf.dishes_by_hour(rows)
+
+    def test_asked_hour_is_returned_even_if_it_is_not_now(self):
+        hint = pf.hint_for(self._rows(), weekday=1, hour=19)
+        assert hint and hint["hour"] == 19
+
+    def test_asked_quiet_hour_still_gives_nothing(self):
+        """Показ по требованию не должен выдумывать пик там, где его нет."""
+        assert pf.hint_for(self._rows(), weekday=1, hour=14) is None

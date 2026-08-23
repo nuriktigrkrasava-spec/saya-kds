@@ -2345,7 +2345,9 @@ PREP_LEAD_MINUTES = 30
 
 
 @app.get("/kitchen/prep-hint")
-async def kitchen_prep_hint(org_id: str, zone: str = "japan", weeks: int = 4):
+async def kitchen_prep_hint(org_id: str, zone: str = "japan", weeks: int = 4,
+                            preview_hour: int | None = None,
+                            preview_weekday: int | None = None):
     """Что заготовить к ближайшему часу пик, или пусто — если час обычный.
 
     Считаем по продажам из iiko: состав сетов попадает туда модификаторами,
@@ -2363,9 +2365,13 @@ async def kitchen_prep_hint(org_id: str, zone: str = "japan", weeks: int = 4):
     date_from = date_to - _td(days=max(1, min(int(weeks), 12)) * 7 - 1)
     rows = await _olap.fetch_sales_rows(department, date_from.isoformat(),
                                         date_to.isoformat())
-    hint = _prep.hint_for(_prep.dishes_by_hour(rows, zone),
-                          target.weekday(), target.hour)
-    return {"zone": zone, "in_minutes": PREP_LEAD_MINUTES, "hint": hint}
+    # preview_* — посмотреть плашку на планшете, не дожидаясь часа пик.
+    # Пик не выдумываем: если в запрошенный час наплыва нет, ответ пустой.
+    weekday = preview_weekday if preview_weekday is not None else target.weekday()
+    hour = preview_hour if preview_hour is not None else target.hour
+    hint = _prep.hint_for(_prep.dishes_by_hour(rows, zone), weekday, hour)
+    return {"zone": zone, "in_minutes": PREP_LEAD_MINUTES,
+            "preview": preview_hour is not None, "hint": hint}
 
 
 @app.get("/admin/order-mix")

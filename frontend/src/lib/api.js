@@ -138,8 +138,13 @@ export const api = {
   shiftPlan: (orgId) =>
     get(`/admin/staffing/shift-plan?org_id=${encodeURIComponent(orgId)}`),
   // Подсказка сушисту: что заготовить к ближайшему часу пик.
-  prepHint: (orgId, zone) =>
-    get(`/kitchen/prep-hint?org_id=${encodeURIComponent(orgId)}&zone=${zone}`),
+  prepHint: (orgId, zone, preview = null) => {
+    const q = new URLSearchParams({ org_id: orgId, zone });
+    // Показ по требованию: ?prep=19&prep_day=1 в адресе планшета.
+    if (preview?.hour != null) q.set("preview_hour", preview.hour);
+    if (preview?.weekday != null) q.set("preview_weekday", preview.weekday);
+    return get(`/kitchen/prep-hint?${q.toString()}`);
+  },
   // Опоздания — из OLAP-отчёта iiko, а не из наших отметок.
   lateDeliveries: (orgId, from, to) =>
     get(`/admin/late-deliveries?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
