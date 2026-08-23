@@ -190,3 +190,61 @@ async def test_hall_order_returned_empty_is_not_closed(memory_maker, monkeypatch
 
 async def _async_value(value):
     return value
+
+
+async def test_stale_revision_falls_back_to_date_catchup(memory_maker, monkeypatch):
+    """Протухший курсор чинится сам, а не вешает приём заказов навсегда.
+
+    iiko отбрасывает ревизию старше суток: «Passed revision is too old». Курсор
+    при ошибке не двигался, поэтому один упавший опрос означал, что и все
+    следующие упадут — 23.08.2026 заказы не приходили 20 часов.
+    """
+    import httpx
+    from app import iiko_cloud
+
+    poller._revisions["org-1"] = 1
+    calls = []
+
+    async def stale(org_id, start_revision):
+        calls.append("by_revision")
+        request = httpx.Request("POST", "https://api-ru.iiko.services/api/1/deliveries/by_revision")
+        response = httpx.Response(400, json={"errorDescription": "Passed revision is too old."},
+                                  request=request)
+        raise httpx.HTTPStatusError("400", request=request, response=response)
+
+    async def catchup(org_id, days=2):
+        calls.append("by_date")
+        return {"orders": [], "maxRevision": 777}
+
+    monkeypatch.setattr(iiko_cloud, "fetch_deliveries_by_revision", stale)
+    monkeypatch.setattr(iiko_cloud, "fetch_deliveries_by_date", catchup)
+
+    await poller.poll_once("org-1")
+
+    assert calls == ["by_revision", "by_date"], "после «too old» догоняем по дате"
+    assert poller._revisions["org-1"] == 777, "курсор должен обновиться"
+
+
+async def test_other_errors_do_not_trigger_catchup(memory_maker, monkeypatch):
+    """Сеть моргнула — ждём следующего прохода, а не тянем два дня заказов."""
+    import httpx
+    from app import iiko_cloud
+
+    poller._revisions["org-1"] = 500
+    calls = []
+
+    async def boom(org_id, start_revision):
+        calls.append("by_revision")
+        raise httpx.ConnectError("сеть")
+
+    async def catchup(org_id, days=2):
+        calls.append("by_date")
+        return {"orders": [], "maxRevision": 999}
+
+    monkeypatch.setattr(iiko_cloud, "fetch_deliveries_by_revision", boom)
+    monkeypatch.setattr(iiko_cloud, "fetch_deliveries_by_date", catchup)
+
+    await poller.poll_once("org-1")
+
+    assert calls == ["by_revision"]
+    assert poller._revisions["org-1"] == 500

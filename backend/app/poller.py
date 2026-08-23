@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import asyncio
+import httpx
 import logging
 
 from sqlalchemy import select
@@ -39,6 +40,19 @@ def _read_interval() -> int:
         return 0
 
 
+def _is_stale_revision(exc: "httpx.HTTPStatusError") -> bool:
+    """iiko отбил ревизию как слишком старую?
+
+    Ответ: 400 и «Passed revision is too old» в теле. Проверяем текст, а не
+    только код: 400 бывает и от кривых параметров, и тогда догон по дате
+    ничего не исправит, а только скроет настоящую ошибку.
+    """
+    response = getattr(exc, "response", None)
+    if response is None or response.status_code != 400:
+        return False
+    return "too old" in (response.text or "").lower()
+
+
 async def poll_once(org_id: str) -> None:
     """Один проход by_revision по филиалу: ингест + рассылка изменённых заказов.
 
@@ -53,7 +67,20 @@ async def poll_once(org_id: str) -> None:
             data = await iiko_cloud.fetch_deliveries_by_date(
                 org_id, days=_read_catchup_days())
         else:
-            data = await iiko_cloud.fetch_deliveries_by_revision(org_id, current)
+            try:
+                data = await iiko_cloud.fetch_deliveries_by_revision(org_id, current)
+            except httpx.HTTPStatusError as exc:
+                if not _is_stale_revision(exc):
+                    raise
+                # Курсор протух. iiko принимает ревизии примерно за сутки, а мы
+                # его не двигаем, пока опрос падает: один сбой — и все
+                # следующие опросы падают навсегда. 23.08.2026 из-за этого
+                # заказы не приходили 20 часов. Догоняем по дате и берём
+                # свежий курсор оттуда.
+                log.warning("poller: ревизия протухла у org %s, догоняем по дате",
+                            org_id)
+                data = await iiko_cloud.fetch_deliveries_by_date(
+                    org_id, days=_read_catchup_days())
         for wrapper in data.get("orders", []) or []:
             normalized = iiko_cloud.normalize_full_order(wrapper, org_id)
             async with SessionLocal() as session:
