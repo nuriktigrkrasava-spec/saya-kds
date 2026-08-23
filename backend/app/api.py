@@ -2337,6 +2337,37 @@ async def admin_kitchen_time(org_id: str,
     return _stages.kitchen_time_by_kind(orders)
 
 
+from app import prep_forecast as _prep
+
+# За сколько до часа пик показываем подсказку. Полчаса — чтобы успеть накрутить,
+# но не так рано, чтобы заготовка успела подсохнуть.
+PREP_LEAD_MINUTES = 30
+
+
+@app.get("/kitchen/prep-hint")
+async def kitchen_prep_hint(org_id: str, zone: str = "japan", weeks: int = 4):
+    """Что заготовить к ближайшему часу пик, или пусто — если час обычный.
+
+    Считаем по продажам из iiko: состав сетов попадает туда модификаторами,
+    поэтому роллы внутри сетов учтены наравне с обычными позициями.
+    """
+    department = await _olap.department_name(org_id)
+    if department is None:
+        raise HTTPException(status_code=404,
+                            detail=f"филиал {org_id} не найден среди организаций iiko")
+    off = _td(hours=settings.iiko_tz_offset_hours)
+    now_local = _dt.utcnow() + off
+    target = now_local + _td(minutes=PREP_LEAD_MINUTES)
+
+    date_to = now_local.date()
+    date_from = date_to - _td(days=max(1, min(int(weeks), 12)) * 7 - 1)
+    rows = await _olap.fetch_sales_rows(department, date_from.isoformat(),
+                                        date_to.isoformat())
+    hint = _prep.hint_for(_prep.dishes_by_hour(rows, zone),
+                          target.weekday(), target.hour)
+    return {"zone": zone, "in_minutes": PREP_LEAD_MINUTES, "hint": hint}
+
+
 @app.get("/admin/order-mix")
 async def admin_order_mix(org_id: str,
                           from_: str | None = Query(None, alias="from"),

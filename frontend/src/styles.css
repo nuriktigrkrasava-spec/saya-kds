@@ -1392,3 +1392,39 @@ button {
 .kitem__mod b {
   font-weight: 700;
 }
+
+/* Подсказка сушисту перед наплывом. Заметная, но не кричащая: она появляется
+   пару раз за смену, и её должно быть видно через кухню, не подходя к экрану. */
+.prep-hint {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+}
+
+.prep-hint__head {
+  font-size: 17px;
+  font-weight: 800;
+  color: #9a3412;
+}
+
+.prep-hint__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 8px 0 4px;
+}
+
+.prep-hint__dish {
+  font-size: 17px;
+  padding: 3px 10px;
+  border-radius: 9px;
+  background: #ffedd5;
+  color: #7c2d12;
+}
+
+.prep-hint__foot {
+  font-size: 14px;
+  color: #9a3412;
+}

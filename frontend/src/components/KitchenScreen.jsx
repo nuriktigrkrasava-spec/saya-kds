@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import ScreenHeader from "./ScreenHeader.jsx";
 import KitchenItemRow from "./KitchenItemRow.jsx";
 import StopListBanner from "./StopListBanner.jsx";
+import PrepHint from "./PrepHint.jsx";
 import AudioGuard from "./AudioGuard.jsx";
 import Icon from "./Icon.jsx";
 import PreorderShelf from "./PreorderShelf.jsx";
@@ -148,6 +149,7 @@ export default function KitchenScreen({ title, accent, zones, stations }) {
 
       <main className="screen-body">
         <StopListBanner />
+        <PrepHint stations={stations} />
         {loading && <p className="muted">Загрузка заказов…</p>}
         {error && <p className="err-banner">Ошибка связи: {error}</p>}
         {!loading && !error && visibleOrders.length === 0 && (

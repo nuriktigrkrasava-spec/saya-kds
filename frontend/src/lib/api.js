@@ -137,6 +137,9 @@ export const api = {
     get(`/admin/staffing?org_id=${encodeURIComponent(orgId)}&weeks=${weeks}`),
   shiftPlan: (orgId) =>
     get(`/admin/staffing/shift-plan?org_id=${encodeURIComponent(orgId)}`),
+  // Подсказка сушисту: что заготовить к ближайшему часу пик.
+  prepHint: (orgId, zone) =>
+    get(`/kitchen/prep-hint?org_id=${encodeURIComponent(orgId)}&zone=${zone}`),
   // Опоздания — из OLAP-отчёта iiko, а не из наших отметок.
   lateDeliveries: (orgId, from, to) =>
     get(`/admin/late-deliveries?org_id=${encodeURIComponent(orgId)}&from=${from}&to=${to}`),
