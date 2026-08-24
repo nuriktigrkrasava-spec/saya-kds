@@ -42,11 +42,6 @@ _ROW_FIELDS = [
     "Delivery.Address", "HourOpen",
 ]
 
-# Рабочий день филиала по местному времени: с 11:00 до 24:00. Заказы вне окна
-# в отчёты не идут — 23.08 один заказ был открыт в 10 часов, до открытия.
-BUSINESS_HOUR_FROM = 11
-BUSINESS_HOUR_TO = 23        # включительно, то есть до 24:00
-
 # Улица-заглушка из справочника iiko — сплошные прочерки. Дом при этом бывает
 # и «0», и «home», и с довеском «кв./оф. Блок С», поэтому смотрим на улицу.
 _DASH_STREET = re.compile(r"-{3,}")
@@ -70,17 +65,12 @@ def clean_address(value: str | None) -> str | None:
     return value
 
 
-def in_business_hours(row: dict) -> bool:
-    """Заказ открыт в рабочие часы филиала?
-
-    Час не пришёл — считаем, что попадает: выбрасывать заказ из-за пустого поля
-    значит терять данные молча.
-    """
+def _orders_count(row: dict) -> int:
+    """Сколько заказов в строке — по счётчику самого iiko, а не по числу строк."""
     try:
-        hour = int(row.get("HourOpen"))
+        return int(row.get("UniqOrderId.OrdersCount") or 1)
     except (TypeError, ValueError):
-        return True
-    return BUSINESS_HOUR_FROM <= hour <= BUSINESS_HOUR_TO
+        return 1
 
 
 def late_deliveries(rows: list[dict], min_delay_minutes: int = 1,
@@ -98,10 +88,11 @@ def late_deliveries(rows: list[dict], min_delay_minutes: int = 1,
     одни опоздавшие и процент опозданий всегда будет 100.
     """
     kinds = ("COURIER", "PICKUP") if include_pickup else ("COURIER",)
-    deliveries = [r for r in rows
-                  if r.get("Delivery.ServiceType") in kinds
-                  and r.get("Delivery.ActualTime")
-                  and in_business_hours(r)]
+    # Считаем ТЕМ ЖЕ счётчиком, что и iiko: UniqOrderId.OrdersCount — колонка
+    # «Отчёт заказы-доставка». Свои отсечки (окно рабочего дня, требование
+    # фактического времени) убраны: каждая из них разводила наши цифры с теми,
+    # что заказчик видит в iikoOffice.
+    deliveries = [r for r in rows if r.get("Delivery.ServiceType") in kinds]
 
     late = [r for r in deliveries
             if r.get("Delivery.Delay") is not None
@@ -119,10 +110,12 @@ def late_deliveries(rows: list[dict], min_delay_minutes: int = 1,
         "is_pickup": r.get("Delivery.ServiceType") == "PICKUP",
     } for r in sorted(late, key=lambda x: -x["Delivery.Delay"])]
 
+    total = sum(_orders_count(r) for r in deliveries)
+    late_total = sum(_orders_count(r) for r in late)
     return {
-        "total": len(deliveries),
-        "late_count": len(late),
-        "late_rate": (len(late) / len(deliveries)) if deliveries else 0.0,
+        "total": total,
+        "late_count": late_total,
+        "late_rate": (late_total / total) if total else 0.0,
         "avg_delay_minutes": (sum(delays) / len(delays)) if delays else None,
         "max_delay_minutes": max(delays) if delays else None,
         "orders": orders,

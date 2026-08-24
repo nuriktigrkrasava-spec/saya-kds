@@ -85,12 +85,6 @@ def test_service_rows_are_skipped():
     assert res["total"] == 1
 
 
-def test_undelivered_orders_are_skipped():
-    """Без фактического времени доставки опоздание не определено."""
-    res = olap.late_deliveries([_row(1, None, actual=None), _row(2, 5)])
-    assert res["total"] == 1
-    assert res["late_count"] == 1
-
 
 def test_each_late_order_listed_worst_first():
     res = olap.late_deliveries([_row(1, 12), _row(2, 47), _row(3, 3)])
@@ -185,26 +179,24 @@ def test_cancelled_orders_are_not_deliveries():
                                         "values": ["NOT_DELETED"]}
 
 
-def test_orders_outside_working_hours_are_not_counted():
-    """Филиал работает с 11:00 до 24:00 по Астане.
 
-    23.08 один заказ был открыт в 10 часов — до открытия. В сутках он есть, в
-    рабочем дне его быть не должно.
-    """
-    early = dict(_row(1, 10), **{"HourOpen": "10"})
-    inside = dict(_row(2, 10), **{"HourOpen": "19"})
-    res = olap.late_deliveries([early, inside])
-    assert res["total"] == 1
-    assert [o["number"] for o in res["orders"]] == [2]
-
-
-def test_row_without_hour_is_kept():
-    """Час не пришёл — выбрасывать заказ нельзя, это молчаливая потеря данных."""
-    res = olap.late_deliveries([_row(3, 10)])
-    assert res["total"] == 1
 
 
 def test_hour_is_asked_from_olap():
     """Без HourOpen в запросе окно рабочего дня применить не к чему."""
     body = olap.build_report_body("Алиева", "2026-08-23", "2026-08-23")
     assert "HourOpen" in body["groupByRowFields"]
+
+
+def test_counts_come_from_iikos_own_counter():
+    """Считаем тем же счётчиком, что и iikoOffice, а не числом строк.
+
+    Каждая наша собственная отсечка разводила цифры с отчётом, по которому
+    заказчик проверяет работу: окно рабочего дня выбросило доставку, принятую
+    в 10:38 и выданную в 12:01, и мы разошлись с iiko на единицу.
+    """
+    rows = [dict(_row(1, 10), **{"UniqOrderId.OrdersCount": 2}),
+            dict(_row(2, None), **{"UniqOrderId.OrdersCount": 3})]
+    res = olap.late_deliveries(rows)
+    assert res["total"] == 5
+    assert res["late_count"] == 2
