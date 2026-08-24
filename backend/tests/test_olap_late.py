@@ -170,3 +170,16 @@ def test_included_pickup_is_marked_in_the_row():
     res = olap.late_deliveries([_row(2, 40, service="PICKUP")], include_pickup=True)
     assert res["orders"][0]["is_pickup"] is True
     assert olap.late_deliveries([_row(1, 10)])["orders"][0]["is_pickup"] is False
+
+
+def test_cancelled_orders_are_not_deliveries():
+    """В запрос опозданий не должны попадать отменённые заказы.
+
+    Фильтра удалённых там не было, в отличие от продаж: 23.08 в выборку попали
+    два отменённых заказа. В тот день итог не поехал случайно — у них не было
+    фактического времени, и они отсеялись другим условием. С проставленным
+    временем такой заказ попал бы и в «доставок», и в «опоздали».
+    """
+    f = olap.build_report_body("Алиева", "2026-08-23", "2026-08-23")["filters"]
+    assert f["DeletedWithWriteoff"] == {"filterType": "IncludeValues",
+                                        "values": ["NOT_DELETED"]}

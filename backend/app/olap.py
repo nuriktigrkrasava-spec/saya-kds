@@ -167,6 +167,10 @@ def build_report_body(department: str, date_from: str, date_to: str) -> dict:
             "OpenDate.Typed": {"filterType": "DateRange", "periodType": "CUSTOM",
                                "from": date_from, "to": to_exclusive},
             "Department": {"filterType": "IncludeValues", "values": [department]},
+            # Отменённый заказ — не доставка. Без этого фильтра он попадал и в
+            # число доставок, и в опоздания: 23.08 таких было два.
+            "DeletedWithWriteoff": {"filterType": "IncludeValues",
+                                    "values": ["NOT_DELETED"]},
         },
     }
 
