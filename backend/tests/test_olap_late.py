@@ -183,3 +183,28 @@ def test_cancelled_orders_are_not_deliveries():
     f = olap.build_report_body("Алиева", "2026-08-23", "2026-08-23")["filters"]
     assert f["DeletedWithWriteoff"] == {"filterType": "IncludeValues",
                                         "values": ["NOT_DELETED"]}
+
+
+def test_orders_outside_working_hours_are_not_counted():
+    """Филиал работает с 11:00 до 24:00 по Астане.
+
+    23.08 один заказ был открыт в 10 часов — до открытия. В сутках он есть, в
+    рабочем дне его быть не должно.
+    """
+    early = dict(_row(1, 10), **{"HourOpen": "10"})
+    inside = dict(_row(2, 10), **{"HourOpen": "19"})
+    res = olap.late_deliveries([early, inside])
+    assert res["total"] == 1
+    assert [o["number"] for o in res["orders"]] == [2]
+
+
+def test_row_without_hour_is_kept():
+    """Час не пришёл — выбрасывать заказ нельзя, это молчаливая потеря данных."""
+    res = olap.late_deliveries([_row(3, 10)])
+    assert res["total"] == 1
+
+
+def test_hour_is_asked_from_olap():
+    """Без HourOpen в запросе окно рабочего дня применить не к чему."""
+    body = olap.build_report_body("Алиева", "2026-08-23", "2026-08-23")
+    assert "HourOpen" in body["groupByRowFields"]

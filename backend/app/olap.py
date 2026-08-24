@@ -39,8 +39,13 @@ def reset_cache() -> None:
 _ROW_FIELDS = [
     "Delivery.Id", "Delivery.Number", "Delivery.Courier", "Delivery.ExpectedTime",
     "Delivery.ActualTime", "Delivery.Delay", "Delivery.ServiceType",
-    "Delivery.Address",
+    "Delivery.Address", "HourOpen",
 ]
+
+# Рабочий день филиала по местному времени: с 11:00 до 24:00. Заказы вне окна
+# в отчёты не идут — 23.08 один заказ был открыт в 10 часов, до открытия.
+BUSINESS_HOUR_FROM = 11
+BUSINESS_HOUR_TO = 23        # включительно, то есть до 24:00
 
 # Улица-заглушка из справочника iiko — сплошные прочерки. Дом при этом бывает
 # и «0», и «home», и с довеском «кв./оф. Блок С», поэтому смотрим на улицу.
@@ -65,6 +70,19 @@ def clean_address(value: str | None) -> str | None:
     return value
 
 
+def in_business_hours(row: dict) -> bool:
+    """Заказ открыт в рабочие часы филиала?
+
+    Час не пришёл — считаем, что попадает: выбрасывать заказ из-за пустого поля
+    значит терять данные молча.
+    """
+    try:
+        hour = int(row.get("HourOpen"))
+    except (TypeError, ValueError):
+        return True
+    return BUSINESS_HOUR_FROM <= hour <= BUSINESS_HOUR_TO
+
+
 def late_deliveries(rows: list[dict], min_delay_minutes: int = 1,
                     include_pickup: bool = False) -> dict:
     """Сводка опозданий по строкам OLAP: сколько всего, сколько опоздали, список.
@@ -82,7 +100,8 @@ def late_deliveries(rows: list[dict], min_delay_minutes: int = 1,
     kinds = ("COURIER", "PICKUP") if include_pickup else ("COURIER",)
     deliveries = [r for r in rows
                   if r.get("Delivery.ServiceType") in kinds
-                  and r.get("Delivery.ActualTime")]
+                  and r.get("Delivery.ActualTime")
+                  and in_business_hours(r)]
 
     late = [r for r in deliveries
             if r.get("Delivery.Delay") is not None
