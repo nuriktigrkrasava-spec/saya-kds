@@ -99,7 +99,10 @@ async def test_courier_on_shift_active_without_geo(client, monkeypatch):
 
     from app import rms
 
-    async def fake_shift():
+    asked: list[str] = []
+
+    async def fake_shift(branch_code=""):
+        asked.append(branch_code)
         return [{"employee_id": "e2", "name": "Мустафа", "role": "КР",
                  "code": "C2", "branch_code": "B1", "branch_name": "Бранч1",
                  "org_id": "B1"}]
@@ -114,3 +117,5 @@ async def test_courier_on_shift_active_without_geo(client, monkeypatch):
     assert by_code["C2"]["minutes_ago"] is None
     # C1: ни явки, ни гео -> не на смене.
     assert by_code["C1"]["active"] is False
+    # Смену спрашиваем у своего депо, а не у глобального BRANCH_CODE.
+    assert asked == ["B1"]

@@ -99,6 +99,21 @@
   margin: 8px auto 0;
 }
 
+.tg__branch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tg__branch-title {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tg-hint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .tg__emp {
   appearance: none;
   display: flex;

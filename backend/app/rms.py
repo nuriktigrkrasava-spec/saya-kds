@@ -166,6 +166,43 @@ async def branch_to_org_id() -> dict:
     return mapping
 
 
+async def branch_mapping_report() -> list[dict]:
+    """Сверка настроенных филиалов (BRANCH_CODES) с организациями iiko Cloud.
+
+    Связка RMS↔Cloud идёт по совпадению НАЗВАНИЙ (branch_to_org_id). Разошлись
+    имена — заказы филиала не находят доску, и в логах при этом тихо. Отчёт
+    называет виновника: чьё имя не совпало и с чем именно можно было совпасть.
+    """
+    from app import iiko_cloud
+    _, departments = await _employees_and_departments_cached()
+    name_by_code = {d["code"]: (d.get("name") or "")
+                    for d in departments if d.get("code")}
+    orgs = await iiko_cloud.fetch_organizations()
+    org_by_norm = {_norm_name(o.get("name")): o for o in orgs}
+    org_names = ", ".join(sorted(f"«{o.get('name')}»" for o in orgs if o.get("name")))
+
+    out: list[dict] = []
+    for code in configured_branch_codes():
+        rms_name = name_by_code.get(code)
+        if rms_name is None:
+            out.append({"branch_code": code, "rms_name": "", "org_id": "",
+                        "org_name": "", "matched": False,
+                        "problem": f"депо с кодом {code} нет в RMS"})
+            continue
+        org = org_by_norm.get(_norm_name(rms_name))
+        out.append({
+            "branch_code": code,
+            "rms_name": rms_name,
+            "org_id": (org or {}).get("id") or "",
+            "org_name": (org or {}).get("name") or "",
+            "matched": bool(org),
+            "problem": "" if org else
+                       (f"в iiko Cloud нет организации с названием «{rms_name}»; "
+                        f"есть: {org_names or '—'}"),
+        })
+    return out
+
+
 async def find_employee_by_pin(pin: str) -> dict | None:
     """Найти активного сотрудника по PIN (code) и определить его филиал. Кэш ~60с, чтобы не жечь лицензию RMS."""
     if not pin:
@@ -369,14 +406,32 @@ def _is_current_shift(attendance: dict, today: str) -> bool:
         return True
 
 
-_SHIFT_CACHE: list[dict] | None = None
-_SHIFT_CACHE_TS: float = 0.0
+# Кэш смен — ПО ФИЛИАЛАМ: {branch_code: (ts, employees)}. Общий кэш на все
+# филиалы отдавал бы курьеров чужого депо, как только их стало больше одного.
+_SHIFT_CACHE: dict[str, tuple[float, list[dict]]] = {}
 _SHIFT_CACHE_TTL: float = 60.0
 
 
 def reset_attendance_cache() -> None:
-    global _SHIFT_CACHE, _SHIFT_CACHE_TS
-    _SHIFT_CACHE, _SHIFT_CACHE_TS = None, 0.0
+    _SHIFT_CACHE.clear()
+
+
+def configured_branch_codes() -> list[str]:
+    """Филиалы на КДС: BRANCH_CODES (через запятую), иначе одиночный BRANCH_CODE."""
+    raw = (settings.branch_codes or "").strip()
+    if raw:
+        return [c.strip() for c in raw.split(",") if c.strip()]
+    single = (settings.branch_code or "").strip()
+    return [single] if single else []
+
+
+def cached_branch_to_org_id() -> dict:
+    """Карта «код филиала → Cloud org_id» ТОЛЬКО из кэша, без похода в iiko.
+
+    Нужна там, где лишний сетевой вызов недопустим (фильтры дашборда). Кэш
+    греется на входе по PIN и на роутинге заказов.
+    """
+    return _ORG_MAP or {}
 
 
 async def attendances_for_period(date_from: str, date_to: str,
@@ -386,9 +441,14 @@ async def attendances_for_period(date_from: str, date_to: str,
     В отличие от shift_employees_today() отдаёт СЫРЫЕ явки, включая закрытые:
     нужно знать, кто сколько часов отстоял, а не кто на смене прямо сейчас.
     """
-    branch = (branch_code or settings.branch_code or "").strip()
+    branch = (branch_code or "").strip()
     if not branch:
-        raise ValueError("BRANCH_CODE не настроен")
+        # Фоллбэк на глобальную настройку — только пока филиал один: иначе
+        # вернули бы явки чужого депо и молча испортили планирование смен.
+        configured = configured_branch_codes()
+        branch = configured[0] if len(configured) == 1 else ""
+    if not branch:
+        raise ValueError("код филиала не задан (BRANCH_CODES)")
     base = settings.rms_base.rstrip("/")
     async with session() as token:
         async with httpx.AsyncClient(timeout=120) as client:
@@ -405,22 +465,32 @@ async def role_by_employee_id() -> dict[str, str]:
     return {e["id"]: e.get("role") or "" for e in employees if e.get("id")}
 
 
-async def shift_employees_today() -> list[dict]:
-    """Сотрудники с ОТКРЫТОЙ сменой на филиале settings.branch_code, без кухни,
-    кассы и прочих не относящихся к делу ролей. Кэш ~60с (бережём слот лицензии RMS).
+async def shift_employees_today(branch_code: str = "") -> list[dict]:
+    """Сотрудники с ОТКРЫТОЙ сменой, без кухни, кассы и прочих не относящихся
+    к делу ролей. Пустой branch_code -> все филиалы из configured_branch_codes()
+    (курьерский апп не знает филиал до выбора имени; в строке он уже есть).
 
     Решение заказчика 09.08.2026: берём все текущие открытые смены, а не только
     начатые сегодня — курьеры с ночной смены (кассир открыл её вчера вечером)
     пропадали из аппа и не могли войти. Единственная защита от мусора: явки в
     нашем iiko иногда не закрывают годами, поэтому всё, что старше
     STALE_ATTENDANCE_DAYS, считаем забытым хвостом, а не сменой."""
-    global _SHIFT_CACHE, _SHIFT_CACHE_TS
-    branch = (settings.branch_code or "").strip()
-    if not branch:
+    one = (branch_code or "").strip()
+    branches = [one] if one else configured_branch_codes()
+    if not branches:
         raise ValueError("BRANCH_CODE не настроен")
+    out: list[dict] = []
+    for branch in branches:
+        out.extend(await _shift_for_branch(branch))
+    return out
+
+
+async def _shift_for_branch(branch: str) -> list[dict]:
+    """Открытые смены одного филиала. Кэш ~60с — бережём слот лицензии RMS."""
     now = time.monotonic()
-    if _SHIFT_CACHE is not None and (now - _SHIFT_CACHE_TS) < _SHIFT_CACHE_TTL:
-        return _SHIFT_CACHE
+    cached = _SHIFT_CACHE.get(branch)
+    if cached and (now - cached[0]) < _SHIFT_CACHE_TTL:
+        return cached[1]
 
     today = _attendance_today_str()
     base = settings.rms_base.rstrip("/")
@@ -458,5 +528,5 @@ async def shift_employees_today() -> list[dict]:
             "org_id": org_id,
         })
     out.sort(key=lambda e: e["name"])
-    _SHIFT_CACHE, _SHIFT_CACHE_TS = out, now
+    _SHIFT_CACHE[branch] = (now, out)
     return out

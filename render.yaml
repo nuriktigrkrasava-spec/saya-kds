@@ -47,6 +47,16 @@ services:
       # (/tg/shift-employees) и фильтру курьеров на дашборде.
       - key: BRANCH_CODE
         value: "10ASTKBN"
+      # Все филиалы на КДС через запятую. Новый филиал -> дописать сюда его код
+      # депо из RMS (и добавить Cloud-GUID в POLL_ORG_IDS/HALL_POLL_ORG_IDS).
+      # 10ASTKBN — Г.Алиева 10 (EXPO), 8ASTKJM — Кажымукана 16.
+      - key: BRANCH_CODES
+        value: "10ASTKBN,8ASTKJM"
+      # Аллоулист подписки на вебхуки: подписываем ТОЛЬКО филиалы на КДС.
+      # Пустое значение означало бы «все 24 организации сети» — лишние заказы
+      # и гарантированный 429 от iiko на update_settings.
+      - key: WEBHOOK_ORG_IDS
+        value: "d9a4272f-65f0-4e56-8846-434f2348889c,f6e1f9a0-4e97-458f-947e-dc721dadc9d4"
       # Фоллбэк-поллер доставки: добирает из iiko обновления, потерянные
       # вебхуками, — без него заказы висят на планшете незакрытыми (31.07.2026).
       # Первый проход после старта догоняет POLL_CATCHUP_DAYS суток, дальше идёт
@@ -54,7 +64,7 @@ services:
       - key: POLL_INTERVAL_SECONDS
         value: "60"
       - key: POLL_ORG_IDS
-        value: "d9a4272f-65f0-4e56-8846-434f2348889c"
+        value: "d9a4272f-65f0-4e56-8846-434f2348889c,f6e1f9a0-4e97-458f-947e-dc721dadc9d4"
       - key: POLL_CATCHUP_DAYS
         value: "2"
       # Поллер зала: тянет dine-in заказы из Cloud (order/by_table) раз в N сек.
@@ -62,7 +72,7 @@ services:
       - key: HALL_POLL_INTERVAL_SECONDS
         value: "15"
       - key: HALL_POLL_ORG_IDS
-        value: "d9a4272f-65f0-4e56-8846-434f2348889c"
+        value: "d9a4272f-65f0-4e56-8846-434f2348889c,f6e1f9a0-4e97-458f-947e-dc721dadc9d4"
       # --- База данных ---
       # Вставляется вручную в форме postgresql+asyncpg://... (см. DEPLOY.md).
       # Render-овская fromDatabase даёт схему postgres://, которая НЕ подходит

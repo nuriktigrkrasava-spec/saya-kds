@@ -33,6 +33,9 @@ SHIFT = [
     {"employee_id": "e-manager", "name": "Kaнат", "role": "УПРЭКСПО",
      "code": "44", "branch_code": "10ASTKBN", "branch_name": "Алиева",
      "org_id": "org-aliev"},
+    {"employee_id": "e-kazh", "name": "Ерлан", "role": "КР",
+     "code": "99", "branch_code": "KAZH", "branch_name": "Кажымукана",
+     "org_id": "org-kazh"},
 ]
 
 
@@ -76,7 +79,7 @@ async def test_shift_employees_list_and_busy(client):
     r = await c.get("/tg/shift-employees")
     assert r.status_code == 200
     rows = r.json()
-    assert [x["employee_id"] for x in rows] == ["e-courier", "e-manager"]
+    assert [x["employee_id"] for x in rows] == ["e-courier", "e-manager", "e-kazh"]
     assert rows[0]["busy"] is False
     assert rows[1]["busy"] is True
     assert rows[0]["role_label"] == "Курьер"
@@ -190,3 +193,14 @@ async def test_tg_link_removed(client):
     c, _ = client
     r = await c.post("/tg/link", json={"initData": "x", "pin": "1"})
     assert r.status_code in (404, 405)
+
+
+@pytest.mark.asyncio
+async def test_shift_rows_carry_branch(client):
+    """Филиал виден в списке: на двух филиалах имена иначе смешаются в кучу."""
+    c, _ = client
+    rows = (await c.get("/tg/shift-employees")).json()
+    by_id = {r["employee_id"]: r for r in rows}
+    assert by_id["e-kazh"]["branch_name"] == "Кажымукана"
+    assert by_id["e-kazh"]["branch_code"] == "KAZH"
+    assert by_id["e-courier"]["branch_name"] == "Алиева"

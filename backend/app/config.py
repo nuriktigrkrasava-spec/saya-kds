@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Код единственного филиала (RMS branch_code). Привязывает данные без org_id —
     # сейчас это курьеры на дашборде. Пусто -> авто: если в базе ровно один филиал.
     branch_code: str = ""
+    # Коды филиалов на КДС через запятую (RMS branch_code) — мультифилиальная
+    # замена branch_code. Пусто -> берём единственный branch_code, если задан.
+    branch_codes: str = ""
     preorder_lead_minutes: int = 60
     preorder_check_seconds: int = 60
     # Ключ для межсервисного доступа к выгрузке аналитики (/admin/analytics/export).

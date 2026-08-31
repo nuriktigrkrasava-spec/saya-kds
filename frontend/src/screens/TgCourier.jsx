@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { addressParts, hasAddressParts } from "../lib/address.js";
+import { groupByBranch } from "../lib/shiftGroups.js";
 import "../tg.css";
 
 const BOT = "@finansistwire_bot";
@@ -382,22 +383,31 @@ export default function TgCourier() {
             </p>
           ) : (
             <div className="tg__emplist">
-              {shift.map((e) => (
-                <button
-                  key={e.employee_id}
-                  type="button"
-                  className="tg__emp"
-                  disabled={claimBusyId !== null}
-                  onClick={() => (e.busy ? setConfirmEmp(e) : claim(e))}
-                >
-                  <span className="tg__emp-name">
-                    {claimBusyId === e.employee_id ? "…" : e.name}
-                  </span>
-                  <span className="tg__emp-meta">
-                    {e.role_label}
-                    {e.busy && <span className="tg__emp-busy"> · уже вошли</span>}
-                  </span>
-                </button>
+              {groupByBranch(shift).map((group, _i, groups) => (
+                <div className="tg__branch" key={group.branch_code || "—"}>
+                  {/* Заголовок нужен только когда филиалов больше одного —
+                      иначе он лишний шум на маленьком экране. */}
+                  {groups.length > 1 && group.branch_name && (
+                    <p className="tg__branch-title">{group.branch_name}</p>
+                  )}
+                  {group.employees.map((e) => (
+                    <button
+                      key={e.employee_id}
+                      type="button"
+                      className="tg__emp"
+                      disabled={claimBusyId !== null}
+                      onClick={() => (e.busy ? setConfirmEmp(e) : claim(e))}
+                    >
+                      <span className="tg__emp-name">
+                        {claimBusyId === e.employee_id ? "…" : e.name}
+                      </span>
+                      <span className="tg__emp-meta">
+                        {e.role_label}
+                        {e.busy && <span className="tg__emp-busy"> · уже вошли</span>}
+                      </span>
+                        </button>
+                  ))}
+                </div>
               ))}
             </div>
           )}

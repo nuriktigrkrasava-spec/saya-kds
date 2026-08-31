@@ -179,6 +179,15 @@ async def get_stoplist(org_id: str, session: AsyncSession = Depends(get_session)
     ]
 
 
+@app.get("/admin/branch-mapping")
+async def admin_branch_mapping(key: str = Query(default="")):
+    """Сверка BRANCH_CODES с организациями iiko Cloud — чек-лист при подключении
+    нового филиала: matched=false означает пустую доску."""
+    if settings.webhook_secret and key != settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="bad key")
+    return await _rms.branch_mapping_report()
+
+
 @app.post("/webhooks/register")
 async def webhooks_register(key: str = Query(default="")):
     """Пере-подписать iiko на вебхуки (доставка + зал/вынос). Ручной триггер для
@@ -823,12 +832,18 @@ def _local_date(dt):
 
 async def _org_branch_codes(session, org_id: str) -> set[str] | None:
     """Branch-коды (RMS) филиала org_id — для фильтрации данных без org_id
-    (курьерские локации). Приоритет: явная настройка settings.branch_code; иначе
-    коды из telegram_links этого org (линк хранит и org_id, и branch_code); иначе
-    единственный код в courier_locations (однофилиальный случай). None = определить
-    не удалось — не фильтруем, чтобы не спрятать данные."""
-    if settings.branch_code:
-        return {settings.branch_code}
+    (курьерские локации).
+
+    Приоритет: карта «филиал → org_id» из кэша RMS (единственный источник,
+    который знает про этот org, а не про «филиал вообще»); иначе коды из
+    telegram_links этого org; иначе единственный код в courier_locations.
+    Глобальный BRANCH_CODE — только когда филиал в системе один: на двух он
+    отдавал бы курьеров Алиева для любого филиала. None = определить не
+    удалось — не фильтруем, чтобы не спрятать данные."""
+    codes = {code for code, mapped in _rms.cached_branch_to_org_id().items()
+             if mapped == org_id}
+    if codes:
+        return codes
     from app.models import TelegramLink as _TL
     codes = {c for c in (await session.execute(
         _select(_TL.branch_code).where(_TL.org_id == org_id)
@@ -837,7 +852,10 @@ async def _org_branch_codes(session, org_id: str) -> set[str] | None:
         return codes
     single = [c for c in (await session.execute(
         _select(_CourierLocation.branch_code).distinct())).scalars().all() if c]
-    return {single[0]} if len(single) == 1 else None
+    if len(single) == 1:
+        return {single[0]}
+    configured = _rms.configured_branch_codes()
+    return {configured[0]} if len(configured) == 1 else None
 
 
 @app.get("/admin/stage-stats")
@@ -1438,7 +1456,7 @@ async def branches_couriers(branch_code: str = "",
     # остаётся гео-признак.
     shift_codes: set[str] = set()
     try:
-        shift = await _rms.shift_employees_today()
+        shift = await _rms.shift_employees_today(branch_code)
         shift_codes = {e["code"] for e in shift
                        if e["role"] in _COURIER_ROLES
                        and e["branch_code"] == branch_code and e["code"]}
@@ -1582,6 +1600,10 @@ async def tg_shift_employees(session: AsyncSession = Depends(get_session)):
         "name": e["name"],
         "role": e["role"],
         "role_label": _ROLE_LABELS.get(e["role"], e["role"]),
+        # Филиал — чтобы апп группировал список: на нескольких филиалах имена
+        # иначе идут вперемешку и легко тапнуть чужое.
+        "branch_code": e.get("branch_code", ""),
+        "branch_name": e.get("branch_name", ""),
         "busy": e["employee_id"] in busy_ids,
     } for e in shift]
 
@@ -2252,15 +2274,15 @@ from app import late_reasons as _late_reasons
 async def _branch_code_for_org(org_id: str) -> str:
     """Код филиала RMS по Cloud org_id — явки адресуются кодом, а не GUID.
 
-    Берём из той же карты, что и роутинг заказов; BRANCH_CODE из окружения —
-    только запасной вариант, чтобы аналитика не зависела от глобальной
-    настройки одного филиала.
+    Берём из той же карты, что и роутинг заказов. Не сматчился — отдаём пустую
+    строку: подстановка глобального BRANCH_CODE дала бы явки чужого филиала.
     """
     mapping = await _rms.branch_to_org_id()
     for code, mapped in mapping.items():
         if mapped == org_id:
             return code
-    return settings.branch_code
+    configured = _rms.configured_branch_codes()
+    return configured[0] if len(configured) == 1 else ""
 
 
 async def _staffing_grid(org_id: str, weeks: int) -> dict:
@@ -2281,9 +2303,14 @@ async def _staffing_grid(org_id: str, weeks: int) -> dict:
 
     sales = await _olap.fetch_sales_rows(department, date_from.isoformat(),
                                          date_to.isoformat())
+    branch_code = await _branch_code_for_org(org_id)
+    if not branch_code:
+        raise HTTPException(
+            status_code=404,
+            detail=f"филиал {org_id} не сматчился с RMS — явки недоступны")
     attendances = await _rms.attendances_for_period(date_from.isoformat(),
                                                     date_to.isoformat(),
-                                                    await _branch_code_for_org(org_id))
+                                                    branch_code)
     roles = await _rms.role_by_employee_id()
 
     grid = _staffing.build_grid(_staffing.demand_by_hour(sales),

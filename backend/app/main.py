@@ -102,6 +102,28 @@ async def _create_tables():
     # (а не по грубым keyword'ам). Фоном, под guard — RMS-сбой не валит старт.
     import asyncio as _asyncio
     fastapi_app.state.menu_warm_task = _asyncio.create_task(_warm_menu_cache())
+    # Сверка филиалов с iiko Cloud: несматченное по имени депо даёт пустую доску
+    # без единой ошибки в логах — при подключении филиала это первое, что ломается.
+    fastapi_app.state.branch_check_task = _asyncio.create_task(_check_branch_mapping())
+
+
+async def _check_branch_mapping():
+    """Логирует, какие из BRANCH_CODES не нашли свою организацию в iiko Cloud."""
+    log = logging.getLogger("saya.branches")
+    try:
+        from app import rms
+        rows = await rms.branch_mapping_report()
+    except Exception:  # noqa: BLE001 — RMS/Cloud лежит: сверка важна, но не критична
+        log.warning("сверка филиалов не выполнена: RMS или Cloud недоступны",
+                    exc_info=True)
+        return
+    for row in rows:
+        if row["matched"]:
+            log.info("филиал %s «%s» -> org %s",
+                     row["branch_code"], row["rms_name"], row["org_id"])
+        else:
+            log.error("филиал %s не сматчился с iiko Cloud: %s — заказы этого "
+                      "филиала не попадут на доску", row["branch_code"], row["problem"])
 
 
 async def _warm_menu_cache():
