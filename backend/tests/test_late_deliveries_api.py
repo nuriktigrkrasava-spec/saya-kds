@@ -1,4 +1,5 @@
 """Эндпоинт опозданий: филиал → OLAP «доставки» → сводка + список заказов."""
+from app.time_utils import utc_now
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.api import app
@@ -100,7 +101,7 @@ async def test_reason_is_reported_next_to_each_late_order(client, session, monke
     from datetime import datetime, timedelta
     from app.models import Order, OrderItem
 
-    base = datetime.utcnow() - timedelta(hours=3)
+    base = utc_now() - timedelta(hours=3)
     order = Order(iiko_order_id="oid-late", org_id="org-1", number="7",
                   created_at=base)
     item = OrderItem(product_id="p", name="Ролл", station="rolls",
@@ -176,4 +177,4 @@ async def test_export_survives_olap_outage(client, monkeypatch):
         r = await c.get("/admin/analytics/export?org_id=org-1",
                         headers={"X-API-Key": "secret"})
     assert r.status_code == 200
-    assert "rms down" in r.json()["late_deliveries"]["error"]
+    assert r.json()["late_deliveries"]["error"] == "Upstream service unavailable"

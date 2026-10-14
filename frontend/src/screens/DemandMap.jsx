@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import { getOrgId } from "../lib/auth.js";
 import "../demand.css";
 
@@ -33,7 +33,7 @@ export default function DemandMap() {
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch(
+        const res = await authenticatedFetch(
           `${BASE}/admin/demand?org_id=${encodeURIComponent(getOrgId())}`,
           { headers: { Accept: "application/json" } }
         );

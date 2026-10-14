@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.time_utils import utc_now
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -37,7 +38,7 @@ async def run_releaser() -> None:
     while True:
         try:
             async with SessionLocal() as session:
-                await release_due(session, datetime.utcnow())
+                await release_due(session, utc_now())
         except Exception:  # noqa: BLE001 — устойчивость
             log.exception("preorder releaser failed")
         await asyncio.sleep(interval)

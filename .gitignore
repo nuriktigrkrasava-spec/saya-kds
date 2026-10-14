@@ -25,3 +25,5 @@ dist/
 .idea/
 .claude/
 .playwright-mcp/
+
+.claude-flow/

@@ -1,3 +1,4 @@
+from app.time_utils import utc_now
 from datetime import datetime, timedelta
 
 import pytest_asyncio
@@ -54,11 +55,11 @@ async def test_check_once_overdue_alerts_manager_and_dedups(memory_maker, monkey
         ))
         order = Order(
             iiko_order_id="oo1", org_id="o1", number="42", status="OnCooking",
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
         order.items = [OrderItem(
             iiko_item_id="i1", product_id="p1", name="Ролл",
-            station_accepted_at=datetime.utcnow() - timedelta(minutes=15),
+            station_accepted_at=utc_now() - timedelta(minutes=15),
             station_ready_at=None,
         )]
         s.add(order)

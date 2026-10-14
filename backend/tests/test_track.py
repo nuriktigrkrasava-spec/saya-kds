@@ -1,3 +1,4 @@
+from app.time_utils import utc_now
 from datetime import datetime
 
 import pytest_asyncio
@@ -36,12 +37,12 @@ async def test_track_on_way_returns_courier_point(client):
     async with maker() as s:
         order = Order(iiko_order_id="trk-1", org_id="org-1", number="501",
                       address="Астана, пр. Туран 37",
-                      on_way_at=datetime.utcnow(),
+                      on_way_at=utc_now(),
                       assigned_courier_code="C1")
         order.items = [OrderItem(product_id="p1", name="Ролл", station="rolls")]
         s.add(order)
         s.add(CourierLocation(courier_code="C1", name="Айдос", lat=51.16, lon=71.47,
-                              updated_at=datetime.utcnow()))
+                              updated_at=utc_now()))
         await s.commit()
 
     r = await c.get("/api/track/trk-1")
@@ -72,7 +73,7 @@ async def test_track_no_courier_when_not_on_way(client):
         order.items = [OrderItem(product_id="p1", name="Ролл", station="rolls")]
         s.add(order)
         s.add(CourierLocation(courier_code="C1", name="Айдос", lat=51.16, lon=71.47,
-                              updated_at=datetime.utcnow()))
+                              updated_at=utc_now()))
         await s.commit()
 
     r = await c.get("/api/track/trk-2")

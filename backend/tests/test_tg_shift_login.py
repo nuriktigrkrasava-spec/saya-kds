@@ -1,3 +1,5 @@
+from app.security import courier_ref
+import time
 """Вход курьера по открытой явке: /tg/shift-employees, /tg/claim, протухание /tg/auth."""
 import hmac
 import hashlib
@@ -18,7 +20,7 @@ from app import rms
 
 
 def _build_init_data(token: str, user: dict) -> str:
-    fields = {"auth_date": "1700000000", "query_id": "AAEtest",
+    fields = {"auth_date": str(int(time.time())), "query_id": "AAEtest",
               "user": json.dumps(user, separators=(",", ":"))}
     dcs = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
     secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
@@ -41,6 +43,9 @@ SHIFT = [
 
 @pytest_asyncio.fixture
 async def client(monkeypatch):
+    async def verified_pin(pin):
+        return next((e for e in SHIFT if e["code"] == pin), None)
+    monkeypatch.setattr(rms, "find_employee_by_pin", verified_pin)
     settings.telegram_bot_token = "testtoken"
 
     async def fake_shift():
@@ -76,7 +81,7 @@ async def test_shift_employees_list_and_busy(client):
                            employee_id="e-manager",
                            claimed_on=_local_today().isoformat()))
         await s.commit()
-    r = await c.get("/tg/shift-employees")
+    r = await c.post("/tg/shift-employees", json={"initData":_build_init_data("testtoken", {"id":42})})
     assert r.status_code == 200
     rows = r.json()
     assert [x["employee_id"] for x in rows] == ["e-courier", "e-manager", "e-kazh"]
@@ -90,11 +95,11 @@ async def test_shift_employees_list_and_busy(client):
 async def test_claim_links_and_returns_identity(client):
     c, maker = client
     init = _build_init_data("testtoken", {"id": 42, "first_name": "K"})
-    r = await c.post("/tg/claim", json={"initData": init, "employee_id": "e-courier"})
+    r = await c.post("/tg/claim", json={"initData": init, "employee_id": "e-courier", "pin":"77"})
     assert r.status_code == 200
     body = r.json()
     assert body["linked"] is True
-    assert body["courier_code"] == "77"
+    assert body["courier_code"] == courier_ref("77")
     assert body["name"] == "Адильхан"
     assert body["org_id"] == "org-aliev"
     async with maker() as s:
@@ -113,7 +118,7 @@ async def test_claim_links_and_returns_identity(client):
 async def test_claim_rejects_not_on_shift(client):
     c, _ = client
     init = _build_init_data("testtoken", {"id": 42, "first_name": "K"})
-    r = await c.post("/tg/claim", json={"initData": init, "employee_id": "e-ghost"})
+    r = await c.post("/tg/claim", json={"initData": init, "employee_id": "e-ghost", "pin":"wrong"})
     assert r.status_code == 409
 
 
@@ -121,7 +126,7 @@ async def test_claim_rejects_not_on_shift(client):
 async def test_claim_rejects_bad_initdata(client):
     c, _ = client
     r = await c.post("/tg/claim", json={"initData": "hash=deadbeef",
-                                        "employee_id": "e-courier"})
+                                        "employee_id": "e-courier", "pin":"77"})
     assert r.status_code == 401
 
 
@@ -147,7 +152,7 @@ async def test_auth_kicks_when_attendance_closed(client, monkeypatch):
     from app.api import _local_today
     async with maker() as s:
         s.add(TelegramLink(telegram_id="42", employee_code="77", name="Адильхан",
-                           employee_id="e-courier",
+                           employee_id="e-courier", role="КР", org_id="org-aliev", branch_code="10ASTKBN",
                            claimed_on=_local_today().isoformat()))
         await s.commit()
 
@@ -166,7 +171,7 @@ async def test_auth_fail_open_when_rms_down(client, monkeypatch):
     from app.api import _local_today
     async with maker() as s:
         s.add(TelegramLink(telegram_id="42", employee_code="77", name="Адильхан",
-                           employee_id="e-courier",
+                           employee_id="e-courier", role="КР", org_id="org-aliev", branch_code="10ASTKBN",
                            claimed_on=_local_today().isoformat()))
         await s.commit()
 
@@ -184,7 +189,7 @@ async def test_shift_employees_503_when_rms_down(client, monkeypatch):
     async def boom():
         raise RuntimeError("rms down")
     monkeypatch.setattr(rms, "shift_employees_today", boom)
-    r = await c.get("/tg/shift-employees")
+    r = await c.post("/tg/shift-employees", json={"initData":_build_init_data("testtoken", {"id":42})})
     assert r.status_code == 503
 
 
@@ -199,7 +204,7 @@ async def test_tg_link_removed(client):
 async def test_shift_rows_carry_branch(client):
     """Филиал виден в списке: на двух филиалах имена иначе смешаются в кучу."""
     c, _ = client
-    rows = (await c.get("/tg/shift-employees")).json()
+    rows = (await c.post("/tg/shift-employees", json={"initData":_build_init_data("testtoken", {"id":42})})).json()
     by_id = {r["employee_id"]: r for r in rows}
     assert by_id["e-kazh"]["branch_name"] == "Кажымукана"
     assert by_id["e-kazh"]["branch_code"] == "KAZH"

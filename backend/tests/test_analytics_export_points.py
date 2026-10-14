@@ -2,6 +2,7 @@
 
 В iiko OLAP нет ни наших зон, ни привязки заказа к зоне — это данные KDS.
 """
+from app.time_utils import utc_now
 import pytest
 from datetime import datetime, timedelta
 from httpx import AsyncClient, ASGITransport
@@ -27,7 +28,7 @@ def api_key(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_export_returns_delivery_points_with_zone(client, session, api_key):
-    now = datetime.utcnow()
+    now = utc_now()
     session.add(DeliveryZone(org_id="demo", name="Центр",
                              polygon=[[51.0, 71.2], [51.0, 71.5],
                                       [51.3, 71.5], [51.3, 71.2]]))
@@ -58,7 +59,7 @@ async def test_export_point_outside_any_zone_has_null_zone(client, session, api_
                              polygon=[[51.0, 71.2], [51.0, 71.3],
                                       [51.1, 71.3], [51.1, 71.2]]))
     session.add(Order(iiko_order_id="p2", org_id="demo", number="102",
-                      created_at=datetime.utcnow(),
+                      created_at=utc_now(),
                       address_lat=52.9, address_lon=73.9))
     await session.commit()
 
@@ -75,7 +76,7 @@ async def test_export_point_outside_any_zone_has_null_zone(client, session, api_
 async def test_export_returns_order_path_scale(client, session, api_key):
     """Шкала «Путь заказа» отдаётся готовой, чтобы её не пересобирали на месте."""
     session.add(Order(iiko_order_id="p4", org_id="demo", number="104",
-                      created_at=datetime.utcnow()))
+                      created_at=utc_now()))
     await session.commit()
 
     async with client as c:
@@ -90,7 +91,7 @@ async def test_export_returns_order_path_scale(client, session, api_key):
 @pytest.mark.asyncio
 async def test_export_skips_orders_without_coordinates(client, session, api_key):
     session.add(Order(iiko_order_id="p3", org_id="demo", number="103",
-                      created_at=datetime.utcnow()))
+                      created_at=utc_now()))
     await session.commit()
 
     async with client as c:

@@ -8,6 +8,7 @@
 опозданию отношения не имеет.
 """
 from __future__ import annotations
+from app.time_utils import utc_now
 import logging
 import os
 from datetime import datetime, timedelta
@@ -221,7 +222,7 @@ async def run_once(org_id: str = "", now_local: str | None = None) -> dict:
     if not org_ids():
         return {"sent": 0, "reason": "выключено: нет филиалов"}
 
-    now = now_local or (datetime.utcnow()
+    now = now_local or (utc_now()
                         + timedelta(hours=settings.iiko_tz_offset_hours)).isoformat()
     if not is_due(now):
         return {"sent": 0, "reason": "не время"}

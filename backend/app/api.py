@@ -1,4 +1,6 @@
 from __future__ import annotations
+from app.time_utils import utc_now
+import hmac
 from fastapi import FastAPI, Depends, Query, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -58,11 +60,13 @@ def _parse_stoplist_entries(event: dict) -> list[dict]:
         })
     return out
 
-app = FastAPI(title="Saya KDS backend")
+from app.security import courier_ref, authorize_request, issue_token, login_limit, require_secret
+
+app = FastAPI(title="Saya KDS backend", dependencies=[Depends(authorize_request)])
 
 # Локальная разработка: фронт на Vite (5173) ходит на бэк (8000).
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware, allow_origins=[x.strip() for x in settings.cors_origins.split(",") if x.strip()], allow_methods=["*"], allow_headers=["*"],
 )
 
 
@@ -90,7 +94,7 @@ async def list_orders(org_id: str, session: AsyncSession = Depends(get_session))
 @app.post("/webhooks/iiko/cloud")
 async def iiko_webhook(events: list[dict], key: str = Query(default=""),
                        session: AsyncSession = Depends(get_session)):
-    if settings.webhook_secret and key != settings.webhook_secret:
+    if not settings.webhook_secret or not hmac.compare_digest(key.encode(), settings.webhook_secret.encode()):
         raise HTTPException(status_code=403, detail="bad key")
 
     import logging as _logging
@@ -108,7 +112,7 @@ async def iiko_webhook(events: list[dict], key: str = Query(default=""),
             # Пустой список = в стоп-листе ничего нет -> очищаем филиал.
             await session.execute(
                 _sl_delete(_StopList).where(_StopList.org_id == org_id))
-            now = _dt.utcnow()
+            now = utc_now()
             for e in entries:
                 session.add(_StopList(
                     org_id=org_id, product_id=e["product_id"],
@@ -183,8 +187,6 @@ async def get_stoplist(org_id: str, session: AsyncSession = Depends(get_session)
 async def admin_branch_mapping(key: str = Query(default="")):
     """Сверка BRANCH_CODES с организациями iiko Cloud — чек-лист при подключении
     нового филиала: matched=false означает пустую доску."""
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
     return await _rms.branch_mapping_report()
 
 
@@ -192,8 +194,6 @@ async def admin_branch_mapping(key: str = Query(default="")):
 async def webhooks_register(key: str = Query(default="")):
     """Пере-подписать iiko на вебхуки (доставка + зал/вынос). Ручной триггер для
     проверки/восстановления; защищён тем же секретом, что и приём вебхуков."""
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
     return await iiko_cloud.register_all_webhooks()
 
 
@@ -227,7 +227,7 @@ async def ingest_front(body: FrontOrderIn, key: str = Query(default=""),
     -> рассылка на планшет. Идемпотентно по id (front-<id>).
     Защищён тем же секретом, что и вебхуки.
     """
-    if settings.webhook_secret and key != settings.webhook_secret:
+    if not settings.webhook_secret or not hmac.compare_digest(key.encode(), settings.webhook_secret.encode()):
         raise HTTPException(status_code=403, detail="bad key")
     from app.schemas import NormalizedOrder as _NO, WebhookItem as _WI
     normalized = _NO(
@@ -257,8 +257,6 @@ async def ingest_front(body: FrontOrderIn, key: str = Query(default=""),
 async def debug_orgs(key: str = Query(default="")):
     """Карта Cloud org_id -> название филиала (из iiko organizations). Для
     сопоставления GUID из логов с филиалами. Защищён тем же секретом."""
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
     orgs = await iiko_cloud.fetch_organizations()
     return [{"id": o.get("id"), "name": o.get("name")} for o in orgs]
 
@@ -267,8 +265,6 @@ async def debug_orgs(key: str = Query(default="")):
 async def debug_by_table(org_id: str, key: str = Query(default="")):
     """Диагностика зала: отдаёт ли филиал dine-in в Cloud (order/by_table).
     Read-only, защищён тем же секретом, что /debug/orgs."""
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
     import httpx as _httpx
     try:
         tgs = await iiko_cloud.fetch_terminal_groups(org_id)
@@ -319,16 +315,13 @@ class LoginIn(BaseModel):
 
 
 @app.post("/auth/login")
-async def login(body: LoginIn):
+async def login(body: LoginIn, request: Request):
+    login_limit(request)
     from app import rms
     emp = await rms.find_employee_by_pin(body.pin.strip())
     if not emp:
         raise HTTPException(status_code=401, detail="Неверный PIN")
-    token = jwt.encode({"name": emp["name"], "role": emp["role"],
-                        "branch_code": emp["branch_code"], "branch_name": emp["branch_name"],
-                        "org_id": emp["org_id"],
-                        "exp": datetime.utcnow() + timedelta(hours=16)},
-                       settings.jwt_secret, algorithm="HS256")
+    token = issue_token(emp, courier_code=body.pin.strip())
     return {"token": token, **emp}
 
 
@@ -369,7 +362,7 @@ async def item_accept(item_id: int, body: ActionIn,
         _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="item not found")
-    item.station_accepted_at = _dt.utcnow()
+    item.station_accepted_at = utc_now()
     item.checked_by = body.by or item.checked_by
     order = await _load_order(session, item.order_id)
     await _log_action(session, order, "item_accept", actor_name=body.by,
@@ -384,7 +377,7 @@ async def item_ready(item_id: int, body: ActionIn,
         _select(_OrderItem).where(_OrderItem.id == item_id))).scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="item not found")
-    item.station_ready_at = _dt.utcnow()
+    item.station_ready_at = utc_now()
     item.checked_by = body.by or item.checked_by
     # Шага «Принял» больше нет — за «время приготовления» берём от появления заказа,
     # чтобы аналитика/анти-обман работали (иначе accepted_at пустой).
@@ -406,7 +399,7 @@ async def item_check(item_id: int, body: ActionIn,
     if not item:
         raise HTTPException(status_code=404, detail="item not found")
     item.is_checked = True
-    item.checked_at = _dt.utcnow()
+    item.checked_at = utc_now()
     item.checked_by = body.by or item.checked_by
     order = await _load_order(session, item.order_id)
     await _log_action(session, order, "item_check", actor_name=body.by,
@@ -461,7 +454,7 @@ async def order_assemble(order_id: int, body: ActionIn,
                          session: AsyncSession = Depends(get_session)):
     """Сборщик: «передать курьеру»."""
     order = await _load_order(session, order_id)
-    order.assembled_at = _dt.utcnow()
+    order.assembled_at = utc_now()
     await _log_action(session, order, "order_assemble", actor_name=body.by)
     return await _order_action_and_broadcast(session, order_id)
 
@@ -488,7 +481,7 @@ async def order_take(order_id: int, body: ActionIn,
                      session: AsyncSession = Depends(get_session)):
     """Курьер забрал заказ. В iiko уходит deliveryStatus=OnWay."""
     order = await _load_order(session, order_id)
-    order.on_way_at = _dt.utcnow()
+    order.on_way_at = utc_now()
     await _log_action(session, order, "take", actor_name=body.by)
     await _push_on_way(session, order)
     return await _order_action_and_broadcast(session, order_id)
@@ -635,7 +628,7 @@ async def order_delivered(order_id: int, body: ActionIn,
                           session: AsyncSession = Depends(get_session)):
     """Курьер доставил заказ — закрываем его в iiko (см. _close_in_iiko)."""
     order = await _load_order(session, order_id)
-    order.delivered_at = _dt.utcnow()
+    order.delivered_at = utc_now()
     await _log_action(session, order, "delivered", actor_name=body.by)
     if order.org_id and order.iiko_order_id:
         ok, detail = await _close_in_iiko(order, body)
@@ -768,7 +761,7 @@ async def debug_seed(org_id: str = "demo",
         payloads.append(realtime.order_payload(order))
 
     # Завершённые исторические — для аналитики/зон (на доску не шлём).
-    now = _dt.utcnow()
+    now = utc_now()
     for spec in _SEED_DONE:
         await _seed_done_order(session, org_id, spec, now)
 
@@ -793,7 +786,7 @@ def _parse_period(from_: str | None, to_: str | None):
     Раньше границы были по UTC-дате и расходились с локальным почасовым биннингом.
     Дефолт: последние 7 локальных дней."""
     off = _td(hours=settings.iiko_tz_offset_hours)
-    today = (_dt.utcnow() + off).date()
+    today = (utc_now() + off).date()
     d_to = _dt.fromisoformat(to_).date() if to_ else today
     d_from = _dt.fromisoformat(from_).date() if from_ else (d_to - _td(days=6))
     # локальная полночь d_from .. (d_to+1), переведённая в UTC
@@ -822,7 +815,7 @@ def _is_done(order) -> bool:
 
 def _local_today():
     """Сегодняшняя дата в ЛОКАЛЬНОМ времени филиала (iiko_tz_offset_hours)."""
-    return (_dt.utcnow() + _td(hours=settings.iiko_tz_offset_hours)).date()
+    return (utc_now() + _td(hours=settings.iiko_tz_offset_hours)).date()
 
 
 def _local_date(dt):
@@ -1233,10 +1226,13 @@ async def payment_types(org_id: str):
 
 
 @app.get("/rms/branches")
-async def rms_branches():
+async def rms_branches(request: Request):
     """Филиалы и сотрудники из RMS (живой вызов: логин/логаут на стороне rms)."""
     from app import rms
-    return await rms.branches_with_employees()
+    rows = await rms.branches_with_employees()
+    return [{**row, "employees": [{**employee, "code": courier_ref(employee["code"]) if employee.get("code") else ""}
+                                  for employee in row.get("employees", [])]}
+            for row in rows if row.get("code", row.get("branch_code")) == request.state.actor["branch_code"]]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1481,7 +1477,7 @@ async def branches_couriers(branch_code: str = "",
     ).scalars().all()
     by_code = {loc.courier_code: loc for loc in locs}
 
-    now = _dt.utcnow()
+    now = utc_now()
     out = []
     for c in couriers:
         loc = by_code.get(c["code"])
@@ -1490,7 +1486,7 @@ async def branches_couriers(branch_code: str = "",
         if loc is not None and loc.updated_at is not None:
             minutes_ago = int((now - loc.updated_at).total_seconds() // 60)
             geo_fresh = minutes_ago < _ACTIVE_WINDOW_MIN
-        out.append({"code": c["code"], "name": c["name"],
+        out.append({"code": courier_ref(c["code"]), "name": c["name"],
                     "active": c["code"] in shift_codes or geo_fresh,
                     "on_shift": c["code"] in shift_codes,
                     "minutes_ago": minutes_ago})
@@ -1529,13 +1525,22 @@ async def order_assign_courier(order_id: int, body: AssignCourierIn,
                 detail="Это не курьерская доставка — закройте заказ кнопкой «Выдан»")
 
     if order.assembled_at is None:
-        order.assembled_at = _dt.utcnow()
-    order.assigned_courier_code = body.courier_code
-    order.assigned_courier_name = body.courier_name
+        order.assembled_at = utc_now()
+    # Public identifiers are opaque: an RMS employee code is also their login PIN.
+    branches = await _rms.branches_with_employees()
+    branch_code = await _branch_code_for_org(order.org_id)
+    selected = next((employee for branch in branches if branch.get("code") == branch_code
+                     for employee in branch.get("employees", [])
+                     if employee.get("role") in _COURIER_ROLES and employee.get("code")
+                     and courier_ref(employee["code"]) == body.courier_code), None)
+    if selected is None:
+        raise HTTPException(422, "Choose a courier from this branch")
+    order.assigned_courier_code = selected["code"]
+    order.assigned_courier_name = selected["name"]
 
     ok, detail, method = True, {}, "update_order_courier"
     if order.org_id:
-        emp_id = await _iiko_write.cloud_courier_id(order.org_id, body.courier_name)
+        emp_id = await _iiko_write.cloud_courier_id(order.org_id, selected["name"])
         if emp_id:
             ok, detail = await _iiko_write.assign_courier(
                 order.org_id, order.iiko_order_id, emp_id)
@@ -1581,14 +1586,15 @@ def _tg_user_id(init_data: str) -> str:
     return telegram_id
 
 
-@app.get("/tg/shift-employees")
-async def tg_shift_employees(session: AsyncSession = Depends(get_session)):
+@app.post("/tg/shift-employees")
+async def tg_shift_employees(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
     """Кто сегодня на смене (открытая явка iiko, начатая сегодня) — для входа
     без PIN. busy = имя уже выбрано другим Telegram-аккаунтом сегодня."""
+    _tg_user_id(body.initData)
     try:
         shift = await _rms.shift_employees_today()
     except Exception as e:  # noqa: BLE001 — RMS недоступен/не настроен
-        raise HTTPException(status_code=503, detail=f"iiko недоступен: {e}")
+        raise HTTPException(status_code=503, detail="iiko временно недоступен")
     today = _local_today().isoformat()
     claimed = (await session.execute(
         _select(_TelegramLink.employee_id)
@@ -1611,22 +1617,27 @@ async def tg_shift_employees(session: AsyncSession = Depends(get_session)):
 class TgClaimIn(BaseModel):
     initData: str
     employee_id: str
+    pin: str
 
 
 @app.post("/tg/claim")
-async def tg_claim(body: TgClaimIn, session: AsyncSession = Depends(get_session)):
+async def tg_claim(body: TgClaimIn, request: Request, session: AsyncSession = Depends(get_session)):
     """Вход по явке: тап по своему имени вместо PIN. Требует, чтобы явка
     сотрудника всё ещё была открыта (список кэширован ~60с)."""
+    login_limit(request)
     telegram_id = _tg_user_id(body.initData)
     try:
         shift = await _rms.shift_employees_today()
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"iiko недоступен: {e}")
+        raise HTTPException(status_code=503, detail="iiko временно недоступен")
     emp = next((x for x in shift if x["employee_id"] == body.employee_id), None)
     if emp is None:
         raise HTTPException(status_code=409,
                             detail="Явка закрыта или смена не открыта — обнови список")
 
+    verified = await _rms.find_employee_by_pin(body.pin.strip())
+    if not verified or verified.get("employee_id") != body.employee_id:
+        raise HTTPException(401, "Неверный PIN сотрудника")
     link = (await session.execute(
         _select(_TelegramLink).where(_TelegramLink.telegram_id == telegram_id))
     ).scalar_one_or_none()
@@ -1643,12 +1654,13 @@ async def tg_claim(body: TgClaimIn, session: AsyncSession = Depends(get_session)
     await session.commit()
 
     return {
+        "token": issue_token({**emp, "employee_id": body.employee_id}, telegram_id, emp["code"]),
         "linked": True,
         "name": emp["name"],
         "branch_code": emp["branch_code"],
         "org_id": emp["org_id"],
         "role": emp["role"],
-        "courier_code": emp["code"],
+        "courier_code": courier_ref(emp["code"]),
     }
 
 
@@ -1671,12 +1683,15 @@ async def tg_auth(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
     except Exception:  # noqa: BLE001 — RMS лёг: не выкидываем курьера среди смены
         pass
     return {
+        "token": issue_token({"employee_id": link.employee_id, "name": link.name,
+            "branch_code": link.branch_code, "org_id": link.org_id, "role": link.role},
+            telegram_id, link.employee_code),
         "linked": True,
         "name": link.name,
         "branch_code": link.branch_code,
         "org_id": link.org_id,
         "role": link.role,
-        "courier_code": link.employee_code,
+        "courier_code": courier_ref(link.employee_code),
     }
 
 
@@ -1721,24 +1736,23 @@ async def tg_deliveries(org_id: str, session: AsyncSession = Depends(get_session
 
 
 @app.get("/tg/my-orders")
-async def tg_my_orders(courier_code: str,
+async def tg_my_orders(courier_code: str, request: Request,
                        session: AsyncSession = Depends(get_session)):
     """Заказы, назначенные курьеру и ещё не доставленные."""
     rows = (await session.execute(
         _select(_Order)
-        .where(_Order.assigned_courier_code == courier_code,
+        .where(_Order.org_id.in_(request.state.actor["orgs"]),
                _Order.delivered_at.is_(None))
         .order_by(_Order.created_at))).scalars().all()
-    return [realtime.order_payload(o) for o in rows]
+    return [realtime.order_payload(o) for o in rows
+            if o.assigned_courier_code and courier_ref(o.assigned_courier_code) == courier_code]
 
 
 @app.post("/tg/unlink")
-async def tg_unlink(body: TgAuthIn, session: AsyncSession = Depends(get_session)):
+async def tg_unlink(body: TgAuthIn, request: Request, session: AsyncSession = Depends(get_session)):
     """Выход курьера: удаляем привязку Telegram-аккаунта, чтобы можно было войти другим PIN."""
-    pairs = _telegram.parse_and_validate(body.initData)
-    if pairs is None:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-    telegram_id = str(_telegram.extract_user(pairs).get("id") or "")
+    telegram_id = request.state.actor.get("telegram_id", "")
+    if not telegram_id: raise HTTPException(401, "Telegram session required")
     if telegram_id:
         from app.models import TelegramLink as _TL
         from sqlalchemy import delete as _del
@@ -1778,19 +1792,17 @@ async def _save_courier_location(session: AsyncSession, telegram_id: str,
     loc.branch_code = link.branch_code
     loc.lat = lat
     loc.lon = lon
-    loc.updated_at = _dt.utcnow()
+    loc.updated_at = utc_now()
     await session.commit()
     return True
 
 
 @app.post("/tg/location")
-async def tg_location(body: TgLocationIn,
+async def tg_location(body: TgLocationIn, request: Request,
                       session: AsyncSession = Depends(get_session)):
     """Курьер из Telegram-аппа шлёт свою геопозицию (раз в ~20с, пока апп открыт)."""
-    pairs = _telegram.parse_and_validate(body.initData)
-    if pairs is None:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-    telegram_id = str(_telegram.extract_user(pairs).get("id") or "")
+    telegram_id = request.state.actor.get("telegram_id", "")
+    if not telegram_id: raise HTTPException(401, "Telegram session required")
     if not await _save_courier_location(session, telegram_id, body.lat, body.lon):
         raise HTTPException(status_code=401, detail="not linked")
     return {"ok": True}
@@ -1801,9 +1813,7 @@ async def tg_bot_webhook(request: Request,
                          session: AsyncSession = Depends(get_session)):
     """Webhook бота: принимает Live Location курьера в ФОНЕ (даже когда апп закрыт).
     Живая геопозиция приходит как edited_message с обновляемым location."""
-    if settings.webhook_secret:
-        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != settings.webhook_secret:
-            raise HTTPException(status_code=403, detail="bad secret")
+    require_secret(request.headers.get("X-Telegram-Bot-Api-Secret-Token", ""), settings.telegram_webhook_secret)
     try:
         update = await request.json()
     except Exception:
@@ -1820,13 +1830,11 @@ async def tg_bot_webhook(request: Request,
 @app.post("/tg/set-bot-webhook")
 async def tg_set_bot_webhook(key: str = Query(default="")):
     """Разово: зарегистрировать webhook бота на наш /tg/bot-webhook (для Live Location)."""
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
     base = iiko_cloud._public_base_url()
     if not base:
         raise HTTPException(status_code=400, detail="no public base url")
     return await _telegram.set_webhook(f"{base}/tg/bot-webhook",
-                                       secret_token=settings.webhook_secret)
+                                       secret_token=settings.telegram_webhook_secret)
 
 
 @app.get("/admin/couriers-locations")
@@ -1837,12 +1845,12 @@ async def couriers_locations(branch_code: str | None = None,
     if branch_code:
         q = q.where(_CourierLocation.branch_code == branch_code)
     rows = (await session.execute(q)).scalars().all()
-    now = _dt.utcnow()
+    now = utc_now()
     out = []
     for r in rows:
         mins = int((now - r.updated_at).total_seconds() // 60) if r.updated_at else None
         out.append({
-            "courier_code": r.courier_code, "name": r.name,
+            "courier_code": courier_ref(r.courier_code), "name": r.name,
             "lat": r.lat, "lon": r.lon,
             "updated_at": r.updated_at.isoformat() + "Z" if r.updated_at else None,
             "minutes_ago": mins,
@@ -1905,7 +1913,7 @@ async def track_order(iiko_order_id: str,
                 _CourierLocation.courier_code == order.assigned_courier_code))
         ).scalar_one_or_none()
         if loc is not None:
-            minutes_ago = (int((_dt.utcnow() - loc.updated_at).total_seconds() // 60)
+            minutes_ago = (int((utc_now() - loc.updated_at).total_seconds() // 60)
                            if loc.updated_at else None)
             courier = {"lat": loc.lat, "lon": loc.lon, "minutes_ago": minutes_ago}
 
@@ -2011,7 +2019,7 @@ async def admin_dashboard(org_id: str, session: AsyncSession = Depends(get_sessi
     # Курьеры на смене: уникальные courier_code со свежей геопозицией (<30 мин).
     # Только филиал org_id (через его branch-коды) — CourierLocation без org_id,
     # иначе считались бы курьеры всех филиалов.
-    now = _dt.utcnow()
+    now = utc_now()
     loc_q = _select(_CourierLocation)
     bcs = await _org_branch_codes(session, org_id)
     if bcs:
@@ -2155,7 +2163,7 @@ async def update_delivery_zone(zone_id: int, body: dict, org_id: str,
     if "name" in body: z.name = body["name"]
     if "polygon" in body: z.polygon = body["polygon"] or []
     if "color" in body: z.color = body["color"]
-    z.updated_at = _dt.utcnow()
+    z.updated_at = utc_now()
     await session.commit()
     await session.refresh(z)
     return _zone_out(z)
@@ -2226,8 +2234,6 @@ async def admin_reset_analytics(key: str = Query(default=""),
     Незакрытые заказы вернёт поллер iiko (POLL_CATCHUP_DAYS), так что рабочие
     экраны восстановятся сами. Защищено тем же секретом, что /debug/*.
     """
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
     counts = {}
     for name, model in (("events", _OrderEvent), ("items", _OrderItem),
                         ("orders", _Order)):
@@ -2261,7 +2267,7 @@ def _period_dates(from_: str | None, to: str | None) -> tuple[str, str]:
     """Границы периода как локальные даты YYYY-MM-DD — в таком виде их ждёт OLAP.
     Дефолт тот же, что у _parse_period: последние 7 локальных дней."""
     off = _td(hours=settings.iiko_tz_offset_hours)
-    today = (_dt.utcnow() + off).date()
+    today = (utc_now() + off).date()
     d_to = _dt.fromisoformat(to).date() if to else today
     d_from = _dt.fromisoformat(from_).date() if from_ else (d_to - _td(days=6))
     return d_from.isoformat(), d_to.isoformat()
@@ -2298,7 +2304,7 @@ async def _staffing_grid(org_id: str, weeks: int) -> dict:
                             detail=f"филиал {org_id} не найден среди организаций iiko")
     weeks = max(1, min(int(weeks), 12))
     off = _td(hours=settings.iiko_tz_offset_hours)
-    date_to = (_dt.utcnow() + off).date()
+    date_to = (utc_now() + off).date()
     date_from = date_to - _td(days=weeks * 7 - 1)
 
     sales = await _olap.fetch_sales_rows(department, date_from.isoformat(),
@@ -2332,9 +2338,7 @@ async def admin_cleanup_empty_orders(org_id: str, minutes: int = 30,
     """
     # Ручка удаляет данные — закрываем тем же секретом, что /debug/* и сброс
     # аналитики. Знать org_id для этого недостаточно.
-    if settings.webhook_secret and key != settings.webhook_secret:
-        raise HTTPException(status_code=403, detail="bad key")
-    cutoff = _dt.utcnow() - _td(minutes=max(1, minutes))
+    cutoff = utc_now() - _td(minutes=max(1, minutes))
     orders = (await session.execute(
         _select(_Order).where(_Order.org_id == org_id,
                               _Order.created_at < cutoff))).scalars().all()
@@ -2385,7 +2389,7 @@ async def kitchen_prep_hint(org_id: str, zone: str = "japan", weeks: int = 4,
         raise HTTPException(status_code=404,
                             detail=f"филиал {org_id} не найден среди организаций iiko")
     off = _td(hours=settings.iiko_tz_offset_hours)
-    now_local = _dt.utcnow() + off
+    now_local = utc_now() + off
     target = now_local + _td(minutes=PREP_LEAD_MINUTES)
 
     date_to = now_local.date()
@@ -2463,7 +2467,7 @@ async def admin_shift_plan(org_id: str, date: str | None = None, weeks: int = 4)
     """Где не хватит рук в конкретный день (по умолчанию — завтра)."""
     off = _td(hours=settings.iiko_tz_offset_hours)
     day = (_dt.fromisoformat(date).date() if date
-           else (_dt.utcnow() + off).date() + _td(days=1))
+           else (utc_now() + off).date() + _td(days=1))
     grid = await _staffing_grid(org_id, weeks)
     return {"date": day.isoformat(), "weekday": day.weekday(),
             "department": grid["department"], "zones": grid["zones"],
@@ -2600,7 +2604,7 @@ async def _late_deliveries_safe(org_id: str, from_: str | None, to: str | None,
     try:
         return await _late_deliveries(org_id, from_, to, session)
     except Exception as exc:
-        return {"error": str(exc)}
+        return {"error": "Upstream service unavailable"}
 
 
 @app.delete("/admin/orders/by-number/{number}")
@@ -2619,3 +2623,12 @@ async def admin_delete_order_by_number(number: str, org_id: str,
     await session.execute(_sl_delete(_Order).where(_Order.id == oid))
     await session.commit()
     return {"ok": True, "deleted_number": number, "deleted_id": oid}
+
+
+@app.post("/orders/{order_id}/tracking-link")
+async def tracking_link(order_id: int, session: AsyncSession = Depends(get_session)):
+    order = await session.get(_Order, order_id)
+    token = jwt.encode({"order_id":order.iiko_order_id, "iss":"saya-kds", "aud":"saya-tracking",
+        "exp":_dt.now(__import__('datetime').timezone.utc)+_td(hours=48)}, settings.jwt_secret, algorithm="HS256")
+    from urllib.parse import quote
+    return {"url":f"/track/{quote(order.iiko_order_id)}?token={quote(token)}"}

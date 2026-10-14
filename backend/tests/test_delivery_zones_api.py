@@ -1,3 +1,4 @@
+from app.time_utils import utc_now
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.api import app
@@ -150,7 +151,7 @@ async def test_summary_period_vs_previous(client, session):
     from app.config import settings
     # Якорим на ЛОКАЛЬНЫЙ полдень — детерминированно внутри суток при любом TZ.
     off = timedelta(hours=settings.iiko_tz_offset_hours)
-    local_today = (datetime.utcnow() + off).date()
+    local_today = (utc_now() + off).date()
     noon = datetime(local_today.year, local_today.month, local_today.day, 12) - off
     # 2 заказа в текущем локальном дне, 1 в предыдущем (по created_at)
     session.add(Order(iiko_order_id="s1", org_id="demo", number="1",
@@ -179,7 +180,7 @@ async def test_analytics_respects_period(client, session):
     from app.models import Order, OrderItem
     from app.config import settings
     off = timedelta(hours=settings.iiko_tz_offset_hours)
-    local_today = (datetime.utcnow() + off).date()
+    local_today = (utc_now() + off).date()
     noon = datetime(local_today.year, local_today.month, local_today.day, 12) - off
     old = noon - timedelta(days=10)
     today_o = Order(iiko_order_id="p1", org_id="demo", number="10", created_at=noon)
@@ -210,7 +211,7 @@ async def test_dashboard_counts_by_local_day(client, session):
     from app.models import Order
     from app.config import settings
     off = timedelta(hours=settings.iiko_tz_offset_hours)
-    local_today = (datetime.utcnow() + off).date()
+    local_today = (utc_now() + off).date()
     # 02:00 локального сегодня, переведённое в UTC (при оффсете>=3 это вчерашняя UTC-дата)
     local_early = datetime(local_today.year, local_today.month, local_today.day, 2) - off
     session.add(Order(iiko_order_id="d1", org_id="demo", number="20",
@@ -229,7 +230,7 @@ async def test_dashboard_couriers_scoped_to_branch(client, session, monkeypatch)
     from app.models import CourierLocation
     from app.config import settings
     monkeypatch.setattr(settings, "branch_code", "ALIYEV")
-    now = datetime.utcnow()
+    now = utc_now()
     session.add(CourierLocation(courier_code="c-our", branch_code="ALIYEV",
                                 lat=51.1, lon=71.4, updated_at=now))
     session.add(CourierLocation(courier_code="c-other", branch_code="OTHER",

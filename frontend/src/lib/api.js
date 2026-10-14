@@ -1,4 +1,4 @@
-import { getOrgId } from "./auth.js";
+import { getOrgId, getSession, clearSession } from "./auth.js";
 
 // В Vite-деве (порт 5173) ходим на локальный backend :8000.
 // Когда SPA раздаётся самим backend (ngrok/Render) — тот же origin (относительные пути),
@@ -8,6 +8,19 @@ export const BASE =
     ? "http://localhost:8000"
     : "";
 export const ORG_ID = "demo";
+
+// Send credentials only to our own API, never to external map or routing services.
+export async function authenticatedFetch(input, options = {}) {
+  const url = new URL(input, window.location.origin);
+  const apiOrigin = new URL(BASE || window.location.origin, window.location.origin).origin;
+  const headers = new Headers(options.headers || {});
+  if (url.origin === apiOrigin && getSession()?.token) {
+    headers.set("Authorization", `Bearer ${getSession().token}`);
+  }
+  const response = await fetch(input, { ...options, headers });
+  if (response.status === 401 && headers.has("Authorization")) clearSession();
+  return response;
+}
 
 async function handle(res) {
   if (!res.ok) {
@@ -20,7 +33,7 @@ async function handle(res) {
 }
 
 export async function get(path) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
@@ -28,7 +41,7 @@ export async function get(path) {
 }
 
 export async function post(path, body) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: body == null ? undefined : JSON.stringify(body),
@@ -37,7 +50,7 @@ export async function post(path, body) {
 }
 
 export async function put(path, body) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: body == null ? undefined : JSON.stringify(body),
@@ -46,7 +59,7 @@ export async function put(path, body) {
 }
 
 export async function del(path) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
@@ -64,7 +77,7 @@ export function tgBase() {
 }
 
 async function tgGet(path) {
-  const res = await fetch(`${tgBase()}${path}`, {
+  const res = await authenticatedFetch(`${tgBase()}${path}`, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
@@ -72,7 +85,7 @@ async function tgGet(path) {
 }
 
 async function tgPost(path, body) {
-  const res = await fetch(`${tgBase()}${path}`, {
+  const res = await authenticatedFetch(`${tgBase()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: body == null ? undefined : JSON.stringify(body),
@@ -165,8 +178,8 @@ export const api = {
 
   // Telegram mini-app courier helpers (same-origin in Telegram).
   tgAuth: (initData) => tgPost("/tg/auth", { initData }),
-  tgShiftEmployees: () => tgGet("/tg/shift-employees"),
-  tgClaim: (initData, employee_id) => tgPost("/tg/claim", { initData, employee_id }),
+  tgShiftEmployees: (initData) => tgPost("/tg/shift-employees", { initData }),
+  tgClaim: (initData, employee_id, pin) => tgPost("/tg/claim", { initData, employee_id, pin }),
   tgMyOrders: (courier_code) =>
     tgGet(`/tg/my-orders?courier_code=${encodeURIComponent(courier_code)}`),
   tgDeliveries: (org_id) =>

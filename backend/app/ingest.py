@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.time_utils import utc_now
 from datetime import datetime, timedelta
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,7 +118,7 @@ async def ingest_order(session: AsyncSession,
     order.payment_type_kind = data.payment_type_kind
     order.payment_type_name = data.payment_type_name
     order.complete_before = data.complete_before
-    order.preorder_held = is_held(data.complete_before, datetime.utcnow(),
+    order.preorder_held = is_held(data.complete_before, utc_now(),
                                   settings.preorder_lead_minutes)
 
     # Тайм-штампы жизненного цикла из iiko. Заполняем ТОЛЬКО пустые поля, чтобы

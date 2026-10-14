@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.time_utils import utc_now
 import statistics
 from datetime import datetime, timedelta
 
@@ -85,7 +86,7 @@ def sla_breaches(orders, threshold_sec: float, tz_offset_hours: int = 0,
     """SLA created_at -> delivered_at. Зависший заказ (не доставлен, не закрыт в
     iiko, возраст уже больше порога) — тоже просрочка: иначе самые проблемные
     заказы вообще не попадали бы в процент."""
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     total = breached = 0
     by_day: dict[str, dict] = {}
     by_hour: dict[int, dict] = {}
@@ -316,6 +317,7 @@ def zone_load(orders, tz_offset_hours: int = 0,
     other, а не выбрасывается молча. Пропускаем только блюда без ready.
     """
     cells: dict[str, dict[int, dict]] = {z: {} for z in zones}
+    cells_by_dow = {z: {} for z in zones}
     totals: dict[str, dict] = {z: {"count": 0, "sum": 0.0, "timed": 0} for z in zones}
     for o in orders:
         for it in o.items:
@@ -327,12 +329,16 @@ def zone_load(orders, tz_offset_hours: int = 0,
             ready = it.station_ready_at
             if ready is None:
                 continue
-            hour = (ready + timedelta(hours=tz_offset_hours)).hour
+            local = ready + timedelta(hours=tz_offset_hours)
+            hour = local.hour
+            dow_cell = cells_by_dow[z].setdefault(str(local.weekday()), {}).setdefault(str(hour), {"count":0,"sum":0.0,"timed":0})
+            dow_cell["count"] += 1
             dur = _dur(it.station_accepted_at, it.station_ready_at)
             cell = cells[z].setdefault(hour, {"count": 0, "sum": 0.0, "timed": 0})
             cell["count"] += 1
             totals[z]["count"] += 1
             if dur is not None:
+                dow_cell["sum"] += dur; dow_cell["timed"] += 1
                 cell["sum"] += dur; cell["timed"] += 1
                 totals[z]["sum"] += dur; totals[z]["timed"] += 1
 
@@ -341,6 +347,7 @@ def zone_load(orders, tz_offset_hours: int = 0,
                 "avg_sec": (d["sum"] / d["timed"]) if d["timed"] else None}
 
     return {
+        "cells_by_dow": {z:{d:{h:_fin(c) for h,c in hours.items()} for d,hours in days.items()} for z,days in cells_by_dow.items()},
         "zones": list(zones),
         "hours": list(range(24)),
         "cells": {z: {h: _fin(c) for h, c in hrs.items()} for z, hrs in cells.items()},

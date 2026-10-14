@@ -1,19 +1,20 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import Home from "./screens/Home.jsx";
-import KitchenRolls from "./screens/KitchenRolls.jsx";
-import KitchenPizza from "./screens/KitchenPizza.jsx";
-import Assembler from "./screens/Assembler.jsx";
-import TgCourier from "./screens/TgCourier.jsx";
-import Branches from "./screens/Branches.jsx";
-import StationMap from "./screens/StationMap.jsx";
-import CourierMap from "./screens/CourierMap.jsx";
-import DemandMap from "./screens/DemandMap.jsx";
-import Login from "./screens/Login.jsx";
-import Track from "./screens/Track.jsx";
-import EmployeeHistory from "./screens/EmployeeHistory.jsx";
-import Dashboard from "./screens/Dashboard.jsx";
-import Analytics from "./screens/Analytics.jsx";
-import DeliveryZones from "./screens/DeliveryZones.jsx";
+const Home = lazy(() => import("./screens/Home.jsx"));
+const KitchenRolls = lazy(() => import("./screens/KitchenRolls.jsx"));
+const KitchenPizza = lazy(() => import("./screens/KitchenPizza.jsx"));
+const Assembler = lazy(() => import("./screens/Assembler.jsx"));
+const TgCourier = lazy(() => import("./screens/TgCourier.jsx"));
+const Branches = lazy(() => import("./screens/Branches.jsx"));
+const StationMap = lazy(() => import("./screens/StationMap.jsx"));
+const CourierMap = lazy(() => import("./screens/CourierMap.jsx"));
+const DemandMap = lazy(() => import("./screens/DemandMap.jsx"));
+const Login = lazy(() => import("./screens/Login.jsx"));
+const Track = lazy(() => import("./screens/Track.jsx"));
+const EmployeeHistory = lazy(() => import("./screens/EmployeeHistory.jsx"));
+const Dashboard = lazy(() => import("./screens/Dashboard.jsx"));
+const Analytics = lazy(() => import("./screens/Analytics.jsx"));
+const DeliveryZones = lazy(() => import("./screens/DeliveryZones.jsx"));
 import { isAuthed, isManager } from "./lib/auth.js";
 
 function RequireAuth({ children }) {
@@ -30,6 +31,7 @@ function RequireManager({ children }) {
 
 export default function App() {
   return (
+    <Suspense fallback={<p role="status">Загрузка…</p>}>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/tg" element={<TgCourier />} />
@@ -45,9 +47,10 @@ export default function App() {
       <Route path="/branches" element={<RequireManager><Branches /></RequireManager>} />
       <Route path="/stations" element={<RequireManager><StationMap /></RequireManager>} />
       <Route path="/history" element={<RequireManager><EmployeeHistory /></RequireManager>} />
-      <Route path="/map" element={<RequireAuth><CourierMap /></RequireAuth>} />
+      <Route path="/map" element={<RequireManager><CourierMap /></RequireManager>} />
       <Route path="/demand" element={<RequireManager><DemandMap /></RequireManager>} />
       <Route path="*" element={<RequireAuth><Home /></RequireAuth>} />
     </Routes>
+    </Suspense>
   );
 }

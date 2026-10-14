@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import { getOrgId } from "../lib/auth.js";
 import "../history.css";
 
@@ -34,7 +34,7 @@ export default function EmployeeHistory() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
+        const res = await authenticatedFetch(
           `${BASE}/admin/employee-history?org_id=${getOrgId()}`,
           { headers: { Accept: "application/json" } },
         );

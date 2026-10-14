@@ -1,3 +1,5 @@
+import pytest
+from app.security import courier_ref
 import respx
 import httpx
 from httpx import ASGITransport, AsyncClient
@@ -162,7 +164,7 @@ async def test_assign_courier_success_syncs_to_iiko(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/assign-courier",
-                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+                     json={"courier_code": courier_ref("K1"), "courier_name": "Иван Курьер"})
     assert r.status_code == 200
     assert upd.called
     assert r.json()["iiko_sync_error"] is None
@@ -191,7 +193,7 @@ async def test_assign_courier_moves_order_to_on_way_in_iiko(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/assign-courier",
-                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+                     json={"courier_code": courier_ref("K1"), "courier_name": "Иван Курьер"})
     assert r.status_code == 200
     assert st.called, "статус доставки в iiko не отправлен — заказ не попадёт в «В пути»"
     assert b'"OnWay"' in st.calls.last.request.read()
@@ -218,7 +220,7 @@ async def test_assign_courier_on_way_failure_does_not_hide_assignment(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/assign-courier",
-                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+                     json={"courier_code": courier_ref("K1"), "courier_name": "Иван Курьер"})
     assert r.status_code == 200
     assert r.json()["iiko_sync_error"]
     async with maker() as s:
@@ -264,7 +266,7 @@ async def test_assign_courier_refused_for_pickup_order(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/assign-courier",
-                     json={"courier_code": "K1", "courier_name": "Иван Курьер"})
+                     json={"courier_code": courier_ref("K1"), "courier_name": "Иван Курьер"})
     assert r.status_code == 409
     assert not upd.called
     async with maker() as s:
@@ -285,7 +287,7 @@ async def test_assign_courier_unmatched_sets_sync_error(client):
         oid = (await s.execute(select(Order.id))).scalar_one()
 
     r = await c.post(f"/orders/{oid}/assign-courier",
-                     json={"courier_code": "K1", "courier_name": "Нет В Cloud"})
+                     json={"courier_code": courier_ref("K1"), "courier_name": "Нет В Cloud"})
     assert r.status_code == 200
     assert r.json()["iiko_sync_error"] == "courier_not_matched"
     # локальное назначение всё равно сохранено
@@ -713,3 +715,16 @@ async def test_delivered_status_fail_sets_error_no_close(client):
     assert r.status_code == 200 and r.json()["delivered"] is True
     assert not cl.called  # close не зовём, если Delivered не проставился
     assert r.json()["iiko_sync_error"]
+
+
+@pytest.fixture(autouse=True)
+def courier_directory(monkeypatch, request):
+    """Mock RMS identity verification; iiko write mocks remain in each behavior test."""
+    from app import rms, api
+    async def branches():
+        return [{"code": "AAA", "employees": [
+            {"code": "K1", "name": "Нет В Cloud" if "unmatched" in request.node.name else "Иван Курьер", "role": "КР"},
+            {"code": "C7", "name": "Айдос", "role": "КР"}]}]
+    async def branch_for_org(org_id): return "AAA" if org_id == "org-1" else "OTHER"
+    monkeypatch.setattr(rms, "branches_with_employees", branches)
+    monkeypatch.setattr(api, "_branch_code_for_org", branch_for_org)

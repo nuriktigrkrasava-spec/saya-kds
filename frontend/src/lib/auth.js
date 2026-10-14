@@ -5,6 +5,7 @@ export function saveSession(data) {
   try {
     const session = {
       token: data.token,
+      courier_code: data.courier_code,
       name: data.name,
       role: data.role,
       branch_code: data.branch_code,
@@ -12,6 +13,7 @@ export function saveSession(data) {
       org_id: data.org_id,
     };
     localStorage.setItem(KEY, JSON.stringify(session));
+    window.dispatchEvent(new Event("saya-session-changed"));
   } catch {
     /* ignore */
   }
@@ -29,6 +31,7 @@ export function getSession() {
 export function clearSession() {
   try {
     localStorage.removeItem(KEY);
+    window.dispatchEvent(new Event("saya-session-changed"));
   } catch {
     /* ignore */
   }
@@ -45,7 +48,12 @@ export function getOperatorName() {
 }
 
 export function isAuthed() {
-  return !!getSession();
+  try {
+    const token = getSession()?.token;
+    if (!token) return false;
+    const claims = JSON.parse(atob(token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+    return claims.exp > Date.now()/1000;
+  } catch { return false; }
 }
 
 // ── Роли ────────────────────────────────────────────────────────────────────

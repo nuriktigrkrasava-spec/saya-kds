@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import "../branches.css";
 
 export default function Branches() {
@@ -16,7 +16,7 @@ export default function Branches() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${BASE}/rms/branches`, {
+        const res = await authenticatedFetch(`${BASE}/rms/branches`, {
           headers: { Accept: "application/json" },
         });
         if (!res.ok) {

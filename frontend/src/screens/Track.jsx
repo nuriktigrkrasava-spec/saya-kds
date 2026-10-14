@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import "../track.css";
 
 const POLL_MS = 10000;
@@ -28,7 +28,7 @@ export default function Track() {
     let alive = true;
     async function load() {
       try {
-        const res = await fetch(`${BASE}/api/track/${encodeURIComponent(id)}`, {
+        const res = await authenticatedFetch(`${BASE}/api/track/${encodeURIComponent(id)}?token=${encodeURIComponent(new URLSearchParams(window.location.search).get("token") || "")}`, {
           headers: { Accept: "application/json" },
         });
         if (res.status === 404) {

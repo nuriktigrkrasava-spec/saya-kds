@@ -1,5 +1,6 @@
 """Корректность показателей аналитики: отменённые заказы, Closed без отметки
 курьера, SLA по зависшим недоставленным, зона other в тепловой карте."""
+from app.time_utils import utc_now
 import pytest
 from datetime import datetime, timedelta
 from httpx import AsyncClient, ASGITransport
@@ -18,7 +19,7 @@ def client(session):
 
 def _local_noon():
     off = timedelta(hours=settings.iiko_tz_offset_hours)
-    local_today = (datetime.utcnow() + off).date()
+    local_today = (utc_now() + off).date()
     noon = datetime(local_today.year, local_today.month, local_today.day, 12) - off
     return local_today, noon
 
@@ -64,7 +65,7 @@ async def test_closed_without_delivered_counts_as_done(client, session):
 async def test_sla_counts_stuck_undelivered_as_breached(client, session):
     """Недоставленный заказ старше SLA-порога — уже просрочка, а не «не считается»."""
     from app.models import Order
-    now = datetime.utcnow()
+    now = utc_now()
     session.add(Order(iiko_order_id="s1", org_id="demo", number="1",
                       created_at=now - timedelta(hours=2)))       # висит 2 часа
     session.add(Order(iiko_order_id="s2", org_id="demo", number="2",

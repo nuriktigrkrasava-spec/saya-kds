@@ -3,6 +3,7 @@
 На проде у поваров с 13-14 августа висели пять записей без номера, статуса и
 позиций — их не закрыть и не убрать, они просто занимали экран.
 """
+from app.time_utils import utc_now
 import pytest
 from datetime import datetime, timedelta
 from httpx import AsyncClient, ASGITransport
@@ -61,7 +62,7 @@ async def test_existing_order_is_still_updated_when_items_empty(session):
 @pytest.mark.asyncio
 async def test_cleanup_removes_stuck_empty_orders(client, session):
     """Уборка сносит пустые записи, но не трогает живые заказы."""
-    old = datetime.utcnow() - timedelta(hours=5)
+    old = utc_now() - timedelta(hours=5)
     session.add(Order(iiko_order_id="junk", org_id="org-1", number="",
                       status="", created_at=old))
     live = Order(iiko_order_id="real", org_id="org-1", number="15",
@@ -83,7 +84,7 @@ async def test_cleanup_removes_stuck_empty_orders(client, session):
 async def test_cleanup_spares_orders_from_the_last_minutes(client, session):
     """Свежий пустой заказ мог только что открыться — состав ещё едет."""
     session.add(Order(iiko_order_id="fresh", org_id="org-1", number="",
-                      status="", created_at=datetime.utcnow()))
+                      status="", created_at=utc_now()))
     await session.commit()
 
     async with client as c:
@@ -144,7 +145,7 @@ async def test_cleanup_spares_orders_that_have_a_number(client, session):
 
     Иначе из аналитики молча исчезает реальная доставка вместе с журналом.
     """
-    old = datetime.utcnow() - timedelta(hours=5)
+    old = utc_now() - timedelta(hours=5)
     session.add(Order(iiko_order_id="waiting", org_id="org-1", number="88",
                       status="New", created_at=old))
     await session.commit()
@@ -158,18 +159,21 @@ async def test_cleanup_spares_orders_that_have_a_number(client, session):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_real_auth
 async def test_cleanup_requires_the_secret(client, session, monkeypatch):
     """Ручка удаляет данные — знать org_id для этого мало."""
     from app.config import settings
     monkeypatch.setattr(settings, "webhook_secret", "s3cret")
 
-    old = datetime.utcnow() - timedelta(hours=5)
+    old = utc_now() - timedelta(hours=5)
     session.add(Order(iiko_order_id="junk2", org_id="org-1", number="",
                       status="", created_at=old))
     await session.commit()
 
     async with client as c:
         denied = await c.post("/admin/cleanup-empty-orders?org_id=org-1")
-        allowed = await c.post("/admin/cleanup-empty-orders?org_id=org-1&key=s3cret")
-    assert denied.status_code == 403
+        from app.security import issue_token
+        token=issue_token({"employee_id":"tester","org_id":"org-1","role":"ADM","name":"tester","branch_code":"B1"})
+        allowed = await c.post("/admin/cleanup-empty-orders?org_id=org-1", headers={"Authorization":"Bearer "+token})
+    assert denied.status_code == 401
     assert allowed.json()["deleted"] == 1

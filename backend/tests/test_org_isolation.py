@@ -1,4 +1,5 @@
 """Изоляция филиалов: данные одного org_id не видны/не правятся через другой."""
+from app.time_utils import utc_now
 import pytest
 from datetime import datetime, timedelta
 from httpx import AsyncClient, ASGITransport
@@ -61,7 +62,7 @@ async def test_dashboard_couriers_scoped_by_org_links(client, session, monkeypat
     from app.models import CourierLocation, TelegramLink
     from app.config import settings
     monkeypatch.setattr(settings, "branch_code", "")
-    now = datetime.utcnow()
+    now = utc_now()
     session.add(TelegramLink(telegram_id="1", employee_code="c-our",
                              branch_code="BR-A", org_id="org-a"))
     session.add(TelegramLink(telegram_id="2", employee_code="c-other",

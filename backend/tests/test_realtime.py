@@ -1,3 +1,4 @@
+from app.security import courier_ref
 from app import realtime
 from app.models import Order, OrderItem
 
@@ -28,7 +29,7 @@ def test_order_payload_exposes_courier_and_assembled_at():
     order.items = []
     p = realtime.order_payload(order)
     assert p["assigned_courier_name"] == "Адильхан"
-    assert p["assigned_courier_code"] == "77"
+    assert p["assigned_courier_code"] == courier_ref("77")
     assert p["assembled_at"] == "2026-07-06T12:00:00Z"
 
 
