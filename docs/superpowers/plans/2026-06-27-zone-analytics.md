@@ -153,7 +153,7 @@ Expected: PASS (поведение `station`/merge не изменилось).
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add backend/app/models.py backend/app/main.py backend/app/stations.py backend/app/ingest.py backend/tests/test_kitchen_zone_ingest.py
 git commit -m "feat(analytics): OrderItem.kitchen_zone — до-merge зона для зональной аналитики
 
@@ -279,7 +279,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add backend/app/scripts_backfill.py backend/scripts/backfill_kitchen_zone.py backend/tests/test_kitchen_zone_backfill.py
 git commit -m "feat(analytics): бэкфилл kitchen_zone по имени блюда
 
@@ -432,7 +432,7 @@ Expected: без traceback.
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add backend/app/analytics_stages.py backend/app/api.py backend/tests/test_zone_load.py
 git commit -m "feat(analytics): zone_load — нагрузка кухни по часам (объём+ср.время) + эндпоинт
 
@@ -533,7 +533,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add backend/app/geo.py backend/tests/test_geo.py
 git commit -m "feat(geo): point_in_polygon + assign_zone для курьерских зон
 
@@ -689,7 +689,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add backend/app/models.py backend/app/api.py backend/tests/test_delivery_zones_api.py
 git commit -m "feat(zones): модель DeliveryZone + CRUD /admin/delivery-zones
 
@@ -843,7 +843,7 @@ Expected: PASS (все тесты, включая старые).
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add backend/app/analytics_stages.py backend/app/api.py backend/tests/test_courier_zone_load.py
 git commit -m "feat(analytics): courier_zone_load — нагрузка по районам города + эндпоинт
 
@@ -896,13 +896,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 3: Проверка сборки**
 
-Run: `cd /Users/kiluazoldik/Desktop/при/frontend && npx vite build`
+Run: `cd /path/to/workspace/при/frontend && npx vite build`
 Expected: сборка без ошибок.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add frontend/index.html frontend/src/lib/api.js
 git commit -m "feat(frontend): API-обёртки зональной аналитики + leaflet-draw
 
@@ -1022,8 +1022,8 @@ useEffect(() => {
 
 Запустить бэкенд и фронт, открыть `/analytics`:
 ```bash
-cd /Users/kiluazoldik/Desktop/при/backend && python -m uvicorn app.main:app --port 8000 &
-cd /Users/kiluazoldik/Desktop/при/frontend && npx vite
+cd /path/to/workspace/при/backend && python -m uvicorn app.main:app --port 8000 &
+cd /path/to/workspace/при/frontend && npx vite
 ```
 Проверить: вверху страницы две таблицы «зона × час» с числами и минутами; кухонные строки — Пицца/Япония/Горячее; курьерская включает строку «Без зоны». Ошибок в консоли нет. (Можно через Playwright MCP: navigate на `http://localhost:5173/analytics`, snapshot.)
 Expected: блоки отрисованы, старые секции аналитики на месте ниже.
@@ -1031,7 +1031,7 @@ Expected: блоки отрисованы, старые секции анали�
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add frontend/src/screens/Analytics.jsx frontend/src/admin.css
 git commit -m "feat(frontend): блоки нагрузки по зонам кухни и районам в аналитике
 
@@ -1161,7 +1161,7 @@ export default function DeliveryZones() {
 
 - [ ] **Step 3: Сборка**
 
-Run: `cd /Users/kiluazoldik/Desktop/при/frontend && npx vite build`
+Run: `cd /path/to/workspace/при/frontend && npx vite build`
 Expected: без ошибок.
 
 - [ ] **Step 4: Manual verification**
@@ -1173,7 +1173,7 @@ Expected: рисование/сохранение/удаление работа�
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при
+cd /path/to/workspace/при
 git add frontend/src/screens/DeliveryZones.jsx frontend/src/App.jsx
 git commit -m "feat(frontend): редактор курьерских зон города на Leaflet+draw
 
