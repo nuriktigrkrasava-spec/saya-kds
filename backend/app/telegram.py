@@ -2,6 +2,7 @@ from __future__ import annotations
 import hmac
 import hashlib
 import json
+import time
 from urllib.parse import parse_qsl
 import httpx
 from app.config import settings
@@ -9,12 +10,18 @@ from app.config import settings
 
 def parse_and_validate(init_data: str) -> dict | None:
     """Validate Telegram WebApp initData. Returns parsed dict (incl. 'user' json) if valid, else None."""
+    if not settings.telegram_bot_token or len(init_data) > 16384:
+        return None
     try:
-        pairs = dict(parse_qsl(init_data, strict_parsing=False))
-    except Exception:
+        entries = parse_qsl(init_data, strict_parsing=True)
+        pairs = dict(entries)
+        if len(entries) != len(pairs): return None
+        age = time.time()-int(pairs.get("auth_date", "0"))
+        if age < -30 or age > 300: return None
+    except (ValueError, TypeError):
         return None
     received_hash = pairs.pop("hash", None)
-    if not received_hash:
+    if not received_hash or len(received_hash) != 64:
         return None
     data_check_string = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
     secret_key = hmac.new(b"WebAppData", settings.telegram_bot_token.encode(), hashlib.sha256).digest()

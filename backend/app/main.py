@@ -4,6 +4,8 @@ import logging
 # Делаем логи приложения (saya.*) видимыми в Render — по умолчанию uvicorn
 # настраивает только свои логгеры, и наши INFO/WARNING не выводятся.
 logging.basicConfig(level=logging.INFO)
+from app.log_safety import configure_safe_logging
+configure_safe_logging()
 import socketio
 from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -44,7 +46,7 @@ _ADDED_COLUMNS = [
 
 async def _migrate_columns(conn):
     """Добиваем новые колонки в существующих таблицах (идемпотентно, по одной
-    колонке, под try/except — чтобы старт не падал).
+    колонке. Неожиданная ошибка останавливает запуск).
 
     Диалект-зависимо: SQLite НЕ понимает `ADD COLUMN IF NOT EXISTS` (это
     синтаксическая ошибка), поэтому для него проверяем наличие колонки через
@@ -53,27 +55,27 @@ async def _migrate_columns(conn):
     IF NOT EXISTS — для него оставляем прежнюю форму."""
     is_sqlite = conn.dialect.name == "sqlite"
     for table, col, ddl in _ADDED_COLUMNS:
-        try:
-            if is_sqlite:
-                result = await conn.exec_driver_sql(f"PRAGMA table_info({table})")
-                rows = result.fetchall()
-                if not rows:
-                    # Таблицы нет — пропускаем (create_all создаст её отдельно).
-                    continue
-                existing = {r[1] for r in rows}  # r[1] — имя колонки
-                if col in existing:
-                    continue
-                await conn.exec_driver_sql(
-                    f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
-            else:
-                await conn.exec_driver_sql(
-                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}")
-        except Exception:  # noqa: BLE001 — колонка уже есть / старый диалект
-            pass
+        if is_sqlite:
+            result = await conn.exec_driver_sql(f"PRAGMA table_info({table})")
+            rows = result.fetchall()
+            if not rows:
+                # Таблицы нет — пропускаем (create_all создаст её отдельно).
+                continue
+            existing = {r[1] for r in rows}  # r[1] — имя колонки
+            if col in existing:
+                continue
+            await conn.exec_driver_sql(
+                f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+        else:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}")
+
 
 
 @fastapi_app.on_event("startup")
 async def _create_tables():
+    from app.config import validate_production_settings
+    validate_production_settings()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _migrate_columns(conn)

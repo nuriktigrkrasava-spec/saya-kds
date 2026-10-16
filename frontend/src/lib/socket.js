@@ -1,10 +1,11 @@
 import { io } from "socket.io-client";
 import { BASE } from "./api.js";
-import { getOrgId } from "./auth.js";
+import { getOrgId, getSession, isAuthed } from "./auth.js";
 
 // Singleton socket connected to the backend (default Socket.IO path).
 export const socket = io(BASE, {
-  autoConnect: true,
+  autoConnect: false,
+  auth: (callback) => callback({ token: getSession()?.token || "" }),
   transports: ["websocket", "polling"],
 });
 
@@ -23,6 +24,7 @@ export function joinZones(zones) {
     }
   };
 
+  if (isAuthed() && !socket.connected) socket.connect();
   if (socket.connected) doJoin();
   socket.on("connect", doJoin);
 
@@ -30,3 +32,8 @@ export function joinZones(zones) {
     socket.off("connect", doJoin);
   };
 }
+
+window.addEventListener("saya-session-changed", () => {
+  socket.disconnect();
+  if (isAuthed()) socket.connect();
+});

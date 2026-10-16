@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import { getOrgId } from "../lib/auth.js";
 import { socket } from "../lib/socket.js";
 
@@ -16,7 +16,7 @@ export default function StopListBanner() {
   useEffect(() => {
     let alive = true;
 
-    fetch(`${BASE}/stoplist?org_id=${encodeURIComponent(orgId)}`, {
+    authenticatedFetch(`${BASE}/stoplist?org_id=${encodeURIComponent(orgId)}`, {
       headers: { Accept: "application/json" },
     })
       .then((r) => (r.ok ? r.json() : []))

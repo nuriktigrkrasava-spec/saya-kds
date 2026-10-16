@@ -1,3 +1,5 @@
+from app.security import courier_ref
+from app.time_utils import utc_now
 import hashlib
 from datetime import datetime
 
@@ -69,7 +71,7 @@ async def test_couriers_active_flag_and_sort(client):
     # C1 прислал геопозицию сейчас (на смене); у C2 строки нет.
     async with maker() as s:
         s.add(CourierLocation(courier_code="C1", name="Даулет", branch_code="B1",
-                              lat=51.16, lon=71.47, updated_at=datetime.utcnow()))
+                              lat=51.16, lon=71.47, updated_at=utc_now()))
         await s.commit()
 
     r = await c.get("/branches/couriers", params={"branch_code": "B1"})
@@ -80,15 +82,15 @@ async def test_couriers_active_flag_and_sort(client):
     by_code = {d["code"]: d for d in data}
 
     # C1 на смене, ~0 минут назад.
-    assert by_code["C1"]["active"] is True
-    assert by_code["C1"]["minutes_ago"] == 0
+    assert by_code[courier_ref("C1")]["active"] is True
+    assert by_code[courier_ref("C1")]["minutes_ago"] == 0
 
     # C2 не на смене, нет геопозиции.
-    assert by_code["C2"]["active"] is False
-    assert by_code["C2"]["minutes_ago"] is None
+    assert by_code[courier_ref("C2")]["active"] is False
+    assert by_code[courier_ref("C2")]["minutes_ago"] is None
 
     # Активные сортируются первыми.
-    assert data[0]["code"] == "C1"
+    assert data[0]["code"] == courier_ref("C1")
 
 
 @respx.mock
@@ -113,9 +115,9 @@ async def test_courier_on_shift_active_without_geo(client, monkeypatch):
     by_code = {d["code"]: d for d in data}
 
     # C2: явка открыта -> активен, хотя геопозиции нет.
-    assert by_code["C2"]["active"] is True
-    assert by_code["C2"]["minutes_ago"] is None
+    assert by_code[courier_ref("C2")]["active"] is True
+    assert by_code[courier_ref("C2")]["minutes_ago"] is None
     # C1: ни явки, ни гео -> не на смене.
-    assert by_code["C1"]["active"] is False
+    assert by_code[courier_ref("C1")]["active"] is False
     # Смену спрашиваем у своего депо, а не у глобального BRANCH_CODE.
     assert asked == ["B1"]

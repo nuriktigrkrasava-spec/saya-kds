@@ -26,7 +26,7 @@ def _setup_rms():
     settings.rms_base = "https://rms.test/resto"
     settings.rms_login = "nignarok"
     settings.rms_password = "pw"
-    settings.jwt_secret = "test-secret"
+    settings.jwt_secret = "test-jwt-secret-that-is-at-least-32-characters"
     # Сбрасываем кэш, чтобы не было утечки между тестами.
     rms._EMP_CACHE = None
     rms._EMP_CACHE_TS = 0.0

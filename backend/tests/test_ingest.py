@@ -1,3 +1,4 @@
+from app.time_utils import utc_now
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, func
@@ -38,7 +39,7 @@ def test_is_held():
 async def test_ingest_sets_preorder_held(session):
     from app.ingest import ingest_order
     from app.schemas import NormalizedOrder
-    far = datetime.utcnow() + timedelta(hours=5)
+    far = utc_now() + timedelta(hours=5)
     order = await ingest_order(session, NormalizedOrder(
         iiko_order_id="pre1", org_id="org-1", number="9", complete_before=far))
     assert order.preorder_held is True and order.complete_before == far

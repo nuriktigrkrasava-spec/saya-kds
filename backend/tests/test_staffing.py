@@ -4,6 +4,7 @@
 один планшет). Смены берём из явок iiko, а не из входов на планшет: планшета
 всего два, а людей в зоне больше.
 """
+from app.time_utils import utc_now
 from app import staffing
 
 
@@ -221,7 +222,7 @@ class TestOpenShiftClock:
         from datetime import datetime, timedelta
         from app.config import settings
         off = settings.iiko_tz_offset_hours
-        local_now = datetime.utcnow() + timedelta(hours=off)
+        local_now = utc_now() + timedelta(hours=off)
         start = (local_now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
         return _att("суш1", f"{start}+{off:02d}:00")
 

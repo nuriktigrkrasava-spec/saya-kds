@@ -7,6 +7,7 @@
 Пицца и горячее — одна зона, потому что это один планшет и одна бригада.
 """
 from __future__ import annotations
+from app.time_utils import utc_now
 import math
 import statistics
 from datetime import datetime, timedelta
@@ -69,7 +70,7 @@ def people_by_hour(attendances: list[dict], role_by_employee: dict[str, str],
     # и отбрасывалась целиком: зона показывала ноль людей, а отчёт требовал
     # поставить ещё троих.
     now = (_parse_local(now_local) if now_local
-           else datetime.utcnow() + timedelta(hours=settings.iiko_tz_offset_hours))
+           else utc_now() + timedelta(hours=settings.iiko_tz_offset_hours))
     # Копим id сотрудников, а не счётчик: перерыв даёт две явки на одного
     # человека, и по записям он считался бы за двоих — нехватка рук пряталась.
     seen: dict[tuple[str, int, str], set[str]] = {}

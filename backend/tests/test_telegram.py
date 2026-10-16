@@ -1,3 +1,6 @@
+import pytest
+from app.security import courier_ref
+import time
 import hmac
 import hashlib
 import json
@@ -19,10 +22,10 @@ from app import telegram
 _IIKO = "https://api-ru.iiko.services"
 
 
-def _build_init_data(token: str, user: dict, auth_date: str = "1700000000") -> str:
+def _build_init_data(token: str, user: dict, auth_date: str | None = None) -> str:
     """Build a correctly signed Telegram WebApp initData query string."""
     fields = {
-        "auth_date": auth_date,
+        "auth_date": auth_date or str(int(time.time())),
         "query_id": "AAEtest",
         "user": json.dumps(user, separators=(",", ":")),
     }
@@ -104,7 +107,7 @@ async def test_assign_courier_then_my_orders(client):
         return_value=httpx.Response(200, json={}))
 
     r = await c.post(f"/orders/{order_id}/assign-courier",
-                     json={"courier_code": "C7", "courier_name": "Айдос",
+                     json={"courier_code": courier_ref("C7"), "courier_name": "Айдос",
                            "by": "Сборщик"})
     assert r.status_code == 200
     payload = r.json()
@@ -117,14 +120,14 @@ async def test_assign_courier_then_my_orders(client):
         assert o.assembled_at is not None
 
     # my-orders возвращает заказ для назначенного курьера.
-    r2 = await c.get("/tg/my-orders", params={"courier_code": "C7"})
+    r2 = await c.get("/tg/my-orders", params={"courier_code": courier_ref("C7")})
     assert r2.status_code == 200
     orders = r2.json()
     assert len(orders) == 1
     assert orders[0]["id"] == order_id
 
     # другой курьер — пусто.
-    r3 = await c.get("/tg/my-orders", params={"courier_code": "OTHER"})
+    r3 = await c.get("/tg/my-orders", params={"courier_code": courier_ref("OTHER")})
     assert r3.status_code == 200
     assert r3.json() == []
 
@@ -133,5 +136,18 @@ async def test_assign_courier_then_my_orders(client):
 async def test_assign_courier_404_for_missing_order(client):
     c, _ = client
     r = await c.post("/orders/999999/assign-courier",
-                     json={"courier_code": "C7", "courier_name": "X", "by": ""})
+                     json={"courier_code": courier_ref("C7"), "courier_name": "X", "by": ""})
     assert r.status_code == 404
+
+
+@pytest.fixture(autouse=True)
+def courier_directory(monkeypatch, request):
+    """Mock RMS identity verification; iiko write mocks remain in each behavior test."""
+    from app import rms, api
+    async def branches():
+        return [{"code": "AAA", "employees": [
+            {"code": "K1", "name": "Нет В Cloud" if "unmatched" in request.node.name else "Иван Курьер", "role": "КР"},
+            {"code": "C7", "name": "Айдос", "role": "КР"}]}]
+    async def branch_for_org(org_id): return "AAA" if org_id == "org-1" else "OTHER"
+    monkeypatch.setattr(rms, "branches_with_employees", branches)
+    monkeypatch.setattr(api, "_branch_code_for_org", branch_for_org)

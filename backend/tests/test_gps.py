@@ -1,3 +1,4 @@
+from app.security import courier_ref
 import hmac
 import hashlib
 import json
@@ -71,7 +72,7 @@ async def test_location_upsert_and_list(client):
     assert r3.status_code == 200
     data = r3.json()
     assert len(data) == 1
-    assert data[0]["courier_code"] == "C1"
+    assert data[0]["courier_code"] == courier_ref("C1")
     assert data[0]["lat"] == 51.20
 
 

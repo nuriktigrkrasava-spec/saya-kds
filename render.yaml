@@ -18,12 +18,16 @@ services:
     runtime: python
     plan: starter            # платный план: free-инстанс засыпает и теряет соединения
     branch: phase1-backend-ingest
+    autoDeployTrigger: checksPass
     healthCheckPath: /health
-    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && pip install -e .
+    numInstances: 1
+    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && pip install -r requirements.lock && pip install --no-deps -e .
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: NODE_VERSION
+        value: "24.10.0"
       - key: PYTHON_VERSION
-        value: "3.12.4"
+        value: "3.12.12"
       # --- Секреты: заполняются вручную в дашборде Render (sync: false) ---
       - key: CLOUD_API_LOGIN
         sync: false
@@ -35,6 +39,14 @@ services:
         sync: false
       - key: RMS_PASSWORD
         sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        value: ""
       - key: JWT_SECRET
         sync: false
       - key: TELEGRAM_BOT_TOKEN

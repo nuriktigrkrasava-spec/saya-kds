@@ -52,19 +52,21 @@ async def _count(maker, model):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_real_auth
 async def test_reset_requires_key(client, monkeypatch):
     c, maker = client
-    monkeypatch.setattr(settings, "webhook_secret", "s3cret")
+    monkeypatch.setattr(settings, "admin_api_key", "s3cret")
     r = await c.post("/admin/reset-analytics?key=nope")
     assert r.status_code == 403
     assert await _count(maker, Order) == 1, "чужой ключ ничего не удаляет"
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_real_auth
 async def test_reset_wipes_orders_events_items(client, monkeypatch):
     c, maker = client
-    monkeypatch.setattr(settings, "webhook_secret", "s3cret")
-    r = await c.post("/admin/reset-analytics?key=s3cret")
+    monkeypatch.setattr(settings, "admin_api_key", "s3cret")
+    r = await c.post("/admin/reset-analytics", headers={"X-Admin-Key":"s3cret"})
     assert r.status_code == 200
     assert r.json() == {"orders": 1, "items": 1, "events": 1}
     assert await _count(maker, Order) == 0

@@ -70,7 +70,7 @@ async def test_webhook_ingests_delivery_event(client):
 async def test_ingest_front_hall_order_by_category(client):
     """Заказ зала с терминала: ингестится и зона берётся по категории блюда."""
     c, maker = client
-    settings.webhook_secret = ""  # без проверки ключа
+    settings.webhook_secret = "test-ingest-secret"
     payload = {
         "id": "T1", "org_id": "org-1", "number": "55", "service_type": "DineIn",
         "customer": "Гость", "comment": "без имбиря",
@@ -79,7 +79,7 @@ async def test_ingest_front_hall_order_by_category(client):
             {"name": "Кола", "category": "Напитки", "amount": 2},
         ],
     }
-    r = await c.post("/ingest/front", json=payload)
+    r = await c.post("/ingest/front?key=test-ingest-secret", json=payload)
     assert r.status_code == 200
     body = r.json()
     assert body["number"] == "55"
@@ -219,7 +219,7 @@ async def test_bot_webhook_live_location_updates_courier(client):
     from app.models import TelegramLink, CourierLocation
     from sqlalchemy import select as _sel
     c, maker = client
-    settings.webhook_secret = ""  # без проверки секрета в тесте
+    settings.telegram_webhook_secret = "test-telegram-secret"
     async with maker() as s:
         s.add(TelegramLink(telegram_id="555", employee_code="CR1",
                            name="Курьер", branch_code="B1", org_id="org-1"))
@@ -227,7 +227,7 @@ async def test_bot_webhook_live_location_updates_courier(client):
 
     update = {"edited_message": {"from": {"id": 555},
                                  "location": {"latitude": 51.18, "longitude": 71.43}}}
-    r = await c.post("/tg/bot-webhook", json=update)
+    r = await c.post("/tg/bot-webhook", headers={"X-Telegram-Bot-Api-Secret-Token":"test-telegram-secret"}, json=update)
     assert r.status_code == 200
 
     async with maker() as s:

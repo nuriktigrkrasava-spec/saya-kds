@@ -6,6 +6,7 @@
 В сообщение идут только всплески: управляющему нужно действие, а не сетка.
 """
 from __future__ import annotations
+from app.time_utils import utc_now
 import logging
 import os
 from datetime import datetime, timedelta
@@ -110,7 +111,7 @@ async def run_once(org_id: str, now_local: str | None = None) -> dict:
     if evening is None and morning is None:
         return {"sent": 0, "reason": "выключено: часы не заданы"}
 
-    now = now_local or (datetime.utcnow()
+    now = now_local or (utc_now()
                         + timedelta(hours=settings.iiko_tz_offset_hours)).isoformat()
     kind = due_kind(now, evening, morning)
     if kind is None:

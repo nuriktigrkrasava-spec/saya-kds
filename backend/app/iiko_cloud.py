@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.time_utils import utc_now
 import httpx
 from datetime import datetime, timedelta
 from app.config import settings
@@ -86,7 +87,7 @@ async def fetch_deliveries_by_date(organization_id: str, days: int = 2) -> dict:
     оттуда же берём стартовый курсор (maxRevision).
     """
     token = await get_token()
-    local_now = datetime.utcnow() + timedelta(hours=settings.iiko_tz_offset_hours)
+    local_now = utc_now() + timedelta(hours=settings.iiko_tz_offset_hours)
     date_from = (local_now - timedelta(days=days)).strftime("%Y-%m-%d 00:00:00.000")
     async with httpx.AsyncClient(timeout=120) as c:
         r = await c.post(f"{BASE}/api/1/deliveries/by_delivery_date_and_status",

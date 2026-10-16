@@ -1,3 +1,4 @@
+import { saveSession, clearSession } from "../lib/auth.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { addressParts, hasAddressParts } from "../lib/address.js";
@@ -56,6 +57,7 @@ export default function TgCourier() {
   const [shiftErr, setShiftErr] = useState("");
   const [shiftBusy, setShiftBusy] = useState(false);
   const [claimBusyId, setClaimBusyId] = useState(null);
+  const [claimPin, setClaimPin] = useState("");
   const [confirmEmp, setConfirmEmp] = useState(null); // занято — подтверждение
 
   // orders state
@@ -141,6 +143,7 @@ export default function TgCourier() {
       .then((resp) => {
         if (cancelled) return;
         if (resp && resp.linked) {
+          saveSession(resp);
           setIdentity(resp);
           setPhase("orders");
           loadOrders(resp.courier_code);
@@ -220,7 +223,7 @@ export default function TgCourier() {
     setShiftBusy(true);
     setShiftErr("");
     try {
-      const list = await api.tgShiftEmployees();
+      const list = await api.tgShiftEmployees(initData);
       setShift(Array.isArray(list) ? list : []);
     } catch (e) {
       setShiftErr(String(e.message || e).includes("503")
@@ -248,7 +251,9 @@ export default function TgCourier() {
     setClaimBusyId(emp.employee_id);
     setShiftErr("");
     try {
-      const resp = await api.tgClaim(initData, emp.employee_id);
+      const resp = await api.tgClaim(initData, emp.employee_id, claimPin);
+      saveSession(resp);
+      setClaimPin("");
       setIdentity(resp);
       setPhase("orders");
       loadOrders(resp.courier_code);
@@ -371,7 +376,9 @@ export default function TgCourier() {
       <div className="tg">
         <div className="tg__center tg__center--top">
           <h1 className="tg__title">Кто ты?</h1>
-          <p className="tg__muted">Открытые сегодня явки · тапни своё имя</p>
+          <p className="tg__muted">Введи свой PIN и выбери своё имя</p>
+          <input type="password" inputMode="numeric" autoComplete="off" aria-label="PIN сотрудника"
+            value={claimPin} onChange={event => setClaimPin(event.target.value)} placeholder="PIN сотрудника" />
           <p className={`tg__err ${shiftErr ? "tg__err--show" : ""}`}>{shiftErr || " "}</p>
 
           {shiftBusy && shift.length === 0 ? (
@@ -395,7 +402,7 @@ export default function TgCourier() {
                       key={e.employee_id}
                       type="button"
                       className="tg__emp"
-                      disabled={claimBusyId !== null}
+                      disabled={claimBusyId !== null || !claimPin.trim()}
                       onClick={() => (e.busy ? setConfirmEmp(e) : claim(e))}
                     >
                       <span className="tg__emp-name">

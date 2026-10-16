@@ -1,3 +1,4 @@
+from app.time_utils import utc_now
 from datetime import datetime, timedelta
 
 import respx
@@ -16,7 +17,7 @@ async def client():
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with maker() as s:
-        now = datetime.utcnow()
+        now = utc_now()
 
         # Активный заказ: 2 позиции — одна готова сегодня (Алия, 120с), вторая нет.
         active = Order(iiko_order_id="a1", org_id="o1", number="201", status="New")

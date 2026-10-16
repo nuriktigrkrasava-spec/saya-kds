@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import timedelta
+import asyncio, time
 
 import socketio
 from app.config import settings
@@ -11,7 +12,7 @@ from app.models import Order
 # часа и ровное время (16:00). Запас в 15 минут разделяет эти две группы.
 _PREORDER_MARGIN = timedelta(minutes=15)
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[x.strip() for x in settings.cors_origins.split(",") if x.strip()] or None)
 
 ZONES = ("rolls", "pizza", "hot", "other")
 
@@ -59,7 +60,7 @@ def order_payload(order: Order) -> dict:
         "complete_before": _iso(order.complete_before),
         "assembled": order.assembled_at is not None,
         "assembled_at": _iso(order.assembled_at),
-        "assigned_courier_code": order.assigned_courier_code,
+        "assigned_courier_code": courier_ref(order.assigned_courier_code) if order.assigned_courier_code else None,
         "assigned_courier_name": order.assigned_courier_name,
         "on_way": order.on_way_at is not None,
         "delivered": order.delivered_at is not None,
@@ -102,11 +103,48 @@ async def broadcast_stoplist(org_id: str, items: list[dict]) -> None:
         await sio.emit("stoplist:update", payload, room=room(org_id, zone))
 
 
+from app.security import decode_token, allowed_zones, courier_ref
+from fastapi import HTTPException
+
+
+_expiry_tasks = {}
+
+
+@sio.event
+async def connect(sid, environ, auth):
+    try:
+        actor = decode_token((auth or {}).get("token", ""))
+    except HTTPException:
+        return False
+    await sio.save_session(sid, actor)
+    async def expire():
+        await asyncio.sleep(max(0, actor["exp"]-time.time()))
+        await sio.disconnect(sid)
+    task = asyncio.create_task(expire())
+    _expiry_tasks[sid] = task
+    task.add_done_callback(lambda _: _expiry_tasks.pop(sid, None))
+
+
 @sio.event
 async def join(sid, data):
     """Клиент просит вступить в комнату своего филиала+зоны. data={org_id, zone}."""
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "bad room"}
     org_id, zone = data.get("org_id"), data.get("zone")
     if not org_id or zone not in (*ZONES, "assembler", "courier"):
         return {"ok": False, "error": "bad room"}
+    try:
+        actor = await sio.get_session(sid)
+    except KeyError:
+        return {"ok": False, "error": "not authenticated"}
+    import time
+    if actor.get("exp", 0) <= time.time() or org_id not in actor.get("orgs", []) or zone not in allowed_zones(actor):
+        return {"ok": False, "error": "access denied"}
     await sio.enter_room(sid, room(org_id, zone))
     return {"ok": True}
+
+
+@sio.event
+async def disconnect(sid, reason=None):
+    task = _expiry_tasks.pop(sid, None)
+    if task and task is not asyncio.current_task(): task.cancel()

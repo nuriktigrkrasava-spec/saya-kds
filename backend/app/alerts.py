@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.time_utils import utc_now
 import os
 import asyncio
 import logging
@@ -64,7 +65,7 @@ async def _notify(session, order: Order, kind: str, text: str) -> None:
 
 async def check_once() -> None:
     """Один проход: ищем просроченные заказы и аномалии, шлём алерты менеджерам."""
-    now = datetime.utcnow()
+    now = utc_now()
     async with SessionLocal() as session:
         orders = (await session.execute(
             select(Order).where(

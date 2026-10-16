@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import { getOrgId } from "../lib/auth.js";
 import { ZONE_COLORS, ZONE_LABELS, ZONE_ICONS } from "../lib/zones.js";
 import "../dashboard.css";
@@ -17,7 +17,7 @@ function fmtSeconds(seconds) {
 }
 
 async function getJSON(path) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     headers: { Accept: "application/json" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`.trim());

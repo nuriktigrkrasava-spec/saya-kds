@@ -221,6 +221,7 @@ async def find_employee_by_pin(pin: str) -> dict | None:
             # если нет совпадения — откатываемся на код филиала.
             org_id = org_map.get(branch_code, branch_code)
             return {
+                "employee_id": emp["id"],
                 "name": emp["name"],
                 "role": emp["role"],
                 "branch_code": branch_code,

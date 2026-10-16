@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import { getOrgId } from "../lib/auth.js";
 import "../stationmap.css";
 
@@ -32,7 +32,7 @@ export default function StationMap() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${BASE}/admin/stations?org_id=${getOrgId()}`, {
+      const res = await authenticatedFetch(`${BASE}/admin/stations?org_id=${getOrgId()}`, {
         headers: { Accept: "application/json" },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`.trim());
@@ -63,7 +63,7 @@ export default function StationMap() {
     setBusy(true);
     setToast(null);
     try {
-      const res = await fetch(`${BASE}/admin/stations/auto?org_id=${getOrgId()}`, {
+      const res = await authenticatedFetch(`${BASE}/admin/stations/auto?org_id=${getOrgId()}`, {
         method: "POST",
         headers: { Accept: "application/json" },
       });
@@ -100,7 +100,7 @@ export default function StationMap() {
     setBusy(true);
     setToast(null);
     try {
-      const res = await fetch(`${BASE}/admin/stations?org_id=${getOrgId()}`, {
+      const res = await authenticatedFetch(`${BASE}/admin/stations?org_id=${getOrgId()}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ items }),

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.time_utils import utc_now
 from datetime import datetime
 from sqlalchemy import String, Float, Integer, Boolean, DateTime, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -39,7 +40,7 @@ class Order(Base):
     total: Mapped[float | None] = mapped_column(Float, nullable=True)
     service_type: Mapped[str | None] = mapped_column(String, nullable=True)
     comment: Mapped[str] = mapped_column(String, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     assembled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     on_way_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -92,7 +93,7 @@ class OrderEvent(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
     type: Mapped[str] = mapped_column(String)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
-    at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     org_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     actor_code: Mapped[str | None] = mapped_column(String, nullable=True)
     actor_name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -122,7 +123,7 @@ class CourierLocation(Base):
     branch_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class StopListItem(Base):
@@ -134,7 +135,7 @@ class StopListItem(Base):
     product_id: Mapped[str | None] = mapped_column(String, nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     balance: Mapped[float | None] = mapped_column(Float, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class DeliveryZone(Base):
@@ -146,5 +147,5 @@ class DeliveryZone(Base):
     color: Mapped[str] = mapped_column(String, default="#2563eb")
     # Сгенерирована авто-сеткой (можно пересоздать), либо нарисована вручную.
     auto_generated: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

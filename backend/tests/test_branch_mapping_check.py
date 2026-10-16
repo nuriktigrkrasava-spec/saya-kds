@@ -109,16 +109,17 @@ async def test_startup_check_survives_rms_outage(caplog):
 
 @respx.mock
 @pytest.mark.asyncio
+@pytest.mark.requires_real_auth
 async def test_branch_mapping_endpoint_reports_and_guards_key(monkeypatch):
     """Ручка для подключения филиала: показывает, кто не сматчился. Под ключом."""
     from httpx import ASGITransport, AsyncClient
     from app import api
-    monkeypatch.setattr(settings, "webhook_secret", "s3cret")
+    monkeypatch.setattr(settings, "admin_api_key", "s3cret")
     _mock_all()
     async with AsyncClient(transport=ASGITransport(app=api.app),
                            base_url="http://test") as c:
         assert (await c.get("/admin/branch-mapping")).status_code == 403
-        r = await c.get("/admin/branch-mapping", params={"key": "s3cret"})
+        r = await c.get("/admin/branch-mapping", headers={"X-Admin-Key":"s3cret"})
     assert r.status_code == 200
     by_code = {x["branch_code"]: x for x in r.json()}
     assert by_code["KAZH"]["matched"] is False

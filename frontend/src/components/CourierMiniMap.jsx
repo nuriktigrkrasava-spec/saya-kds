@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { BASE } from "../lib/api.js";
+import { BASE, authenticatedFetch } from "../lib/api.js";
 import { getSession } from "../lib/auth.js";
 
 const POLL_MS = 15000;
@@ -40,7 +40,7 @@ export default function CourierMiniMap() {
     let alive = true;
     async function load() {
       try {
-        const res = await fetch(
+        const res = await authenticatedFetch(
           `${BASE}/admin/couriers-locations?branch_code=${encodeURIComponent(branchCode)}`,
           { headers: { Accept: "application/json" } }
         );
