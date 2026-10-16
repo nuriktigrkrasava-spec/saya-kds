@@ -25,3 +25,40 @@ dist/
 .idea/
 .claude/
 .playwright-mcp/
+
+# Local secrets, data and delivery packages
+!.env.local.example
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+**/key.properties
+**/local.properties
+**/*service-account*.json
+**/*service_account*.json
+*.db-*
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.sql.gz
+*.dump
+*.backup
+*.bak
+*.log
+*.apk
+*.aab
+*.ipa
+*.xcarchive/
+/backups/
+/artifacts/
+
+# Local automation state
+.claude-flow/
+.codex/
+
+# Python package build output
+/backend/build/

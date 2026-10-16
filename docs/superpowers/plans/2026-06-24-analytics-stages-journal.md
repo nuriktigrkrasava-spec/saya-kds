@@ -1245,7 +1245,7 @@ Expected: успешная сборка, 0 ошибок, Recharts в бандл�
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при && git add frontend/package.json frontend/package-lock.json frontend/src
+cd /path/to/workspace/при && git add frontend/package.json frontend/package-lock.json frontend/src
 git commit -m "feat(front): экран /analytics на Recharts — период, этапы, SLA"
 ```
 
@@ -1297,7 +1297,7 @@ Expected: 0 ошибок.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/kiluazoldik/Desktop/при && git add frontend/src
+cd /path/to/workspace/при && git add frontend/src
 git commit -m "feat(front): аналитика — лаг, кухня-зоны, аномалии, журнал + тайм-лайн заказа"
 ```
 
